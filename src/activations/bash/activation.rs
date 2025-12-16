@@ -2,7 +2,7 @@ use super::executor::BashExecutor;
 use super::methods::BashMethod;
 use super::types::BashOutput;
 use crate::{
-    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation},
+    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation, GuidanceSuggestion},
     plugin_system::conversion::{IntoSubscription, SubscriptionResult},
 };
 use async_trait::async_trait;
@@ -96,6 +96,19 @@ impl Activation for Bash {
         BashMethod::description(method).map(|s| s.to_string())
     }
 
+    fn custom_guidance(&self, method: &str, error: &PlexusError) -> Option<GuidanceSuggestion> {
+        match (method, error) {
+            ("execute", PlexusError::InvalidParams(_)) => {
+                // Provide helpful example for invalid params
+                Some(GuidanceSuggestion::TryMethod {
+                    method: "bash_execute".to_string(),
+                    example_params: Some(serde_json::json!("echo 'Hello, World!'")),
+                })
+            }
+            _ => None, // Use default guidance for other cases
+        }
+    }
+
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {
         match method {
             "execute" => {
@@ -128,5 +141,52 @@ impl Activation for Bash {
 
     fn into_rpc_methods(self) -> Methods {
         self.into_rpc().into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bash_custom_guidance() {
+        let bash = Bash::new();
+        let error = PlexusError::InvalidParams("missing command".to_string());
+
+        // Contract: Should provide custom guidance for execute method
+        let guidance = bash.custom_guidance("execute", &error);
+        assert!(guidance.is_some(), "Should provide custom guidance for execute");
+
+        match guidance.unwrap() {
+            GuidanceSuggestion::TryMethod { method, example_params } => {
+                assert_eq!(method, "bash_execute");
+                assert!(example_params.is_some(), "Should include example params");
+                assert_eq!(
+                    example_params.unwrap(),
+                    serde_json::json!("echo 'Hello, World!'")
+                );
+            }
+            _ => panic!("Expected TryMethod suggestion"),
+        }
+    }
+
+    #[test]
+    fn test_bash_no_guidance_for_other_errors() {
+        let bash = Bash::new();
+        let error = PlexusError::ExecutionError("runtime error".to_string());
+
+        // Should return None for errors other than InvalidParams
+        let guidance = bash.custom_guidance("execute", &error);
+        assert!(guidance.is_none(), "Should not provide guidance for ExecutionError");
+    }
+
+    #[test]
+    fn test_bash_no_guidance_for_other_methods() {
+        let bash = Bash::new();
+        let error = PlexusError::InvalidParams("test".to_string());
+
+        // Should return None for methods other than execute
+        let guidance = bash.custom_guidance("other", &error);
+        assert!(guidance.is_none(), "Should not provide guidance for unknown methods");
     }
 }
