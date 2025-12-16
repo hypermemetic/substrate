@@ -309,6 +309,7 @@ Migration: Deploy substrate → Update clients to handle Guidance (optional) →
 ## Related Documentation
 
 - **[Frontend Migration Guide](./16680880693241553663_frontend-guidance-migration.md)** - How frontends (Symbols) should handle guidance events
+- **[Middleware Deprecation Plan](./16680878804024120575_guided-error-middleware-deprecation.md)** - Current middleware behavior and removal plan (Phase 6)
 - [Guided Errors (legacy)](./16680966217191669503_guided-errors.md) - Previous middleware-based approach
 - [Dynamic CLI Type-Driven Schemas](./16680891033387373567_dynamic-cli-type-driven-schemas.md) - How clients use schemas
 - [Testing Strategy](./16680885909985432575_testing-strategy.md) - How guidance is tested
