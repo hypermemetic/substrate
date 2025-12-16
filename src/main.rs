@@ -79,6 +79,7 @@ async fn main() -> anyhow::Result<()> {
     let activations = plexus.list_activations();
     let methods = plexus.list_methods();
     let plexus_methods = plexus.list_plexus_methods();
+    let plexus_hash = plexus.compute_hash();
 
     // Convert plexus to RPC module for JSON-RPC server (consumes plexus)
     let module = plexus.into_rpc_module()?;
@@ -93,6 +94,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Substrate plexus started at ws://{}", addr);
     tracing::info!("Data directory: {}", substrate_data_dir().display());
+    tracing::info!("Plexus hash: {}", plexus_hash);
     tracing::info!("");
     tracing::info!("Plexus methods ({}):", plexus_methods.len());
     for method in &plexus_methods {
