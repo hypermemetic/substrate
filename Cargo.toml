@@ -45,6 +45,7 @@ jsonrpsee = { version = "0.21", features = ["server", "macros"] }
 clap = { version = "4.0", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+dotenvy = "0.15"
 tower-http = { version = "0.5", features = ["trace", "util", "cors"] }
 http = "1.0"
 http-body-util = "0.1"

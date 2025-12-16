@@ -60,6 +60,9 @@ async fn build_plexus() -> Plexus {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load .env file if present (silently ignore if not found)
+    dotenvy::dotenv().ok();
+
     // Initialize tracing with filtering
     // Show substrate and jsonrpsee, hide noisy lower-level crates entirely
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
