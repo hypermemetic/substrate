@@ -8,6 +8,16 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Identifier for a cone - either by name or UUID
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", untagged)]
+pub enum ConeIdentifier {
+    /// Lookup cone by its human-readable name
+    ByName { name: String },
+    /// Lookup cone by its UUID
+    ById { id: Uuid },
+}
+
 /// All available methods in the Cone plugin
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "method", content = "params", rename_all = "snake_case")]
@@ -29,10 +39,11 @@ pub enum ConeMethod {
         metadata: Option<serde_json::Value>,
     },
 
-    /// Get cone configuration by ID
+    /// Get cone configuration by name or ID
     Get {
-        /// UUID of the cone to retrieve
-        cone_id: Uuid,
+        /// Cone identifier (by name or UUID)
+        #[serde(flatten)]
+        identifier: ConeIdentifier,
     },
 
     /// List all cones
@@ -40,14 +51,16 @@ pub enum ConeMethod {
 
     /// Delete a cone (associated tree is preserved)
     Delete {
-        /// UUID of the cone to delete
-        cone_id: Uuid,
+        /// Cone identifier (by name or UUID)
+        #[serde(flatten)]
+        identifier: ConeIdentifier,
     },
 
     /// Chat with a cone - appends prompt to context, calls LLM, advances head
     Chat {
-        /// UUID of the cone to chat with
-        cone_id: Uuid,
+        /// Cone identifier (by name or UUID)
+        #[serde(flatten)]
+        identifier: ConeIdentifier,
 
         /// User message / prompt
         prompt: String,
@@ -55,8 +68,9 @@ pub enum ConeMethod {
 
     /// Move cone's canonical head to a different node in the tree
     SetHead {
-        /// UUID of the cone
-        cone_id: Uuid,
+        /// Cone identifier (by name or UUID)
+        #[serde(flatten)]
+        identifier: ConeIdentifier,
 
         /// UUID of the target node
         node_id: Uuid,

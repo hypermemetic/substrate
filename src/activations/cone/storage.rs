@@ -1,3 +1,4 @@
+use super::methods::ConeIdentifier;
 use super::types::{ConeConfig, ConeError, ConeId, ConeInfo, Message, MessageId, MessageRole, Position};
 use crate::activations::arbor::{Handle, ArborStorage, NodeId, TreeId};
 use serde_json::Value;
@@ -143,7 +144,25 @@ impl ConeStorage {
         })
     }
 
-    /// Get an cone by ID
+    /// Resolve a cone identifier to a ConeId
+    pub async fn resolve_cone_identifier(&self, identifier: &ConeIdentifier) -> Result<ConeId, ConeError> {
+        match identifier {
+            ConeIdentifier::ById { id } => Ok(*id),
+            ConeIdentifier::ByName { name } => {
+                let row = sqlx::query("SELECT id FROM cones WHERE name = ?")
+                    .bind(name)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|e| ConeError::from(format!("Failed to resolve cone by name: {}", e)))?
+                    .ok_or_else(|| ConeError::from(format!("Cone not found with name: {}", name)))?;
+
+                let id_str: String = row.get("id");
+                Uuid::parse_str(&id_str).map_err(|e| ConeError::from(format!("Invalid cone ID in database: {}", e)))
+            }
+        }
+    }
+
+    /// Get a cone by ID
     pub async fn cone_get(&self, cone_id: &ConeId) -> Result<ConeConfig, ConeError> {
         let row = sqlx::query(
             "SELECT id, name, model_id, system_prompt, tree_id, canonical_head, metadata, created_at, updated_at
@@ -156,6 +175,12 @@ impl ConeStorage {
         .ok_or_else(|| format!("Cone not found: {}", cone_id))?;
 
         self.row_to_cone_config(row)
+    }
+
+    /// Get a cone by identifier (name or UUID)
+    pub async fn cone_get_by_identifier(&self, identifier: &ConeIdentifier) -> Result<ConeConfig, ConeError> {
+        let cone_id = self.resolve_cone_identifier(identifier).await?;
+        self.cone_get(&cone_id).await
     }
 
     /// List all cones

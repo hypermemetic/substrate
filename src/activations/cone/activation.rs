@@ -1,4 +1,4 @@
-use super::methods::ConeMethod;
+use super::methods::{ConeMethod, ConeIdentifier};
 use super::storage::{ConeStorage, ConeStorageConfig};
 use super::types::{ConeEvent, ConeId, ChatUsage, MessageRole};
 use crate::{
@@ -654,12 +654,12 @@ impl Activation for Cone {
                 Ok(into_plexus_stream(stream, path))
             }
             "get" => {
-                let cone_id_str = params
-                    .get("cone_id")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| PlexusError::InvalidParams("missing 'cone_id'".into()))?;
-                let cone_id = uuid::Uuid::parse_str(cone_id_str)
-                    .map_err(|e| PlexusError::InvalidParams(format!("invalid cone_id: {}", e)))?;
+                // Parse ConeIdentifier (either {name: "..."} or {id: "..."})
+                let identifier: ConeIdentifier = serde_json::from_value(params.clone())
+                    .map_err(|e| PlexusError::InvalidParams(format!("invalid identifier: {}", e)))?;
+
+                let cone_id = self.storage.resolve_cone_identifier(&identifier).await
+                    .map_err(|e| PlexusError::ExecutionError(e.message))?;
 
                 let stream = self.get_stream(cone_id).await;
                 Ok(into_plexus_stream(stream, path))
@@ -669,23 +669,39 @@ impl Activation for Cone {
                 Ok(into_plexus_stream(stream, path))
             }
             "delete" => {
-                let cone_id_str = params
-                    .get("cone_id")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| PlexusError::InvalidParams("missing 'cone_id'".into()))?;
-                let cone_id = uuid::Uuid::parse_str(cone_id_str)
-                    .map_err(|e| PlexusError::InvalidParams(format!("invalid cone_id: {}", e)))?;
+                let identifier: ConeIdentifier = serde_json::from_value(params.clone())
+                    .map_err(|e| PlexusError::InvalidParams(format!("invalid identifier: {}", e)))?;
+
+                let cone_id = self.storage.resolve_cone_identifier(&identifier).await
+                    .map_err(|e| PlexusError::ExecutionError(e.message))?;
 
                 let stream = self.delete_stream(cone_id).await;
                 Ok(into_plexus_stream(stream, path))
             }
             "chat" => {
-                let cone_id_str = params
-                    .get("cone_id")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| PlexusError::InvalidParams("missing 'cone_id'".into()))?;
-                let cone_id = uuid::Uuid::parse_str(cone_id_str)
-                    .map_err(|e| PlexusError::InvalidParams(format!("invalid cone_id: {}", e)))?;
+                // Extract identifier and prompt separately
+                let identifier: ConeIdentifier = if params.get("name").is_some() {
+                    ConeIdentifier::ByName {
+                        name: params.get("name")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| PlexusError::InvalidParams("invalid 'name'".into()))?
+                            .to_string()
+                    }
+                } else if params.get("id").is_some() {
+                    let id_str = params.get("id")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| PlexusError::InvalidParams("invalid 'id'".into()))?;
+                    ConeIdentifier::ById {
+                        id: uuid::Uuid::parse_str(id_str)
+                            .map_err(|e| PlexusError::InvalidParams(format!("invalid UUID: {}", e)))?
+                    }
+                } else {
+                    return Err(PlexusError::InvalidParams("missing 'name' or 'id'".into()));
+                };
+
+                let cone_id = self.storage.resolve_cone_identifier(&identifier).await
+                    .map_err(|e| PlexusError::ExecutionError(e.message))?;
+
                 let prompt = params
                     .get("prompt")
                     .and_then(|v| v.as_str())
@@ -696,12 +712,29 @@ impl Activation for Cone {
                 Ok(into_plexus_stream(stream, path))
             }
             "set_head" => {
-                let cone_id_str = params
-                    .get("cone_id")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| PlexusError::InvalidParams("missing 'cone_id'".into()))?;
-                let cone_id = uuid::Uuid::parse_str(cone_id_str)
-                    .map_err(|e| PlexusError::InvalidParams(format!("invalid cone_id: {}", e)))?;
+                // Extract identifier and node_id separately
+                let identifier: ConeIdentifier = if params.get("name").is_some() {
+                    ConeIdentifier::ByName {
+                        name: params.get("name")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| PlexusError::InvalidParams("invalid 'name'".into()))?
+                            .to_string()
+                    }
+                } else if params.get("id").is_some() {
+                    let id_str = params.get("id")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| PlexusError::InvalidParams("invalid 'id'".into()))?;
+                    ConeIdentifier::ById {
+                        id: uuid::Uuid::parse_str(id_str)
+                            .map_err(|e| PlexusError::InvalidParams(format!("invalid UUID: {}", e)))?
+                    }
+                } else {
+                    return Err(PlexusError::InvalidParams("missing 'name' or 'id'".into()));
+                };
+
+                let cone_id = self.storage.resolve_cone_identifier(&identifier).await
+                    .map_err(|e| PlexusError::ExecutionError(e.message))?;
+
                 let node_id_str = params
                     .get("node_id")
                     .and_then(|v| v.as_str())
