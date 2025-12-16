@@ -482,273 +482,149 @@ impl Activation for Bash {
 }
 ```
 
-## Feature Parity Requirements
+## Information Parity Verification
 
-Before removing middleware, the stream-based guidance MUST provide equivalent functionality:
+The stream-based guidance provides **all necessary information** for frontends to implement equivalent functionality:
 
-### Current Middleware Provides
+### What Middleware Provided
 
-1. **Exact JSON-RPC request structure**
+1. **Which method to call next**
    ```json
    "try": {
-     "jsonrpc": "2.0",
-     "id": 1,
      "method": "plexus_schema",
      "params": []
    }
    ```
 
-2. **Available activations list**
+2. **Context about the error**
    ```json
+   "activation": "foo",
    "available_activations": ["arbor", "bash", "cone", "health"]
    ```
 
-3. **Activation-specific context**
+### What Stream Guidance Provides
+
+1. **Which method to call next**
    ```json
-   "activation": "foo",
-   "method": "bar"
+   "action": "call_plexus_schema"
    ```
 
-### Stream-Based Guidance Must Provide
+2. **Context about the error**
+   ```json
+   "error_kind": "activation_not_found",
+   "activation": "foo"
+   ```
 
-**REQUIRED ADDITIONS to GuidanceSuggestion:**
+3. **Additional context not in middleware**
+   ```json
+   "available_methods": ["execute"],
+   "method_schema": { ... },
+   "example_params": "echo hello"
+   ```
 
-Add fields to match TryRequest structure for backward compatibility:
+### Frontend Adaptation
 
-```rust
-pub enum GuidanceSuggestion {
-    CallPlexusSchema,
-    CallActivationSchema {
-        namespace: String,
-    },
-    TryMethod {
-        method: String,
-        example_params: Option<Value>,
-    },
-    Custom {
-        message: String,
-    },
-}
-```
+Frontends need to map guidance actions to RPC calls:
 
-**Current implementation is sufficient** - it provides:
-- Method name to call (implicit JSON-RPC method)
-- Parameters (optional)
-- Action type (maps to TryRequest)
-
-**Frontend can reconstruct TryRequest:**
 ```typescript
-function guidanceToTryRequest(guidance: GuidanceEvent): TryRequest {
+// Old: Read from error.data.try
+const nextMethod = error.data.try.method;
+const nextParams = error.data.try.params;
+
+// New: Map guidance.action to method call
+function getNextCall(guidance: GuidanceEvent) {
   switch (guidance.action) {
     case "call_plexus_schema":
-      return { jsonrpc: "2.0", id: 1, method: "plexus_schema", params: [] };
+      return { method: "plexus_schema", params: [] };
     case "call_activation_schema":
-      return { jsonrpc: "2.0", id: 1, method: "plexus_activation_schema", params: [guidance.namespace] };
+      return { method: "plexus_activation_schema", params: [guidance.namespace] };
     case "try_method":
-      return { jsonrpc: "2.0", id: 1, method: guidance.method, params: guidance.example_params || [] };
-    case "custom":
-      // No specific request, just show message
-      return null;
+      return { method: guidance.method, params: [guidance.example_params] };
   }
 }
 ```
 
-**Verdict:** Feature parity achieved ✅
+**Information parity:** ✅ All information available (and more)
 
-## Transition Strategy (Minimal Impact)
+## Migration Approach (Direct Removal)
 
-### Phase 6A: Enable Both Systems (Coexistence)
+### Phase 6: Remove Middleware
 
-**Goal:** Run middleware AND stream guidance simultaneously, let clients choose.
+**Goal:** Clean removal since frontends will adapt to new system.
 
-**Changes to main.rs:**
+**Changes:**
 
-```rust
-// Keep middleware enabled by default, make opt-out via env var
-let disable_middleware = std::env::var("SUBSTRATE_DISABLE_MIDDLEWARE")
-    .map(|v| v == "true" || v == "1")
-    .unwrap_or(false);
+1. **src/main.rs** (lines 84-97)
+   - Remove ActivationRegistry creation
+   - Remove middleware setup
+   - Remove `.set_rpc_middleware()` call
 
-let rpc_middleware = if disable_middleware {
-    tracing::info!("GuidedErrorMiddleware disabled via SUBSTRATE_DISABLE_MIDDLEWARE");
-    RpcServiceBuilder::new()  // No middleware
-} else {
-    tracing::info!("GuidedErrorMiddleware enabled (legacy mode)");
-    let activation_namespaces: Vec<String> = activations.iter()
-        .map(|a| a.namespace.clone())
-        .collect();
-    let registry = Arc::new(ActivationRegistry::new(activation_namespaces));
+2. **src/plexus/middleware.rs**
+   - Add deprecation notice at top
+   - Mark entire file `#![allow(dead_code)]`
 
-    RpcServiceBuilder::new()
-        .layer_fn(move |service| {
-            GuidedErrorMiddleware::new(service, registry.clone())
-        })
-};
-```
+3. **src/plexus/errors.rs**
+   - Add deprecation notice
+   - Mark `#[allow(dead_code)]`
 
-**Behavior:**
-- Default: Middleware ENABLED (backward compatible)
-- Opt-out: `SUBSTRATE_DISABLE_MIDDLEWARE=true cargo run`
-- Clients can test both approaches
+4. **src/plexus/mod.rs**
+   - Mark exports as deprecated
 
-**Testing:**
-```bash
-# Test with middleware (current behavior)
-cargo run
-# → Returns JSON-RPC errors with data.try field
-
-# Test without middleware (new behavior)
-SUBSTRATE_DISABLE_MIDDLEWARE=true cargo run
-# → Returns guidance streams
-```
-
-### Phase 6B: Deprecation Notices (Documentation Only)
-
-**No code removal yet** - just mark as deprecated:
-
-- [ ] **src/plexus/middleware.rs**
-  - [ ] Add deprecation comment at top:
-    ```rust
-    //! DEPRECATION NOTICE
-    //!
-    //! This middleware is deprecated in favor of stream-based guidance.
-    //! It remains enabled by default for backward compatibility.
-    //!
-    //! To disable: Set SUBSTRATE_DISABLE_MIDDLEWARE=true
-    //! Migration guide: docs/architecture/16680880693241553663_frontend-guidance-migration.md
-    //!
-    //! This module will be removed in a future release after frontend migration.
-    ```
-
-- [ ] **src/plexus/mod.rs**
-  - [ ] Mark exports with soft deprecation (warning only):
-    ```rust
-    #[deprecated(
-        since = "0.2.0",
-        note = "Use stream-based guidance (PlexusStreamEvent::Guidance). \
-                Middleware still enabled by default. Set SUBSTRATE_DISABLE_MIDDLEWARE=true to test new system."
-    )]
-    pub use middleware::{ActivationRegistry, GuidedErrorMiddleware};
-    ```
-
-### Phase 6C: Client Migration Period
-
-**Timeline:** Give frontends time to migrate (2-4 weeks recommended)
-
-**Support both modes:**
-1. Frontends test with `SUBSTRATE_DISABLE_MIDDLEWARE=true`
-2. Verify guidance streams work for their use case
-3. Update code to handle stream events
-4. Confirm all features work
-
-**Metrics to track:**
-- Are frontends using middleware? (check logs)
-- Are frontends handling guidance streams? (integration tests)
-- Any blockers preventing migration?
-
-### Phase 6D: Flip Default (Optional)
-
-**After frontend migration complete:**
-
-Change default to disabled:
-
-```rust
-let enable_middleware = std::env::var("SUBSTRATE_ENABLE_MIDDLEWARE")
-    .map(|v| v == "true" || v == "1")
-    .unwrap_or(false);  // Default: disabled
-
-if enable_middleware {
-    tracing::warn!("GuidedErrorMiddleware enabled via SUBSTRATE_ENABLE_MIDDLEWARE (deprecated)");
-    // ... middleware setup
-}
-```
-
-**Opt-in instead of opt-out**
-
-### Phase 6E: Final Removal (After Confirmation)
-
-**Only after:**
-- ✅ All frontends confirm migration complete
-- ✅ No production systems using middleware
-- ✅ Integration tests pass without middleware
-
-**Then remove:**
-- Middleware setup from main.rs
-- Mark entire middleware.rs and errors.rs as deprecated but keep for reference
-- Update docs to reflect removal
-
-## Revised Migration Checklist
-
-### Immediate (Phase 6A)
+### Migration Checklist
 
 - [ ] **src/main.rs**
-  - [ ] Add `SUBSTRATE_DISABLE_MIDDLEWARE` environment variable check
-  - [ ] Keep middleware enabled by default
-  - [ ] Add logging for which mode is active
-  - [ ] Test both modes work
-
-### Documentation (Phase 6B)
+  - [ ] Remove lines 84-88 (ActivationRegistry creation)
+  - [ ] Remove lines 94-97 (middleware setup)
+  - [ ] Remove `.set_rpc_middleware(rpc_middleware)` from Server builder
+  - [ ] Remove imports: `ActivationRegistry, GuidedErrorMiddleware`
 
 - [ ] **src/plexus/middleware.rs**
-  - [ ] Add deprecation notice header
-  - [ ] Document SUBSTRATE_DISABLE_MIDDLEWARE flag
-  - [ ] Link to migration guide
+  - [ ] Add header comment:
+    ```rust
+    //! DEPRECATED: Stream-based guidance replaces middleware
+    //!
+    //! This module is kept for historical reference.
+    //! See: docs/architecture/16680881573410764543_guidance-stream-based-errors.md
+    //!
+    //! Frontends should handle PlexusStreamEvent::Guidance events instead.
+
+    #![allow(dead_code)]
+    ```
+
+- [ ] **src/plexus/errors.rs**
+  - [ ] Add similar deprecation notice
 
 - [ ] **src/plexus/mod.rs**
-  - [ ] Add soft deprecation warnings to exports
-  - [ ] Document migration timeline
-
-- [ ] **Frontend migration guide**
-  - [ ] Add section on testing with SUBSTRATE_DISABLE_MIDDLEWARE
-  - [ ] Show how to reconstruct TryRequest from guidance events
-  - [ ] Provide feature parity checklist
+  - [ ] Mark exports:
+    ```rust
+    #[deprecated(note = "Use PlexusStreamEvent::Guidance instead")]
+    pub use middleware::{ActivationRegistry, GuidedErrorMiddleware};
+    #[deprecated(note = "Use GuidanceErrorType and GuidanceSuggestion instead")]
+    pub use errors::{GuidedError, GuidedErrorData, TryRequest};
+    ```
 
 ### Testing
 
-- [ ] Test with middleware enabled (default)
-  ```bash
-  cargo run
-  # → Old behavior, JSON-RPC errors
-  ```
-
-- [ ] Test with middleware disabled
-  ```bash
-  SUBSTRATE_DISABLE_MIDDLEWARE=true cargo run
-  # → New behavior, guidance streams
-  ```
-
-- [ ] Run integration tests in both modes
-  ```bash
-  cargo test --test rpc_integration
-  SUBSTRATE_DISABLE_MIDDLEWARE=true cargo test --test rpc_integration
-  ```
-
-- [ ] Verify feature parity:
-  - [ ] Activation not found provides same info in both modes
-  - [ ] Available activations list present
-  - [ ] Try suggestions actionable
+- [ ] Remove middleware setup
+- [ ] Verify server starts
+- [ ] Test activation not found returns guidance streams
+- [ ] Test method not found returns guidance streams
+- [ ] Run integration tests: `cargo test --test rpc_integration`
 
 ### Rollback Plan
 
-**Phase 6A-B:** No rollback needed (backward compatible by default)
-**Phase 6C:** Frontends can re-enable middleware with env var
-**Phase 6D:** Revert default flip (one-line change)
-**Phase 6E:** Git revert removal commit
+If issues arise: `git revert` the removal commit.
 
-**Safety:** Each phase is reversible without data loss.
+**Safety:** Single atomic commit, easy to revert.
 
 ## Timeline
 
 - **Phase 1-4:** Complete ✅ (Stream-based guidance implemented)
 - **Phase 5:** Bash custom guidance example
-- **Phase 6A:** Add SUBSTRATE_DISABLE_MIDDLEWARE flag (coexistence)
-- **Phase 6B:** Add deprecation notices (no code changes)
-- **Phase 6C:** Frontend migration period (2-4 weeks)
-- **Phase 6D:** Flip default to disabled (optional)
-- **Phase 6E:** Final removal (after confirmation)
+- **Phase 6:** Remove middleware (this doc)
 - **Phase 7:** Integration tests
 
-**Current status:** Middleware remains ENABLED by default for backward compatibility
+**Middleware removal:** Direct removal, frontends adapt to new stream-based system
 
 ## Related Documentation
 
