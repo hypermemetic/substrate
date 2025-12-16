@@ -30,7 +30,7 @@ anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 either = "1.9"
 semantic-query = "0.2.0"
-schemars = { version = "1.0.4", features = ["derive"] }
+schemars = { version = "1.0.4", features = ["derive", "uuid1"] }
 axum = { version = "0.7" }
 tower = "0.4"
 sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }

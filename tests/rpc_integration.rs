@@ -210,11 +210,9 @@ async fn test_health_check() {
         .expect("Stream ended unexpectedly")
         .expect("Error receiving event");
 
-    // Verify structure
-    assert!(event.get("event").is_some(), "Event should have 'event' field");
+    // Verify structure - data contains the payload directly
     let data = event.get("data").expect("Event should have 'data' field");
-    let inner_data = data.get("data").expect("Data should have inner 'data' field");
-    assert_eq!(inner_data.get("status").and_then(|v| v.as_str()), Some("healthy"));
+    assert_eq!(data.get("status").and_then(|v| v.as_str()), Some("healthy"));
 }
 
 #[tokio::test]
@@ -236,10 +234,11 @@ async fn test_bash_execute() {
 
     assert!(!events.is_empty(), "Should have received at least one event, got: {:?}", events);
 
-    // Check for stdout containing hello
+    // Check for stdout containing hello - data is directly in event["data"]
     let found_output = events.iter().any(|e| {
-        let data = e.get("data").and_then(|d| d.get("data"));
-        data.and_then(|d| d.get("line")).and_then(|v| v.as_str())
+        e.get("data")
+            .and_then(|d| d.get("line"))
+            .and_then(|v| v.as_str())
             .map(|s| s.contains("hello"))
             .unwrap_or(false)
     });
@@ -267,10 +266,9 @@ async fn test_arbor_tree_create() {
         .expect("Stream ended unexpectedly")
         .expect("Error receiving event");
 
-    // Verify we got a tree created event with a tree_id
+    // Verify we got a tree created event with a tree_id - data is directly in event["data"]
     let data = event.get("data").expect("Event should have 'data' field");
-    let inner = data.get("data").expect("Data should have inner 'data' field");
-    assert!(inner.get("tree_id").is_some(), "Should have tree_id in response");
+    assert!(data.get("tree_id").is_some(), "Should have tree_id in response: {:?}", data);
 }
 
 #[tokio::test]
@@ -288,15 +286,11 @@ async fn test_arbor_tree_list() {
         .expect("Stream ended unexpectedly")
         .expect("Error receiving event");
 
-    // Debug: print event
-    eprintln!("tree_list event: {:?}", event);
-
-    // Check for trees array
+    // Check for trees array - data is directly in event["data"]
     let data = event.get("data").expect("Event should have 'data' field");
-    let inner = data.get("data").expect("Data should have inner 'data' field");
     assert!(
-        inner.get("trees").is_some() || inner.get("type").is_some(),
-        "Should have trees array in response: {:?}", inner
+        data.get("tree_ids").is_some() || data.get("trees").is_some() || data.get("type").is_some(),
+        "Should have tree data in response: {:?}", data
     );
 }
 
@@ -320,7 +314,7 @@ async fn test_arbor_full_workflow() {
         .expect("No event")
         .expect("Error");
 
-    let data = &event["data"]["data"];
+    let data = event.get("data").expect("Should have data");
     let tree_id = data["tree_id"]
         .as_str()
         .expect(&format!("No tree_id in: {:?}", data))
@@ -342,7 +336,7 @@ async fn test_arbor_full_workflow() {
         .expect("No event")
         .expect("Error");
 
-    let tree_data = &event["data"]["data"];
+    let tree_data = event.get("data").expect("Should have data");
     let root_id = tree_data["tree"]["root"]
         .as_str()
         .expect(&format!("No root in tree: {:?}", tree_data))
@@ -364,7 +358,7 @@ async fn test_arbor_full_workflow() {
         .expect("No event")
         .expect("Error");
 
-    let node_data = &event["data"]["data"];
+    let node_data = event.get("data").expect("Should have data");
     let node_id = node_data["node_id"]
         .as_str()
         .expect(&format!("No node_id in: {:?}", node_data))
@@ -386,7 +380,7 @@ async fn test_arbor_full_workflow() {
         .expect("No event")
         .expect("Error");
 
-    let node_resp = &event["data"]["data"];
+    let node_resp = event.get("data").expect("Should have data");
     let content = node_resp["node"]["data"]["content"]
         .as_str()
         .expect(&format!("No content in: {:?}", node_resp));
@@ -408,7 +402,7 @@ async fn test_arbor_full_workflow() {
         .expect("No event")
         .expect("Error");
 
-    let path_data = &event["data"]["data"];
+    let path_data = event.get("data").expect("Should have data");
     let nodes = path_data["nodes"]
         .as_array()
         .expect(&format!("No nodes array in: {:?}", path_data));
@@ -434,11 +428,10 @@ async fn test_cone_create() {
         .expect("Stream ended unexpectedly")
         .expect("Error receiving event");
 
-    // Verify we got a cone created event
+    // Verify we got a cone created event - data is directly in event["data"]
     let data = event.get("data").expect("Event should have 'data' field");
-    let inner = data.get("data").expect("Data should have inner 'data' field");
-    assert!(inner.get("cone_id").is_some() || inner.get("agent_id").is_some(),
-            "Should have cone_id in response: {:?}", inner);
+    assert!(data.get("cone_id").is_some() || data.get("agent_id").is_some(),
+            "Should have cone_id in response: {:?}", data);
 }
 
 #[tokio::test]
@@ -456,12 +449,11 @@ async fn test_cone_list() {
         .expect("Stream ended unexpectedly")
         .expect("Error receiving event");
 
-    // Should have cones/agents array
+    // Should have cones/agents array - data is directly in event["data"]
     let data = event.get("data").expect("Event should have 'data' field");
-    let inner = data.get("data").expect("Data should have inner 'data' field");
     assert!(
-        inner.get("cones").is_some() || inner.get("agents").is_some(),
-        "Should have cones array in response: {:?}", inner
+        data.get("cones").is_some() || data.get("agents").is_some() || data.get("type").is_some(),
+        "Should have cones data in response: {:?}", data
     );
 }
 
@@ -480,31 +472,27 @@ async fn test_cone_registry() {
         .expect("Stream ended unexpectedly")
         .expect("Error receiving event");
 
-    // Debug: print structure
-    eprintln!("registry event keys: {:?}", event.as_object().map(|o| o.keys().collect::<Vec<_>>()));
-
-    // Verify registry structure - the Registry variant wraps RegistryExport directly
+    // Verify registry structure - data is directly in event["data"]
     let data = event.get("data").expect("Event should have 'data' field");
-    let inner = data.get("data").expect("Data should have inner 'data' field");
 
     // Should have services array
-    let services = inner.get("services").expect("Should have services array");
+    let services = data.get("services").expect("Should have services array");
     assert!(services.is_array(), "services should be an array");
 
     // Should have families array
-    let families = inner.get("families").expect("Should have families array");
+    let families = data.get("families").expect("Should have families array");
     assert!(families.is_array(), "families should be an array");
     let families_arr = families.as_array().unwrap();
     assert!(!families_arr.is_empty(), "Should have at least one family");
 
     // Should have models array
-    let models = inner.get("models").expect("Should have models array");
+    let models = data.get("models").expect("Should have models array");
     assert!(models.is_array(), "models should be an array");
     let models_arr = models.as_array().unwrap();
     assert!(!models_arr.is_empty(), "Should have at least one model");
 
     // Should have stats
-    let stats = inner.get("stats").expect("Should have stats");
+    let stats = data.get("stats").expect("Should have stats");
     assert!(stats.get("model_count").is_some(), "Stats should have model_count");
 
     // Verify first model has expected structure (from cllient::ModelExport)

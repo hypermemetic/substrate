@@ -1,7 +1,8 @@
+use super::methods::ConeMethod;
 use super::storage::{ConeStorage, ConeStorageConfig};
 use super::types::{ConeEvent, ConeId, ChatUsage, MessageRole};
 use crate::{
-    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation},
+    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation, Schema},
     plugin_system::conversion::{IntoSubscription, SubscriptionResult},
     activations::arbor::{Node, NodeId, NodeType},
 };
@@ -623,64 +624,15 @@ impl Activation for Cone {
     }
 
     fn method_help(&self, method: &str) -> Option<String> {
-        match method {
-            "create" => Some(
-                "Create a new cone.\n\
-                Parameters:\n\
-                  name: string - Human-readable name\n\
-                  model_id: string - LLM model ID (e.g., 'gpt-4o-mini')\n\
-                  system_prompt: string? - Optional system instructions\n\
-                  metadata: object? - Optional metadata\n\
-                Returns: { type: 'cone_created', cone_id, tree_id }"
-                    .to_string(),
-            ),
-            "get" => Some(
-                "Get cone configuration.\n\
-                Parameters:\n\
-                  cone_id: string - UUID of the cone\n\
-                Returns: { type: 'cone_data', cone: ConeConfig }"
-                    .to_string(),
-            ),
-            "list" => Some(
-                "List all cones.\n\
-                Parameters: none\n\
-                Returns: { type: 'cone_list', cones: [ConeInfo] }"
-                    .to_string(),
-            ),
-            "delete" => Some(
-                "Delete an cone (tree is preserved).\n\
-                Parameters:\n\
-                  cone_id: string - UUID of the cone\n\
-                Returns: { type: 'cone_deleted', cone_id }"
-                    .to_string(),
-            ),
-            "chat" => Some(
-                "Chat with an cone. Streams LLM response and advances context.\n\
-                Parameters:\n\
-                  cone_id: string - UUID of the cone\n\
-                  prompt: string - User message\n\
-                Returns (streaming):\n\
-                  { type: 'chat_start', cone_id, node_id }\n\
-                  { type: 'chat_content', cone_id, content }  (multiple)\n\
-                  { type: 'chat_complete', cone_id, response_node_id, new_head, usage? }"
-                    .to_string(),
-            ),
-            "set_head" => Some(
-                "Move cone's context head to a different node.\n\
-                Parameters:\n\
-                  cone_id: string - UUID of the cone\n\
-                  node_id: string - UUID of the target node\n\
-                Returns: { type: 'head_updated', cone_id, old_head, new_head }"
-                    .to_string(),
-            ),
-            "registry" => Some(
-                "Get available LLM services and models.\n\
-                Parameters: none\n\
-                Returns: { type: 'registry', services: [...], families: [...], models: [...] }"
-                    .to_string(),
-            ),
-            _ => None,
-        }
+        ConeMethod::description(method).map(|s| s.to_string())
+    }
+
+    fn enrich_schema(&self) -> Schema {
+        // Schema is fully derived from ConeMethod enum via schemars
+        // Using uuid::Uuid and doc comments gives us format, descriptions, and required automatically
+        let schema_json = ConeMethod::schema();
+        serde_json::from_value(schema_json)
+            .expect("CRITICAL: Failed to parse schema - Cone plugin incorrectly defined")
     }
 
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {

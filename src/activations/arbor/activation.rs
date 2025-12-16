@@ -2,7 +2,7 @@ use super::methods::ArborMethod;
 use super::storage::{ArborConfig, ArborStorage};
 use super::types::{ArborEvent, NodeId, TreeId, TreeSkeleton};
 use crate::{
-    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation, Schema, SchemaVariant},
+    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation, Schema},
     plugin_system::conversion::{IntoSubscription, SubscriptionResult},
 };
 use async_trait::async_trait;
@@ -828,28 +828,11 @@ impl Activation for Arbor {
     }
 
     fn enrich_schema(&self) -> Schema {
-        // Plugin generates its own JSON schema from the method enum
+        // Schema is fully derived from ArborMethod enum via schemars
+        // Using uuid::Uuid and doc comments gives us format, descriptions, and required automatically
         let schema_json = ArborMethod::schema();
-
-        // Convert to strongly typed Schema representation
-        let mut schema: Schema = serde_json::from_value(schema_json)
-            .expect("CRITICAL: Failed to parse base schema - Arbor plugin incorrectly defined");
-
-        // Enrich each variant with type information that couldn't be auto-derived
-        if let Some(one_of) = schema.one_of.as_mut() {
-            for variant_schema in one_of.iter_mut() {
-                let mut variant = SchemaVariant::new(variant_schema);
-
-                // Extract method name and get enrichment data (type-level, no instance needed)
-                if let Some(method_name) = variant.method_name() {
-                    if let Some(enrichment) = ArborMethod::describe_by_name(method_name) {
-                        variant.apply_enrichments(&enrichment);
-                    }
-                }
-            }
-        }
-
-        schema
+        serde_json::from_value(schema_json)
+            .expect("CRITICAL: Failed to parse schema - Arbor plugin incorrectly defined")
     }
 
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {
