@@ -1,5 +1,6 @@
 pub mod context;
 pub mod errors;
+pub mod guidance;
 pub mod middleware;
 pub mod path;
 pub mod plexus;
@@ -12,4 +13,4 @@ pub use middleware::{ActivationRegistry, GuidedErrorMiddleware};
 pub use path::Provenance;
 pub use plexus::{Activation, ActivationInfo, into_plexus_stream, Plexus, PlexusError, PlexusStream};
 pub use schema::{Schema, SchemaProperty, SchemaType};
-pub use types::PlexusStreamItem;
+pub use types::{GuidanceErrorType, GuidanceSuggestion, PlexusStreamItem};

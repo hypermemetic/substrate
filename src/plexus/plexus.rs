@@ -1,4 +1,10 @@
-use super::{context::PlexusContext, path::Provenance, schema::Schema, types::PlexusStreamItem};
+use super::{
+    context::PlexusContext,
+    guidance::{error_stream_with_guidance, ActivationGuidanceInfo, CustomGuidance},
+    path::Provenance,
+    schema::Schema,
+    types::{GuidanceSuggestion, PlexusStreamItem},
+};
 use crate::plugin_system::types::ActivationStreamItem;
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
@@ -101,6 +107,29 @@ pub trait Activation: Send + Sync + Clone + 'static {
         None
     }
 
+    /// Provide custom guidance for an error (optional override)
+    ///
+    /// Activations can override this to provide method-specific suggestions,
+    /// example parameters, or custom recovery steps.
+    ///
+    /// # Example
+    /// ```ignore
+    /// fn custom_guidance(&self, method: &str, error: &PlexusError) -> Option<GuidanceSuggestion> {
+    ///     match (method, error) {
+    ///         ("execute", PlexusError::InvalidParams(_)) => {
+    ///             Some(GuidanceSuggestion::TryMethod {
+    ///                 method: "bash.execute".to_string(),
+    ///                 example_params: Some(json!("echo 'Hello!'")),
+    ///             })
+    ///         }
+    ///         _ => None,
+    ///     }
+    /// }
+    /// ```
+    fn custom_guidance(&self, _method: &str, _error: &PlexusError) -> Option<GuidanceSuggestion> {
+        None // Default: no custom guidance
+    }
+
     /// Call a method by name with JSON params, returns a stream
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError>;
 
@@ -138,19 +167,8 @@ impl<A: Activation> ActivationObject for ActivationWrapper<A> {
         self.inner.description()
     }
 
-    fn methods(&self) -> Vec<&str> {
-        self.inner.methods()
-    }
-
     fn method_help(&self, method: &str) -> Option<String> {
         self.inner.method_help(method)
-    }
-
-    fn schema(&self) -> Schema {
-        // Automatically generate schema from A::Methods
-        let schema = schemars::schema_for!(A::Methods);
-        serde_json::from_value(serde_json::to_value(schema).expect("Failed to serialize schema"))
-            .expect("Failed to parse schema - Methods type incorrectly defined")
     }
 
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {
@@ -162,18 +180,37 @@ impl<A: Activation> ActivationObject for ActivationWrapper<A> {
     }
 }
 
+/// Implement CustomGuidance by delegating to inner Activation
+impl<A: Activation> CustomGuidance for ActivationWrapper<A> {
+    fn custom_guidance(&self, method: &str, error: &PlexusError) -> Option<GuidanceSuggestion> {
+        self.inner.custom_guidance(method, error)
+    }
+}
+
+/// Implement ActivationGuidanceInfo by delegating to inner Activation
+impl<A: Activation> ActivationGuidanceInfo for ActivationWrapper<A> {
+    fn methods(&self) -> Vec<&str> {
+        self.inner.methods()
+    }
+
+    fn schema(&self) -> Schema {
+        // Automatically generate schema from A::Methods
+        let schema = schemars::schema_for!(A::Methods);
+        serde_json::from_value(serde_json::to_value(schema).expect("Failed to serialize schema"))
+            .expect("Failed to parse schema - Methods type incorrectly defined")
+    }
+}
+
 /// Internal trait-object-safe activation interface (no associated types)
 ///
 /// This trait is implemented automatically by `ActivationWrapper` to enable
 /// storing activations as trait objects. Users should implement `Activation` instead.
 #[async_trait]
-trait ActivationObject: Send + Sync + 'static {
+trait ActivationObject: Send + Sync + ActivationGuidanceInfo + 'static {
     fn namespace(&self) -> &str;
     fn version(&self) -> &str;
     fn description(&self) -> &str;
-    fn methods(&self) -> Vec<&str>;
     fn method_help(&self, method: &str) -> Option<String>;
-    fn schema(&self) -> Schema;
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError>;
     fn into_rpc_methods(self) -> Methods;
 }
@@ -288,15 +325,63 @@ impl Plexus {
     /// Call a method on an activation
     ///
     /// Method format: "namespace.method" (e.g., "bash.execute", "health.check")
+    ///
+    /// Note: This method always returns Ok(PlexusStream). Errors are returned as
+    /// stream events (Guidance → Error → Done) rather than Err results.
     pub async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {
-        let (namespace, method_name) = self.parse_method(method)?;
+        let plexus_hash = self.compute_hash();
+        let provenance = Provenance::root("plexus");
 
-        let activation = self
-            .activations
-            .get(namespace)
-            .ok_or_else(|| PlexusError::ActivationNotFound(namespace.to_string()))?;
+        // Parse method (format: "namespace.method")
+        let (namespace, method_name) = match self.parse_method(method) {
+            Ok(parts) => parts,
+            Err(error) => {
+                // Method parse error - return guidance stream
+                return Ok(error_stream_with_guidance::<dyn ActivationGuidanceInfo>(
+                    plexus_hash,
+                    provenance,
+                    error,
+                    None,
+                    None,
+                ));
+            }
+        };
 
-        activation.call(method_name, params).await
+        // Find activation
+        let activation = match self.activations.get(namespace) {
+            Some(a) => a,
+            None => {
+                // Activation not found - return guidance stream
+                let error = PlexusError::ActivationNotFound(namespace.to_string());
+                return Ok(error_stream_with_guidance::<dyn ActivationGuidanceInfo>(
+                    plexus_hash,
+                    provenance,
+                    error,
+                    None,
+                    None,
+                ));
+            }
+        };
+
+        // Update provenance with activation namespace
+        let activation_provenance = provenance.extend(namespace.to_string());
+
+        // Call activation method
+        match activation.call(method_name, params).await {
+            Ok(stream) => Ok(stream),
+            Err(error) => {
+                // Method call error - return guidance stream with activation info
+                // ActivationObject implements ActivationGuidanceInfo, so we can cast it
+                let activation_clone = Arc::clone(activation);
+                Ok(error_stream_with_guidance(
+                    plexus_hash,
+                    activation_provenance,
+                    error,
+                    Some(&activation_clone),
+                    Some(method_name),
+                ))
+            }
+        }
     }
 
     /// Convert the plexus into an RPC module for JSON-RPC server
@@ -500,4 +585,168 @@ where
 {
     let plexus_hash = PlexusContext::hash();
     Box::pin(stream.map(move |item| item.into_plexus_item(provenance.clone(), &plexus_hash)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plexus::types::GuidanceSuggestion;
+
+    #[test]
+    fn test_custom_guidance_contract() {
+        // Create test activation
+        #[derive(Clone)]
+        struct TestActivation;
+
+        #[derive(serde::Serialize, schemars::JsonSchema)]
+        enum TestMethod {}
+
+        #[async_trait]
+        impl Activation for TestActivation {
+            type Methods = TestMethod;
+
+            fn namespace(&self) -> &str {
+                "test"
+            }
+            fn version(&self) -> &str {
+                "1.0.0"
+            }
+            fn methods(&self) -> Vec<&str> {
+                vec![]
+            }
+            async fn call(&self, _: &str, _: Value) -> Result<PlexusStream, PlexusError> {
+                Err(PlexusError::MethodNotFound {
+                    activation: "test".to_string(),
+                    method: "unknown".to_string(),
+                })
+            }
+            fn into_rpc_methods(self) -> Methods {
+                Methods::new()
+            }
+
+            // Override custom_guidance
+            fn custom_guidance(
+                &self,
+                method: &str,
+                _error: &PlexusError,
+            ) -> Option<GuidanceSuggestion> {
+                if method == "test" {
+                    Some(GuidanceSuggestion::Custom {
+                        message: "custom".to_string(),
+                    })
+                } else {
+                    None
+                }
+            }
+        }
+
+        let activation = TestActivation;
+        let error = PlexusError::InvalidParams("test".to_string());
+
+        // Contract: Method returns Some for specific cases, None otherwise
+        assert!(activation.custom_guidance("test", &error).is_some());
+        assert!(activation.custom_guidance("other", &error).is_none());
+    }
+
+    #[test]
+    fn test_default_custom_guidance_returns_none() {
+        // Verify default implementation returns None
+        #[derive(Clone)]
+        struct MinimalActivation;
+
+        #[derive(serde::Serialize, schemars::JsonSchema)]
+        enum MinimalMethod {}
+
+        #[async_trait]
+        impl Activation for MinimalActivation {
+            type Methods = MinimalMethod;
+
+            fn namespace(&self) -> &str {
+                "minimal"
+            }
+            fn version(&self) -> &str {
+                "1.0.0"
+            }
+            fn methods(&self) -> Vec<&str> {
+                vec![]
+            }
+            async fn call(&self, _: &str, _: Value) -> Result<PlexusStream, PlexusError> {
+                Err(PlexusError::MethodNotFound {
+                    activation: "minimal".to_string(),
+                    method: "unknown".to_string(),
+                })
+            }
+            fn into_rpc_methods(self) -> Methods {
+                Methods::new()
+            }
+            // Don't override custom_guidance - use default
+        }
+
+        let activation = MinimalActivation;
+        let error = PlexusError::InvalidParams("test".to_string());
+
+        // Default implementation should return None
+        assert!(activation.custom_guidance("any_method", &error).is_none());
+    }
+
+    #[tokio::test]
+    async fn test_plexus_call_behavior_contract() {
+        use futures::StreamExt;
+
+        // Create a minimal plexus (no activations)
+        let plexus = Plexus::new();
+
+        // Contract: call() always returns Ok, never Err
+        let result = plexus.call("foo.bar", serde_json::json!({})).await;
+        assert!(result.is_ok(), "call() must always return Ok(stream)");
+
+        // Contract: Error case yields stream with events
+        let stream = result.unwrap();
+        let items: Vec<_> = stream.collect().await;
+        assert!(!items.is_empty(), "Error stream must yield events");
+
+        // Should have Guidance event (for ActivationNotFound)
+        assert_eq!(items.len(), 3, "Should yield Guidance → Error → Done");
+    }
+
+    #[tokio::test]
+    async fn test_plexus_call_returns_guidance_for_activation_not_found() {
+        use crate::plexus::types::PlexusStreamEvent;
+        use futures::StreamExt;
+
+        let plexus = Plexus::new();
+
+        let stream = plexus
+            .call("nonexistent.method", serde_json::json!({}))
+            .await
+            .unwrap();
+        let items: Vec<_> = stream.collect().await;
+
+        // First event should be Guidance
+        match &items[0].event {
+            PlexusStreamEvent::Guidance {
+                error_type,
+                suggestion,
+                ..
+            } => {
+                // Should indicate activation not found
+                assert!(
+                    matches!(
+                        error_type,
+                        crate::plexus::types::GuidanceErrorType::ActivationNotFound { .. }
+                    ),
+                    "Should be ActivationNotFound error"
+                );
+                // Should suggest calling plexus_schema
+                assert!(
+                    matches!(
+                        suggestion,
+                        crate::plexus::types::GuidanceSuggestion::CallPlexusSchema
+                    ),
+                    "Should suggest CallPlexusSchema"
+                );
+            }
+            _ => panic!("First event should be Guidance"),
+        }
+    }
 }

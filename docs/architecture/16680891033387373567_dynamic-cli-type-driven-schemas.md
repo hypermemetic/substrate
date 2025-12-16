@@ -490,6 +490,7 @@ Cache refreshed successfully
 
 ## Related Documents
 
+- **Frontend Migration: Guidance Events**: `16680880693241553663_frontend-guidance-migration.md` - How to handle new stream-based error guidance
 - Type-driven generation: `16680892147769332735_schema-type-driven-generation.md`
 - Schema enrichment history: `16680895651461426687_schema-enrichment-cache-invalidation.md`
 - Hash-based invalidation: `16680894298193956607_plexus-hash-cache-invalidation.md`
