@@ -2,7 +2,7 @@ use super::methods::ConeMethod;
 use super::storage::{ConeStorage, ConeStorageConfig};
 use super::types::{ConeEvent, ConeId, ChatUsage, MessageRole};
 use crate::{
-    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, InnerActivation},
+    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation},
     plugin_system::conversion::{IntoSubscription, SubscriptionResult},
     activations::arbor::{Node, NodeId, NodeType},
 };
@@ -606,7 +606,7 @@ impl ConeRpcServer for Cone {
 }
 
 #[async_trait]
-impl InnerActivation for Cone {
+impl Activation for Cone {
     type Methods = ConeMethod;
 
     fn namespace(&self) -> &str {

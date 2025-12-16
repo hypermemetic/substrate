@@ -50,19 +50,39 @@ pub struct PlexusSchema {
     pub total_methods: usize,
 }
 
-/// Inner activation trait with associated Methods type
+/// Activation trait - implement this to create an activation
 ///
-/// This is what activations actually implement. It includes the associated
-/// `Methods` type which allows automatic schema generation.
+/// This is the main trait that activation implementations provide. It includes
+/// an associated `Methods` type which enables automatic schema generation.
 ///
-/// You don't use this trait directly - use `Plexus::register()` which
-/// automatically wraps it in an `ActivationWrapper`.
+/// # Example
+/// ```ignore
+/// #[derive(Clone)]
+/// pub struct MyActivation;
+///
+/// #[async_trait]
+/// impl Activation for MyActivation {
+///     type Methods = MyMethod;  // Enum with #[derive(JsonSchema, Serialize)]
+///
+///     fn namespace(&self) -> &str { "my_activation" }
+///     fn version(&self) -> &str { "1.0.0" }
+///     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {
+///         // ... implementation
+///     }
+///     fn into_rpc_methods(self) -> Methods {
+///         self.into_rpc().into()
+///     }
+/// }
+/// ```
 #[async_trait]
-pub trait InnerActivation: Send + Sync + Clone + 'static {
+pub trait Activation: Send + Sync + Clone + 'static {
     /// The Method enum type defining all methods this activation supports
+    ///
+    /// This type must implement JsonSchema and Serialize. The schema will be
+    /// automatically generated from this type.
     type Methods: schemars::JsonSchema + serde::Serialize;
 
-    /// Activation namespace (e.g., "health", "bash", "loom")
+    /// Activation namespace (e.g., "health", "bash", "arbor")
     fn namespace(&self) -> &str;
 
     /// Activation version (semantic versioning: "MAJOR.MINOR.PATCH")
@@ -88,20 +108,24 @@ pub trait InnerActivation: Send + Sync + Clone + 'static {
     fn into_rpc_methods(self) -> Methods;
 }
 
-/// Wrapper that implements trait-object-safe Activation from InnerActivation
-struct ActivationWrapper<A: InnerActivation> {
+/// Internal wrapper that type-erases Activation into a trait object
+///
+/// This wrapper converts `Activation` (which has an associated type) into
+/// `ActivationObject` (which is trait-object-safe). Users don't interact with
+/// this directly - `Plexus::register()` handles the wrapping automatically.
+struct ActivationWrapper<A: Activation> {
     inner: A,
 }
 
-impl<A: InnerActivation> ActivationWrapper<A> {
+impl<A: Activation> ActivationWrapper<A> {
     fn new(activation: A) -> Self {
         Self { inner: activation }
     }
 }
 
-/// Implement Activation for the wrapper - delegates to inner and auto-generates schema
+/// Implement trait-object-safe ActivationObject for the wrapper
 #[async_trait]
-impl<A: InnerActivation> Activation for ActivationWrapper<A> {
+impl<A: Activation> ActivationObject for ActivationWrapper<A> {
     fn namespace(&self) -> &str {
         self.inner.namespace()
     }
@@ -138,69 +162,25 @@ impl<A: InnerActivation> Activation for ActivationWrapper<A> {
     }
 }
 
-/// Trait object safe activation trait (no associated types)
+/// Internal trait-object-safe activation interface (no associated types)
 ///
-/// This trait is implemented automatically by `ActivationWrapper`.
-/// You should implement `InnerActivation` instead.
+/// This trait is implemented automatically by `ActivationWrapper` to enable
+/// storing activations as trait objects. Users should implement `Activation` instead.
 #[async_trait]
-pub trait Activation: Send + Sync + 'static {
-    /// Activation namespace (e.g., "health", "bash", "loom")
+trait ActivationObject: Send + Sync + 'static {
     fn namespace(&self) -> &str;
-
-    /// Activation version (semantic versioning: "MAJOR.MINOR.PATCH")
-    ///
-    /// This version is included in handles created by the activation,
-    /// allowing frontends to select appropriate renderers for different
-    /// activation versions.
-    ///
-    /// Example: "1.0.0", "2.1.3"
     fn version(&self) -> &str;
-
-    /// Activation description (one-line summary of what the activation does)
-    fn description(&self) -> &str {
-        "No description available"
-    }
-
-    /// List available methods
+    fn description(&self) -> &str;
     fn methods(&self) -> Vec<&str>;
-
-    /// Get help text for a specific method
-    fn method_help(&self, _method: &str) -> Option<String> {
-        None
-    }
-
-    /// Get the JSON schema for all methods in this activation
-    ///
-    /// Implement this by defining a Method enum with JsonSchema derive:
-    /// ```ignore
-    /// #[derive(JsonSchema, Serialize, Deserialize)]
-    /// #[serde(tag = "method", content = "params")]
-    /// enum ArborMethod {
-    ///     NodeCreateText {
-    ///         tree_id: Uuid,      // Auto format: "uuid"
-    ///         /// Text content      // Auto description
-    ///         content: String,     // Auto required
-    ///     },
-    /// }
-    ///
-    /// fn schema(&self) -> Schema {
-    ///     let schema = schemars::schema_for!(ArborMethod);
-    ///     serde_json::from_value(schema.into()).expect("...")
-    /// }
-    /// ```
+    fn method_help(&self, method: &str) -> Option<String>;
     fn schema(&self) -> Schema;
-
-    /// Call a method by name with JSON params, returns a stream
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError>;
-
-    /// Convert this activation into RPC methods for JSON-RPC server
-    /// Consumes self since jsonrpsee's into_rpc() requires ownership
     fn into_rpc_methods(self) -> Methods;
 }
 
 /// The Plexus - routes calls to registered activations
 pub struct Plexus {
-    activations: HashMap<String, Arc<dyn Activation>>,
+    activations: HashMap<String, Arc<dyn ActivationObject>>,
     /// Pending activations that haven't been converted to RPC yet
     pending_rpc: Vec<Box<dyn FnOnce() -> Methods + Send>>,
 }
@@ -215,9 +195,9 @@ impl Plexus {
 
     /// Register an activation with the plexus
     ///
-    /// Automatically wraps the activation in an ActivationWrapper which provides
-    /// automatic schema generation from the associated Methods type.
-    pub fn register<A: InnerActivation>(mut self, activation: A) -> Self {
+    /// The activation is automatically wrapped to enable storage as a trait object
+    /// while preserving type-driven schema generation.
+    pub fn register<A: Activation>(mut self, activation: A) -> Self {
         let namespace = activation.namespace().to_string();
         let activation_for_rpc = activation.clone();
 
@@ -395,7 +375,7 @@ impl Plexus {
         // plexus_activation_schema subscription - returns enriched schema for a specific activation
         // Optional second parameter specifies a method to get schema for just that method
         // Clone activations for the closure
-        let activations_for_schema: HashMap<String, Arc<dyn Activation>> = self
+        let activations_for_schema: HashMap<String, Arc<dyn ActivationObject>> = self
             .activations
             .iter()
             .map(|(k, v)| (k.clone(), Arc::clone(v)))

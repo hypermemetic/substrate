@@ -2,7 +2,7 @@ use super::executor::BashExecutor;
 use super::methods::BashMethod;
 use super::types::BashOutput;
 use crate::{
-    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, InnerActivation},
+    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation},
     plugin_system::conversion::{IntoSubscription, SubscriptionResult},
 };
 use async_trait::async_trait;
@@ -73,7 +73,7 @@ impl Default for Bash {
 
 /// Plugin trait implementation - unified interface for hub
 #[async_trait]
-impl InnerActivation for Bash {
+impl Activation for Bash {
     type Methods = BashMethod;
 
     fn namespace(&self) -> &str {

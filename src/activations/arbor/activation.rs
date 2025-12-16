@@ -2,7 +2,7 @@ use super::methods::ArborMethod;
 use super::storage::{ArborConfig, ArborStorage};
 use super::types::{ArborEvent, NodeId, TreeId, TreeSkeleton};
 use crate::{
-    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, InnerActivation},
+    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation},
     plugin_system::conversion::{IntoSubscription, SubscriptionResult},
 };
 use async_trait::async_trait;
@@ -806,7 +806,7 @@ impl ArborRpcServer for Arbor {
 
 /// Plugin trait implementation - unified interface for hub
 #[async_trait]
-impl InnerActivation for Arbor {
+impl Activation for Arbor {
     type Methods = ArborMethod;
 
     fn namespace(&self) -> &str {

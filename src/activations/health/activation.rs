@@ -1,7 +1,7 @@
 use super::methods::HealthMethod;
 use super::types::HealthEvent;
 use crate::{
-    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, InnerActivation},
+    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation},
     plugin_system::conversion::{IntoSubscription, SubscriptionResult},
 };
 use async_stream::stream;
@@ -64,7 +64,7 @@ impl Default for Health {
 
 /// Plugin trait implementation - unified interface for hub
 #[async_trait]
-impl InnerActivation for Health {
+impl Activation for Health {
     type Methods = HealthMethod;
 
     fn namespace(&self) -> &str {
