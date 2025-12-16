@@ -1,7 +1,23 @@
-//! RPC middleware for adding guided error responses
+//! DEPRECATED: Stream-based guidance replaces middleware
 //!
-//! This middleware intercepts JSON-RPC error responses and enriches them
+//! This module is kept for historical reference only. Error guidance is now
+//! provided via `PlexusStreamEvent::Guidance` events in error streams.
+//!
+//! **Migration:** Frontends should handle guidance events instead of parsing
+//! JSON-RPC error data. See the frontend migration guide at:
+//! `docs/architecture/16680880693241553663_frontend-guidance-migration.md`
+//!
+//! **Architecture:** See stream-based guidance design at:
+//! `docs/architecture/16680881573410764543_guidance-stream-based-errors.md`
+//!
+//! ---
+//!
+//! ## Legacy Documentation (RPC middleware for guided error responses)
+//!
+//! This middleware intercepted JSON-RPC error responses and enriched them
 //! with a `try` field containing a suggested next request.
+
+#![allow(dead_code)]
 
 use super::errors::GuidedError;
 use jsonrpsee::server::middleware::rpc::RpcServiceT;

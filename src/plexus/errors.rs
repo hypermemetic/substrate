@@ -1,3 +1,17 @@
+//! DEPRECATED: Stream-based guidance replaces error data structures
+//!
+//! This module is kept for historical reference only. Error guidance is now
+//! provided via `GuidanceErrorType` and `GuidanceSuggestion` in stream events.
+//!
+//! **Migration:** Use `PlexusStreamEvent::Guidance` instead of parsing error data.
+//! See: `docs/architecture/16680880693241553663_frontend-guidance-migration.md`
+//!
+//! ---
+//!
+//! ## Legacy Documentation
+
+#![allow(dead_code)]
+
 use jsonrpsee::types::ErrorObjectOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

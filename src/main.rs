@@ -1,5 +1,5 @@
 use substrate::{
-    plexus::{Plexus, ActivationRegistry, GuidedErrorMiddleware},
+    plexus::Plexus,
     activations::{
         bash::Bash,
         health::Health,
@@ -8,7 +8,6 @@ use substrate::{
     },
 };
 use jsonrpsee::server::{Server, ServerHandle};
-use jsonrpsee::server::middleware::rpc::RpcServiceBuilder;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -81,26 +80,13 @@ async fn main() -> anyhow::Result<()> {
     let methods = plexus.list_methods();
     let plexus_methods = plexus.list_plexus_methods();
 
-    // Create activation registry for guided errors
-    let activation_namespaces: Vec<String> = activations.iter()
-        .map(|a| a.namespace.clone())
-        .collect();
-    let registry = Arc::new(ActivationRegistry::new(activation_namespaces));
-
     // Convert plexus to RPC module for JSON-RPC server (consumes plexus)
     let module = plexus.into_rpc_module()?;
 
-    // Build RPC middleware with guided error support
-    let rpc_middleware = RpcServiceBuilder::new()
-        .layer_fn(move |service| {
-            GuidedErrorMiddleware::new(service, registry.clone())
-        });
-
-    // Start server with middleware
+    // Start server (guidance provided via stream events)
     let port = std::env::var("SUBSTRATE_PORT").unwrap_or_else(|_| "4444".to_string());
     let addr: SocketAddr = format!("127.0.0.1:{}", port).parse()?;
     let server = Server::builder()
-        .set_rpc_middleware(rpc_middleware)
         .build(addr)
         .await?;
     let handle: ServerHandle = server.start(module);
