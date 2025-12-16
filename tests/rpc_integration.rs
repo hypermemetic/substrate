@@ -76,6 +76,101 @@ async fn test_schema_includes_required_in_params() {
     eprintln!("✓ Schema correctly includes required fields in params: {:?}", required_names);
 }
 
+/// Test method-level schema query (plexus_activation_schema with method param)
+#[tokio::test]
+async fn test_method_level_schema_query() {
+    let client = create_client().await.expect("Failed to connect to server - is it running?");
+
+    // Query for a specific method's schema
+    let mut subscription = client
+        .subscribe::<Value, _>(
+            "plexus_activation_schema",
+            rpc_params!["arbor", "node_create_text"],
+            "unsubscribe_schema"
+        )
+        .await
+        .expect("Failed to subscribe to plexus_activation_schema");
+
+    let event = tokio::time::timeout(Duration::from_secs(5), subscription.next())
+        .await
+        .expect("Timeout waiting for schema")
+        .expect("Stream ended")
+        .expect("Error receiving event");
+
+    // Should return method schema with content_type "plexus.method_schema"
+    let content_type = event.get("content_type")
+        .and_then(|v| v.as_str())
+        .expect("Should have content_type");
+    assert_eq!(content_type, "plexus.method_schema",
+        "Method-specific query should return plexus.method_schema");
+
+    // The data should be the method variant schema directly, not a oneOf
+    let schema = event.get("data").expect("Should have data");
+
+    // Should have properties with method const
+    let method_const = schema
+        .get("properties")
+        .and_then(|p| p.get("method"))
+        .and_then(|m| m.get("const"))
+        .and_then(|c| c.as_str());
+    assert_eq!(method_const, Some("node_create_text"),
+        "Should have method const = node_create_text");
+
+    // Should have params with required fields
+    let params = schema
+        .get("properties")
+        .and_then(|p| p.get("params"))
+        .expect("Should have params");
+    let required = params.get("required")
+        .and_then(|r| r.as_array())
+        .expect("Should have required array");
+
+    let required_names: Vec<&str> = required.iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    assert!(required_names.contains(&"tree_id"));
+    assert!(required_names.contains(&"content"));
+
+    eprintln!("✓ Method-level schema query works: node_create_text has required {:?}", required_names);
+}
+
+/// Test that querying unknown method returns error with available methods
+#[tokio::test]
+async fn test_method_schema_unknown_method() {
+    let client = create_client().await.expect("Failed to connect to server - is it running?");
+
+    let mut subscription = client
+        .subscribe::<Value, _>(
+            "plexus_activation_schema",
+            rpc_params!["arbor", "nonexistent_method"],
+            "unsubscribe_schema"
+        )
+        .await
+        .expect("Failed to subscribe");
+
+    let event = tokio::time::timeout(Duration::from_secs(5), subscription.next())
+        .await
+        .expect("Timeout")
+        .expect("Stream ended")
+        .expect("Error receiving event");
+
+    // Should return an error event
+    let event_type = event.get("type")
+        .and_then(|v| v.as_str())
+        .expect("Should have type");
+    assert_eq!(event_type, "error", "Should return error for unknown method");
+
+    // Error should mention available methods
+    let error_msg = event.get("error")
+        .and_then(|e| e.as_str())
+        .expect("Should have error message");
+    assert!(error_msg.contains("nonexistent_method"), "Error should mention the requested method");
+    assert!(error_msg.contains("tree_create") || error_msg.contains("Available"),
+        "Error should list available methods");
+
+    eprintln!("✓ Unknown method query returns helpful error: {}", error_msg);
+}
+
 /// Test that all responses include plexus_hash
 #[tokio::test]
 async fn test_responses_include_plexus_hash() {

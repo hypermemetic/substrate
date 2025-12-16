@@ -82,26 +82,20 @@ pub trait Activation: Send + Sync + 'static {
         None
     }
 
-    /// Get the enriched JSON schema for all methods
+    /// Get the JSON schema for all methods in this activation
     ///
-    /// This method generates the complete schema with full type information.
-    /// It should:
-    /// 1. Generate base JSON schema from method enum (auto-generated, may skip complex types)
-    /// 2. Convert to strongly-typed Schema representation
-    /// 3. For each method variant, call .describe() to get enrichment data
-    /// 4. Apply enrichments (UUID formats, descriptions, etc.)
+    /// This method MUST be implemented by all activations. It generates the
+    /// complete schema with full type information by:
+    /// 1. Defining a Method enum with schemars::JsonSchema derive
+    /// 2. Using uuid::Uuid for UUID fields (auto-generates format: "uuid")
+    /// 3. Using doc comments for descriptions
+    /// 4. Non-Option fields become required automatically
     ///
-    /// **CRITICAL**: This function MUST always succeed. If it cannot generate
-    /// the schema, it means the activation is incorrectly defined.
+    /// **CRITICAL**: This is a required method with no default implementation.
+    /// All activations must provide proper schema generation.
     ///
-    /// Returns the fully enriched schema ready for documentation and validation.
-    fn enrich_schema(&self) -> Schema {
-        // Default implementation: create empty schema
-        Schema::new(
-            self.namespace(),
-            format!("{} activation schema", self.namespace()),
-        )
-    }
+    /// Returns the schema ready for documentation and validation.
+    fn enrich_schema(&self) -> Schema;
 
     /// Call a method by name with JSON params, returns a stream
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError>;
@@ -300,6 +294,7 @@ impl Plexus {
         )?;
 
         // plexus_activation_schema subscription - returns enriched schema for a specific activation
+        // Optional second parameter specifies a method to get schema for just that method
         // Clone activations for the closure
         let activations_for_schema: HashMap<String, Arc<dyn Activation>> = self
             .activations
@@ -316,17 +311,57 @@ impl Plexus {
                 let activations = activations_for_schema.clone();
                 let hash = hash_for_activation_schema.clone();
                 async move {
-                    // Parse namespace parameter
-                    let namespace: String = params.one()?;
+                    // Parse parameters: namespace (required), method (optional)
+                    let mut seq = params.sequence();
+                    let namespace: String = seq.next()?;
+                    let method: Option<String> = seq.optional_next()?;
                     let sink = pending.accept().await?;
 
                     if let Some(activation) = activations.get(&namespace) {
-                        let schema = activation.enrich_schema();
+                        let full_schema = activation.enrich_schema();
+
+                        // If method specified, extract just that method's schema
+                        let (schema_value, content_type) = if let Some(method_name) = method {
+                            if let Some(method_schema) = full_schema.get_method_schema(&method_name) {
+                                (
+                                    serde_json::to_value(&method_schema).unwrap(),
+                                    "plexus.method_schema".to_string(),
+                                )
+                            } else {
+                                // Method not found in schema
+                                let available = full_schema.list_methods();
+                                let error = PlexusStreamItem::error(
+                                    hash.clone(),
+                                    Provenance::root("plexus"),
+                                    format!(
+                                        "Method '{}' not found in activation '{}'. Available: {}",
+                                        method_name,
+                                        namespace,
+                                        available.join(", ")
+                                    ),
+                                    false,
+                                );
+                                if let Ok(msg) = SubscriptionMessage::from_json(&error) {
+                                    let _ = sink.send(msg).await;
+                                }
+                                let done = PlexusStreamItem::done(hash, Provenance::root("plexus"));
+                                if let Ok(msg) = SubscriptionMessage::from_json(&done) {
+                                    let _ = sink.send(msg).await;
+                                }
+                                return Ok(());
+                            }
+                        } else {
+                            (
+                                serde_json::to_value(&full_schema).unwrap(),
+                                "plexus.activation_schema".to_string(),
+                            )
+                        };
+
                         let response = PlexusStreamItem::data(
                             hash.clone(),
                             Provenance::root("plexus"),
-                            "plexus.activation_schema".to_string(),
-                            serde_json::to_value(&schema).unwrap(),
+                            content_type,
+                            schema_value,
                         );
                         if let Ok(msg) = SubscriptionMessage::from_json(&response) {
                             let _ = sink.send(msg).await;

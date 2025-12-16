@@ -159,6 +159,62 @@ impl Schema {
         self.description = Some(description.into());
         self
     }
+
+    /// Extract a single method's schema from the oneOf array
+    ///
+    /// Searches the oneOf variants for a method matching the given name.
+    /// Returns the variant schema if found, None otherwise.
+    pub fn get_method_schema(&self, method_name: &str) -> Option<Schema> {
+        let variants = self.one_of.as_ref()?;
+
+        for variant in variants {
+            // Check if this variant has a "method" property with const or enum
+            if let Some(props) = &variant.properties {
+                if let Some(method_prop) = props.get("method") {
+                    // Try "const" first (schemars uses this for literal values)
+                    if let Some(const_val) = method_prop.additional.get("const") {
+                        if const_val.as_str() == Some(method_name) {
+                            return Some(variant.clone());
+                        }
+                    }
+                    // Fall back to enum_values
+                    if let Some(enum_vals) = &method_prop.enum_values {
+                        if enum_vals.first().and_then(|v| v.as_str()) == Some(method_name) {
+                            return Some(variant.clone());
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// List all method names from the oneOf array
+    pub fn list_methods(&self) -> Vec<String> {
+        let Some(variants) = &self.one_of else {
+            return Vec::new();
+        };
+
+        variants
+            .iter()
+            .filter_map(|variant| {
+                let props = variant.properties.as_ref()?;
+                let method_prop = props.get("method")?;
+
+                // Try "const" first
+                if let Some(const_val) = method_prop.additional.get("const") {
+                    return const_val.as_str().map(String::from);
+                }
+                // Fall back to enum_values
+                method_prop
+                    .enum_values
+                    .as_ref()?
+                    .first()?
+                    .as_str()
+                    .map(String::from)
+            })
+            .collect()
+    }
 }
 
 impl SchemaProperty {

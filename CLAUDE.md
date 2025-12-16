@@ -22,3 +22,6 @@ print(f'{filename}_your-title.md')
 ```
 
 This "chronological bubbling" helps prioritize recent architectural decisions.
+
+
+This project consists of a few pieces: Substrate, Symbols, and Cllient. All should be in the parent which should be 

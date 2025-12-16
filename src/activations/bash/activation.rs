@@ -1,7 +1,8 @@
 use super::executor::BashExecutor;
+use super::methods::BashMethod;
 use super::types::BashOutput;
 use crate::{
-    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation},
+    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation, Schema},
     plugin_system::conversion::{IntoSubscription, SubscriptionResult},
 };
 use async_trait::async_trait;
@@ -90,23 +91,13 @@ impl Activation for Bash {
     }
 
     fn method_help(&self, method: &str) -> Option<String> {
-        match method {
-            "execute" => Some(
-                "Execute a bash command and stream stdout, stderr, and exit code.\n\
-                \n\
-                Parameters:\n\
-                  command (string): The bash command to execute\n\
-                \n\
-                Returns stream of events:\n\
-                  - stdout: { type: \"stdout\", data: { line: string } }\n\
-                  - stderr: { type: \"stderr\", data: { line: string } }\n\
-                  - exit:   { type: \"exit\", data: { code: number } }\n\
-                \n\
-                Example:\n\
-                  hub-cli bash.execute 'echo hello world'".to_string()
-            ),
-            _ => None,
-        }
+        BashMethod::description(method).map(|s| s.to_string())
+    }
+
+    fn enrich_schema(&self) -> Schema {
+        let schema_json = BashMethod::schema();
+        serde_json::from_value(schema_json)
+            .expect("CRITICAL: Failed to parse schema - Bash activation incorrectly defined")
     }
 
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {

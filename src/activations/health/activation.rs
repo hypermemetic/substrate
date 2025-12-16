@@ -1,6 +1,7 @@
+use super::methods::HealthMethod;
 use super::types::HealthEvent;
 use crate::{
-    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation},
+    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation, Schema},
     plugin_system::conversion::{IntoSubscription, SubscriptionResult},
 };
 use async_stream::stream;
@@ -81,20 +82,13 @@ impl Activation for Health {
     }
 
     fn method_help(&self, method: &str) -> Option<String> {
-        match method {
-            "check" => Some(
-                "Check the health status of the hub.\n\
-                \n\
-                Parameters: none\n\
-                \n\
-                Returns:\n\
-                  { type: \"status\", data: { status: string, uptime_seconds: number, timestamp: number } }\n\
-                \n\
-                Example:\n\
-                  hub-cli health.check".to_string()
-            ),
-            _ => None,
-        }
+        HealthMethod::description(method).map(|s| s.to_string())
+    }
+
+    fn enrich_schema(&self) -> Schema {
+        let schema_json = HealthMethod::schema();
+        serde_json::from_value(schema_json)
+            .expect("CRITICAL: Failed to parse schema - Health activation incorrectly defined")
     }
 
     async fn call(&self, method: &str, _params: Value) -> Result<PlexusStream, PlexusError> {
