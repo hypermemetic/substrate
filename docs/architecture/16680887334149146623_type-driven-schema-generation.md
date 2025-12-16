@@ -232,3 +232,7 @@ The schema generation happens automatically in `ActivationWrapper<Arbor>` by cal
 - Requires understanding of associated types and type erasure
 
 The trade-off is strongly in favor of this approach - the complexity is centralized in one place (the wrapper), while making all activation code simpler and more maintainable.
+
+## Related Documentation
+
+- [Testing Strategy](./16680885909985432575_testing-strategy.md) - How schema generation is validated through unit and integration tests
