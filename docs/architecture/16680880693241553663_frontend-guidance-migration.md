@@ -559,6 +559,9 @@ SUBSTRATE_DISABLE_MIDDLEWARE=true cargo run
 4. Migrate when ready
 
 
+## Backward Compatibility
+
+
 ### Safe Forward Compatibility
 
 Frontends that ignore unknown event types will continue to work:
