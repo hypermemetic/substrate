@@ -13,6 +13,67 @@ use jsonrpsee::{
 use serde_json::{json, Value};
 use std::time::Duration;
 
+/// Test that plexus_activation_schema includes required fields in params
+#[tokio::test]
+async fn test_schema_includes_required_in_params() {
+    let client = create_client().await.expect("Failed to connect to server - is it running?");
+
+    let mut subscription = client
+        .subscribe::<Value, _>("plexus_activation_schema", rpc_params!["arbor"], "unsubscribe_schema")
+        .await
+        .expect("Failed to subscribe to plexus_activation_schema");
+
+    let event = tokio::time::timeout(Duration::from_secs(5), subscription.next())
+        .await
+        .expect("Timeout waiting for schema")
+        .expect("Stream ended")
+        .expect("Error receiving event");
+
+    // Navigate to the schema data
+    let data = event.get("data").expect("Should have data field");
+    let schema = data.get("data").expect("Should have inner data");
+    let one_of = schema.get("oneOf").expect("Schema should have oneOf");
+
+    // Find node_create_text variant
+    let variants = one_of.as_array().expect("oneOf should be array");
+    let node_create_text = variants.iter().find(|v| {
+        v.get("properties")
+            .and_then(|p| p.get("method"))
+            .and_then(|m| m.get("const").or_else(|| m.get("enum").and_then(|e| e.get(0))))
+            .and_then(|v| v.as_str()) == Some("node_create_text")
+    }).expect("Should find node_create_text variant");
+
+    // Get params and check for required field
+    let params = node_create_text
+        .get("properties")
+        .and_then(|p| p.get("params"))
+        .expect("Should have params property");
+
+    // Debug: print the full params object
+    eprintln!("\n=== Full params object for node_create_text ===");
+    eprintln!("{}", serde_json::to_string_pretty(params).unwrap());
+    eprintln!("=== End params ===\n");
+
+    let required = params.get("required")
+        .expect("params should have 'required' field - this is the fix we're testing!");
+
+    let required_arr = required.as_array().expect("required should be array");
+
+    // Verify tree_id and content are required
+    let required_names: Vec<&str> = required_arr.iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+
+    assert!(required_names.contains(&"tree_id"),
+        "tree_id should be required, got: {:?}", required_names);
+    assert!(required_names.contains(&"content"),
+        "content should be required, got: {:?}", required_names);
+    assert!(!required_names.contains(&"parent"),
+        "parent should NOT be required");
+
+    eprintln!("✓ Schema correctly includes required fields in params: {:?}", required_names);
+}
+
 /// Test that unknown activations return guided errors with `try` field
 #[tokio::test]
 async fn test_guided_error_unknown_activation() {

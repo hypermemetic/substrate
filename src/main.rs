@@ -76,6 +76,7 @@ async fn main() -> anyhow::Result<()> {
     let plexus = build_plexus().await;
     let activations = plexus.list_activations();
     let methods = plexus.list_methods();
+    let plexus_methods = plexus.list_plexus_methods();
 
     // Create activation registry for guided errors
     let activation_namespaces: Vec<String> = activations.iter()
@@ -104,8 +105,10 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Substrate plexus started at ws://{}", addr);
     tracing::info!("Data directory: {}", substrate_data_dir().display());
     tracing::info!("");
-    tracing::info!("Plexus methods:");
-    tracing::info!("  - plexus_schema");
+    tracing::info!("Plexus methods ({}):", plexus_methods.len());
+    for method in &plexus_methods {
+        tracing::info!("  - {}", method);
+    }
     tracing::info!("");
     tracing::info!("Activations ({}):", activations.len());
     for activation in &activations {
@@ -119,7 +122,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
     tracing::info!("");
-    tracing::info!("Total methods: {} (+1 plexus)", methods.len());
+    tracing::info!("Total methods: {} (+{} plexus)", methods.len(), plexus_methods.len());
 
     // Keep server running
     handle.stopped().await;

@@ -379,8 +379,24 @@ impl<'a> SchemaVariant<'a> {
             .as_mut()
     }
 
+    /// Get mutable access to the params SchemaProperty itself
+    pub fn params_mut(&mut self) -> Option<&mut SchemaProperty> {
+        self.schema
+            .properties
+            .as_mut()?
+            .get_mut("params")
+    }
+
     /// Apply field enrichments to this variant's params
     pub fn apply_enrichments(&mut self, enrichment: &MethodEnrichment) {
+        // Collect required field names
+        let required_fields: Vec<String> = enrichment.fields
+            .iter()
+            .filter(|f| f.required)
+            .map(|f| f.name.clone())
+            .collect();
+
+        // Apply format and description enrichments to individual fields
         if let Some(param_props) = self.params_properties_mut() {
             for field in &enrichment.fields {
                 if let Some(prop) = param_props.get_mut(&field.name) {
@@ -393,6 +409,13 @@ impl<'a> SchemaVariant<'a> {
                         prop.description = Some(desc.clone());
                     }
                 }
+            }
+        }
+
+        // Set the required array on the params object itself
+        if !required_fields.is_empty() {
+            if let Some(params) = self.params_mut() {
+                params.required = Some(required_fields);
             }
         }
     }
@@ -429,5 +452,92 @@ mod tests {
         assert_eq!(enrichment.name, "tree_id");
         assert_eq!(enrichment.format, Some("uuid".to_string()));
         assert!(enrichment.required);
+    }
+
+    #[test]
+    fn test_apply_enrichments_sets_required_on_params() {
+        // Create a schema mimicking what schemars generates for a method variant
+        // with params containing tree_id and content fields
+        let mut schema = Schema {
+            schema_version: None,
+            title: None,
+            description: None,
+            schema_type: Some(serde_json::json!("object")),
+            properties: Some({
+                let mut props = HashMap::new();
+                props.insert("method".to_string(), SchemaProperty {
+                    property_type: None,
+                    description: None,
+                    format: None,
+                    items: None,
+                    properties: None,
+                    required: None,
+                    default: None,
+                    enum_values: None,
+                    reference: None,
+                    additional: {
+                        let mut m = HashMap::new();
+                        m.insert("const".to_string(), serde_json::json!("node_create_text"));
+                        m
+                    },
+                });
+                props.insert("params".to_string(), SchemaProperty {
+                    property_type: Some(serde_json::json!("object")),
+                    description: None,
+                    format: None,
+                    items: None,
+                    properties: Some({
+                        let mut p = HashMap::new();
+                        p.insert("tree_id".to_string(), SchemaProperty::string());
+                        p.insert("content".to_string(), SchemaProperty::string());
+                        p.insert("parent".to_string(), SchemaProperty::string());
+                        p
+                    }),
+                    required: None, // Initially no required field
+                    default: None,
+                    enum_values: None,
+                    reference: None,
+                    additional: HashMap::new(),
+                });
+                props
+            }),
+            required: Some(vec!["method".to_string(), "params".to_string()]),
+            one_of: None,
+            defs: None,
+            additional: HashMap::new(),
+        };
+
+        // Create enrichment with required fields
+        let enrichment = MethodEnrichment {
+            method_name: "node_create_text".to_string(),
+            fields: vec![
+                FieldEnrichment::uuid("tree_id", "UUID of the tree", true),
+                FieldEnrichment::uuid("parent", "UUID of the parent node", false), // optional
+                FieldEnrichment {
+                    name: "content".to_string(),
+                    format: None,
+                    description: Some("Text content".to_string()),
+                    required: true,
+                },
+            ],
+        };
+
+        // Apply enrichments
+        let mut variant = SchemaVariant::new(&mut schema);
+        variant.apply_enrichments(&enrichment);
+
+        // Verify required is set on params
+        let params = schema.properties.as_ref().unwrap().get("params").unwrap();
+        assert!(params.required.is_some(), "params.required should be set");
+
+        let required = params.required.as_ref().unwrap();
+        assert!(required.contains(&"tree_id".to_string()), "tree_id should be required");
+        assert!(required.contains(&"content".to_string()), "content should be required");
+        assert!(!required.contains(&"parent".to_string()), "parent should NOT be required");
+        assert_eq!(required.len(), 2, "Should have exactly 2 required fields");
+
+        // Verify format was applied to tree_id
+        let tree_id_prop = params.properties.as_ref().unwrap().get("tree_id").unwrap();
+        assert_eq!(tree_id_prop.format, Some("uuid".to_string()));
     }
 }

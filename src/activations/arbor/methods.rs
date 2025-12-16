@@ -232,11 +232,31 @@ impl ArborMethod {
                 ]
             }
 
-            // Methods with tree_id and optional parent
-            "node_create_text" | "node_create_external" => {
+            // Methods with tree_id, content, and optional parent
+            "node_create_text" => {
                 vec![
                     FieldEnrichment::uuid("tree_id", "UUID of the tree", true),
                     FieldEnrichment::uuid("parent", "UUID of the parent node (optional)", false),
+                    FieldEnrichment {
+                        name: "content".to_string(),
+                        format: None,
+                        description: Some("Text content for the node".to_string()),
+                        required: true,
+                    },
+                ]
+            }
+
+            // External node has handle instead of content
+            "node_create_external" => {
+                vec![
+                    FieldEnrichment::uuid("tree_id", "UUID of the tree", true),
+                    FieldEnrichment::uuid("parent", "UUID of the parent node (optional)", false),
+                    FieldEnrichment {
+                        name: "handle".to_string(),
+                        format: None,
+                        description: Some("External handle reference".to_string()),
+                        required: true,
+                    },
                 ]
             }
 
@@ -350,6 +370,47 @@ mod tests {
         let method = ArborMethod::TreeList;
         let json = serde_json::to_string(&method).unwrap();
         assert!(json.contains("tree_list"));
+    }
+
+    #[test]
+    fn test_describe_by_name_returns_required_fields() {
+        // Test node_create_text - should have tree_id and content as required
+        let enrichment = ArborMethod::describe_by_name("node_create_text")
+            .expect("node_create_text should have enrichment");
+
+        assert_eq!(enrichment.method_name, "node_create_text");
+
+        // Check tree_id is required
+        let tree_id = enrichment.fields.iter().find(|f| f.name == "tree_id")
+            .expect("Should have tree_id field");
+        assert!(tree_id.required, "tree_id should be required");
+        assert_eq!(tree_id.format, Some("uuid".to_string()));
+
+        // Check content is required
+        let content = enrichment.fields.iter().find(|f| f.name == "content")
+            .expect("Should have content field");
+        assert!(content.required, "content should be required");
+
+        // Check parent is NOT required
+        let parent = enrichment.fields.iter().find(|f| f.name == "parent")
+            .expect("Should have parent field");
+        assert!(!parent.required, "parent should NOT be required");
+    }
+
+    #[test]
+    fn test_describe_by_name_node_get_required() {
+        // Test node_get - both tree_id and node_id should be required
+        let enrichment = ArborMethod::describe_by_name("node_get")
+            .expect("node_get should have enrichment");
+
+        let required_count = enrichment.fields.iter().filter(|f| f.required).count();
+        assert_eq!(required_count, 2, "node_get should have 2 required fields");
+
+        let tree_id = enrichment.fields.iter().find(|f| f.name == "tree_id").unwrap();
+        assert!(tree_id.required);
+
+        let node_id = enrichment.fields.iter().find(|f| f.name == "node_id").unwrap();
+        assert!(node_id.required);
     }
 }
 

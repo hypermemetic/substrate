@@ -148,6 +148,41 @@ impl Plexus {
         methods
     }
 
+    /// List plexus-level methods (not activation methods)
+    pub fn list_plexus_methods(&self) -> Vec<&'static str> {
+        vec!["plexus_schema", "plexus_activation_schema", "plexus_hash"]
+    }
+
+    /// Compute a hash of all activations and their methods for cache invalidation
+    ///
+    /// The hash is computed from a deterministic string of all activation
+    /// namespaces, versions, and method names sorted alphabetically.
+    pub fn compute_hash(&self) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        // Build deterministic string: "namespace:version:method1,method2,..."
+        let mut activation_strings: Vec<String> = self
+            .activations
+            .values()
+            .map(|a| {
+                let mut methods: Vec<&str> = a.methods();
+                methods.sort();
+                format!("{}:{}:{}", a.namespace(), a.version(), methods.join(","))
+            })
+            .collect();
+        activation_strings.sort();
+
+        let combined = activation_strings.join(";");
+
+        let mut hasher = DefaultHasher::new();
+        combined.hash(&mut hasher);
+        let hash = hasher.finish();
+
+        // Return as hex string
+        format!("{:016x}", hash)
+    }
+
     /// Get information about all registered activations
     pub fn list_activations(&self) -> Vec<ActivationInfo> {
         let mut activations: Vec<ActivationInfo> = self
@@ -202,6 +237,38 @@ impl Plexus {
             activations: self.list_activations(),
             total_methods: self.list_methods().len(),
         };
+
+        // Compute hash for cache invalidation
+        let plexus_hash = self.compute_hash();
+
+        // plexus_hash subscription - returns hash for cache invalidation
+        let hash_for_closure = plexus_hash.clone();
+        module.register_subscription(
+            "plexus_hash",
+            "plexus_hash",
+            "plexus_unsubscribe_hash",
+            move |_params, pending, _ctx| {
+                let hash = hash_for_closure.clone();
+                async move {
+                    let sink = pending.accept().await?;
+                    let response = PlexusStreamItem::Data {
+                        provenance: Provenance::root("plexus"),
+                        content_type: "plexus.hash".to_string(),
+                        data: serde_json::json!({ "hash": hash }),
+                    };
+                    if let Ok(msg) = SubscriptionMessage::from_json(&response) {
+                        let _ = sink.send(msg).await;
+                    }
+                    let done = PlexusStreamItem::Done {
+                        provenance: Provenance::root("plexus"),
+                    };
+                    if let Ok(msg) = SubscriptionMessage::from_json(&done) {
+                        let _ = sink.send(msg).await;
+                    }
+                    Ok(())
+                }
+            },
+        )?;
 
         // plexus_schema subscription - returns all activations and methods
         module.register_subscription(
