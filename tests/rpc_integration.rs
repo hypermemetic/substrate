@@ -289,6 +289,45 @@ async fn create_client() -> Result<jsonrpsee::ws_client::WsClient, Box<dyn std::
     Ok(client)
 }
 
+/// Test that ConeIdentifier schema has proper oneOf structure
+#[tokio::test]
+async fn test_cone_identifier_schema() {
+    let client = create_client().await.expect("Failed to connect to server - is it running?");
+
+    let mut subscription = client
+        .subscribe::<Value, _>("plexus_activation_schema", rpc_params!["cone"], "unsubscribe_schema")
+        .await
+        .expect("Failed to subscribe to plexus_activation_schema");
+
+    let event = tokio::time::timeout(Duration::from_secs(5), subscription.next())
+        .await
+        .expect("Timeout waiting for schema")
+        .expect("Stream ended")
+        .expect("Error receiving event");
+
+    let schema = event.get("data").expect("Should have data field");
+    let schema_str = serde_json::to_string_pretty(&schema).unwrap();
+
+    eprintln!("Cone schema definitions:\n{}", schema_str);
+
+    // Check that ConeIdentifier is defined
+    let definitions = schema.get("definitions")
+        .or_else(|| schema.get("$defs"))
+        .expect("Schema should have definitions");
+
+    let cone_identifier = definitions.get("ConeIdentifier")
+        .expect("Should have ConeIdentifier definition");
+
+    eprintln!("ConeIdentifier schema: {}", serde_json::to_string_pretty(&cone_identifier).unwrap());
+
+    // Should have oneOf with two variants
+    let one_of = cone_identifier.get("oneOf")
+        .expect("ConeIdentifier should have oneOf");
+
+    let variants = one_of.as_array().expect("oneOf should be array");
+    assert_eq!(variants.len(), 2, "Should have 2 variants (ByName and ById)");
+}
+
 #[tokio::test]
 async fn test_health_check() {
     let client = create_client().await.expect("Failed to connect to server - is it running?");
