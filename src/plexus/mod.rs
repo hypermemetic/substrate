@@ -10,6 +10,6 @@ pub use context::PlexusContext;
 pub use errors::{GuidedError, GuidedErrorData, TryRequest};
 pub use middleware::{ActivationRegistry, GuidedErrorMiddleware};
 pub use path::Provenance;
-pub use plexus::{Activation, ActivationInfo, into_plexus_stream, Plexus, PlexusError, PlexusStream};
+pub use plexus::{Activation, InnerActivation, ActivationInfo, into_plexus_stream, Plexus, PlexusError, PlexusStream};
 pub use schema::{Schema, SchemaProperty, SchemaType};
 pub use types::PlexusStreamItem;

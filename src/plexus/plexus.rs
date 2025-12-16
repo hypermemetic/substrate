@@ -50,11 +50,98 @@ pub struct PlexusSchema {
     pub total_methods: usize,
 }
 
-/// Trait that activations implement to be usable through the plexus
+/// Inner activation trait with associated Methods type
 ///
-/// This is the primary activation interface. Activations implement this trait
-/// to provide both programmatic access (via `call`) and RPC access
-/// (via `into_rpc_methods`).
+/// This is what activations actually implement. It includes the associated
+/// `Methods` type which allows automatic schema generation.
+///
+/// You don't use this trait directly - use `Plexus::register()` which
+/// automatically wraps it in an `ActivationWrapper`.
+#[async_trait]
+pub trait InnerActivation: Send + Sync + Clone + 'static {
+    /// The Method enum type defining all methods this activation supports
+    type Methods: schemars::JsonSchema + serde::Serialize;
+
+    /// Activation namespace (e.g., "health", "bash", "loom")
+    fn namespace(&self) -> &str;
+
+    /// Activation version (semantic versioning: "MAJOR.MINOR.PATCH")
+    fn version(&self) -> &str;
+
+    /// Activation description (one-line summary)
+    fn description(&self) -> &str {
+        "No description available"
+    }
+
+    /// List available methods
+    fn methods(&self) -> Vec<&str>;
+
+    /// Get help text for a specific method
+    fn method_help(&self, _method: &str) -> Option<String> {
+        None
+    }
+
+    /// Call a method by name with JSON params, returns a stream
+    async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError>;
+
+    /// Convert this activation into RPC methods for JSON-RPC server
+    fn into_rpc_methods(self) -> Methods;
+}
+
+/// Wrapper that implements trait-object-safe Activation from InnerActivation
+struct ActivationWrapper<A: InnerActivation> {
+    inner: A,
+}
+
+impl<A: InnerActivation> ActivationWrapper<A> {
+    fn new(activation: A) -> Self {
+        Self { inner: activation }
+    }
+}
+
+/// Implement Activation for the wrapper - delegates to inner and auto-generates schema
+#[async_trait]
+impl<A: InnerActivation> Activation for ActivationWrapper<A> {
+    fn namespace(&self) -> &str {
+        self.inner.namespace()
+    }
+
+    fn version(&self) -> &str {
+        self.inner.version()
+    }
+
+    fn description(&self) -> &str {
+        self.inner.description()
+    }
+
+    fn methods(&self) -> Vec<&str> {
+        self.inner.methods()
+    }
+
+    fn method_help(&self, method: &str) -> Option<String> {
+        self.inner.method_help(method)
+    }
+
+    fn schema(&self) -> Schema {
+        // Automatically generate schema from A::Methods
+        let schema = schemars::schema_for!(A::Methods);
+        serde_json::from_value(serde_json::to_value(schema).expect("Failed to serialize schema"))
+            .expect("Failed to parse schema - Methods type incorrectly defined")
+    }
+
+    async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {
+        self.inner.call(method, params).await
+    }
+
+    fn into_rpc_methods(self) -> Methods {
+        self.inner.into_rpc_methods()
+    }
+}
+
+/// Trait object safe activation trait (no associated types)
+///
+/// This trait is implemented automatically by `ActivationWrapper`.
+/// You should implement `InnerActivation` instead.
 #[async_trait]
 pub trait Activation: Send + Sync + 'static {
     /// Activation namespace (e.g., "health", "bash", "loom")
@@ -84,18 +171,24 @@ pub trait Activation: Send + Sync + 'static {
 
     /// Get the JSON schema for all methods in this activation
     ///
-    /// This method MUST be implemented by all activations. It generates the
-    /// complete schema with full type information by:
-    /// 1. Defining a Method enum with schemars::JsonSchema derive
-    /// 2. Using uuid::Uuid for UUID fields (auto-generates format: "uuid")
-    /// 3. Using doc comments for descriptions
-    /// 4. Non-Option fields become required automatically
+    /// Implement this by defining a Method enum with JsonSchema derive:
+    /// ```ignore
+    /// #[derive(JsonSchema, Serialize, Deserialize)]
+    /// #[serde(tag = "method", content = "params")]
+    /// enum ArborMethod {
+    ///     NodeCreateText {
+    ///         tree_id: Uuid,      // Auto format: "uuid"
+    ///         /// Text content      // Auto description
+    ///         content: String,     // Auto required
+    ///     },
+    /// }
     ///
-    /// **CRITICAL**: This is a required method with no default implementation.
-    /// All activations must provide proper schema generation.
-    ///
-    /// Returns the schema ready for documentation and validation.
-    fn enrich_schema(&self) -> Schema;
+    /// fn schema(&self) -> Schema {
+    ///     let schema = schemars::schema_for!(ArborMethod);
+    ///     serde_json::from_value(schema.into()).expect("...")
+    /// }
+    /// ```
+    fn schema(&self) -> Schema;
 
     /// Call a method by name with JSON params, returns a stream
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError>;
@@ -121,10 +214,16 @@ impl Plexus {
     }
 
     /// Register an activation with the plexus
-    pub fn register<A: Activation + Clone>(mut self, activation: A) -> Self {
+    ///
+    /// Automatically wraps the activation in an ActivationWrapper which provides
+    /// automatic schema generation from the associated Methods type.
+    pub fn register<A: InnerActivation>(mut self, activation: A) -> Self {
         let namespace = activation.namespace().to_string();
         let activation_for_rpc = activation.clone();
-        self.activations.insert(namespace, Arc::new(activation));
+
+        // Wrap the activation to make it trait-object safe
+        let wrapped = ActivationWrapper::new(activation);
+        self.activations.insert(namespace, Arc::new(wrapped));
         self.pending_rpc
             .push(Box::new(move || activation_for_rpc.into_rpc_methods()));
         self
@@ -200,10 +299,10 @@ impl Plexus {
         activation.method_help(method_name)
     }
 
-    /// Get the enriched schema for an activation
+    /// Get the schema for an activation
     pub fn get_activation_schema(&self, namespace: &str) -> Option<Schema> {
         let activation = self.activations.get(namespace)?;
-        Some(activation.enrich_schema())
+        Some(activation.schema())
     }
 
     /// Call a method on an activation
@@ -318,7 +417,7 @@ impl Plexus {
                     let sink = pending.accept().await?;
 
                     if let Some(activation) = activations.get(&namespace) {
-                        let full_schema = activation.enrich_schema();
+                        let full_schema = activation.schema();
 
                         // If method specified, extract just that method's schema
                         let (schema_value, content_type) = if let Some(method_name) = method {

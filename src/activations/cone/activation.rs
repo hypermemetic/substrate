@@ -2,7 +2,7 @@ use super::methods::ConeMethod;
 use super::storage::{ConeStorage, ConeStorageConfig};
 use super::types::{ConeEvent, ConeId, ChatUsage, MessageRole};
 use crate::{
-    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation, Schema},
+    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, InnerActivation},
     plugin_system::conversion::{IntoSubscription, SubscriptionResult},
     activations::arbor::{Node, NodeId, NodeType},
 };
@@ -606,7 +606,9 @@ impl ConeRpcServer for Cone {
 }
 
 #[async_trait]
-impl Activation for Cone {
+impl InnerActivation for Cone {
+    type Methods = ConeMethod;
+
     fn namespace(&self) -> &str {
         "cone"
     }
@@ -625,14 +627,6 @@ impl Activation for Cone {
 
     fn method_help(&self, method: &str) -> Option<String> {
         ConeMethod::description(method).map(|s| s.to_string())
-    }
-
-    fn enrich_schema(&self) -> Schema {
-        // Schema is fully derived from ConeMethod enum via schemars
-        // Using uuid::Uuid and doc comments gives us format, descriptions, and required automatically
-        let schema_json = ConeMethod::schema();
-        serde_json::from_value(schema_json)
-            .expect("CRITICAL: Failed to parse schema - Cone plugin incorrectly defined")
     }
 
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {

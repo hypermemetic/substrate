@@ -2,7 +2,7 @@ use super::executor::BashExecutor;
 use super::methods::BashMethod;
 use super::types::BashOutput;
 use crate::{
-    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation, Schema},
+    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, InnerActivation},
     plugin_system::conversion::{IntoSubscription, SubscriptionResult},
 };
 use async_trait::async_trait;
@@ -73,7 +73,9 @@ impl Default for Bash {
 
 /// Plugin trait implementation - unified interface for hub
 #[async_trait]
-impl Activation for Bash {
+impl InnerActivation for Bash {
+    type Methods = BashMethod;
+
     fn namespace(&self) -> &str {
         "bash"
     }
@@ -92,12 +94,6 @@ impl Activation for Bash {
 
     fn method_help(&self, method: &str) -> Option<String> {
         BashMethod::description(method).map(|s| s.to_string())
-    }
-
-    fn enrich_schema(&self) -> Schema {
-        let schema_json = BashMethod::schema();
-        serde_json::from_value(schema_json)
-            .expect("CRITICAL: Failed to parse schema - Bash activation incorrectly defined")
     }
 
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {

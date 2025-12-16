@@ -2,7 +2,7 @@ use super::methods::ArborMethod;
 use super::storage::{ArborConfig, ArborStorage};
 use super::types::{ArborEvent, NodeId, TreeId, TreeSkeleton};
 use crate::{
-    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, Activation, Schema},
+    plexus::{into_plexus_stream, Provenance, PlexusError, PlexusStream, InnerActivation},
     plugin_system::conversion::{IntoSubscription, SubscriptionResult},
 };
 use async_trait::async_trait;
@@ -806,7 +806,9 @@ impl ArborRpcServer for Arbor {
 
 /// Plugin trait implementation - unified interface for hub
 #[async_trait]
-impl Activation for Arbor {
+impl InnerActivation for Arbor {
+    type Methods = ArborMethod;
+
     fn namespace(&self) -> &str {
         "arbor"
     }
@@ -825,14 +827,6 @@ impl Activation for Arbor {
 
     fn method_help(&self, method: &str) -> Option<String> {
         ArborMethod::description(method).map(|s| s.to_string())
-    }
-
-    fn enrich_schema(&self) -> Schema {
-        // Schema is fully derived from ArborMethod enum via schemars
-        // Using uuid::Uuid and doc comments gives us format, descriptions, and required automatically
-        let schema_json = ArborMethod::schema();
-        serde_json::from_value(schema_json)
-            .expect("CRITICAL: Failed to parse schema - Arbor plugin incorrectly defined")
     }
 
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {
