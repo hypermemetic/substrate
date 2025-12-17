@@ -2,6 +2,7 @@ mod methods;
 mod activation;
 mod storage;
 mod types;
+pub mod typed_methods;
 
 pub use methods::ArborMethod;
 pub use activation::Arbor;

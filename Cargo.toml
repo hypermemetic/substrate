@@ -53,6 +53,9 @@ http-body-util = "0.1"
 # LLM client
 cllient = { path = "../cllient" }
 
+# Session types for method protocols
+dialectic = { version = "0.4.1", features = ["tokio"] }
+
 [patch.crates-io]
 semantic-query = { path = "../semantic-query" }
 
