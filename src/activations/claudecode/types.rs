@@ -1,8 +1,5 @@
-use crate::{
-    activations::arbor::{NodeId, TreeId},
-    plexus::{Provenance, types::PlexusStreamItem},
-    plugin_system::types::ActivationStreamItem,
-};
+use crate::activations::arbor::{NodeId, TreeId};
+use hub_macro::StreamEvent;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -188,11 +185,13 @@ pub struct ChatUsage {
 
 /// Events emitted by ClaudeCode operations.
 /// Chat events mirror Cone's events for interoperability!
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, StreamEvent)]
+#[stream_event(content_type = "claudecode.event")]
 #[serde(tag = "type")]
 pub enum ClaudeCodeEvent {
     /// Session created
     #[serde(rename = "claudecode_created")]
+    #[terminal]
     Created {
         claudecode_id: ClaudeCodeId,
         head: Position,
@@ -201,18 +200,22 @@ pub enum ClaudeCodeEvent {
 
     /// Session deleted
     #[serde(rename = "claudecode_deleted")]
+    #[terminal]
     Deleted { claudecode_id: ClaudeCodeId },
 
     /// Session updated
     #[serde(rename = "claudecode_updated")]
+    #[terminal]
     Updated { claudecode_id: ClaudeCodeId },
 
     /// Session data returned
     #[serde(rename = "claudecode_data")]
+    #[terminal]
     Data { config: ClaudeCodeConfig },
 
     /// List of sessions
     #[serde(rename = "claudecode_list")]
+    #[terminal]
     List { sessions: Vec<ClaudeCodeInfo> },
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -254,6 +257,7 @@ pub enum ClaudeCodeEvent {
 
     /// Chat complete
     #[serde(rename = "chat_complete")]
+    #[terminal]
     ChatComplete {
         claudecode_id: ClaudeCodeId,
         /// New head position after response
@@ -266,6 +270,7 @@ pub enum ClaudeCodeEvent {
 
     /// Head position updated (without chat)
     #[serde(rename = "head_updated")]
+    #[terminal]
     HeadUpdated {
         claudecode_id: ClaudeCodeId,
         old_head: Position,
@@ -274,22 +279,8 @@ pub enum ClaudeCodeEvent {
 
     /// Error during operation
     #[serde(rename = "error")]
+    #[terminal]
     Error { message: String },
-}
-
-impl ActivationStreamItem for ClaudeCodeEvent {
-    fn content_type() -> &'static str {
-        "claudecode.event"
-    }
-
-    fn into_plexus_item(self, provenance: Provenance, plexus_hash: &str) -> PlexusStreamItem {
-        PlexusStreamItem::data(
-            plexus_hash.to_string(),
-            provenance,
-            Self::content_type().to_string(),
-            serde_json::to_value(self).unwrap(),
-        )
-    }
 }
 
 /// Error type for ClaudeCode operations
