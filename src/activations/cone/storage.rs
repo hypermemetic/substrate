@@ -400,6 +400,50 @@ impl ConeStorage {
         })
     }
 
+    /// Create an ephemeral message (marked for deletion) and return it
+    pub async fn message_create_ephemeral(
+        &self,
+        cone_id: &ConeId,
+        role: MessageRole,
+        content: String,
+        model_id: Option<String>,
+        input_tokens: Option<i64>,
+        output_tokens: Option<i64>,
+    ) -> Result<Message, ConeError> {
+        let message_id = MessageId::new_v4();
+        let now = current_timestamp();
+
+        // Use negative timestamp as ephemeral marker for cleanup
+        let ephemeral_marker = -now;
+
+        sqlx::query(
+            "INSERT INTO messages (id, cone_id, role, content, model_id, input_tokens, output_tokens, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(message_id.to_string())
+        .bind(cone_id.to_string())
+        .bind(role.as_str())
+        .bind(&content)
+        .bind(&model_id)
+        .bind(input_tokens)
+        .bind(output_tokens)
+        .bind(ephemeral_marker)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to create ephemeral message: {}", e))?;
+
+        Ok(Message {
+            id: message_id,
+            cone_id: *cone_id,
+            role,
+            content,
+            created_at: ephemeral_marker,
+            model_id,
+            input_tokens,
+            output_tokens,
+        })
+    }
+
     /// Get a message by ID
     pub async fn message_get(&self, message_id: &MessageId) -> Result<Message, ConeError> {
         let row = sqlx::query(

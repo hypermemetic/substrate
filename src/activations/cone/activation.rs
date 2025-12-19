@@ -162,17 +162,21 @@ impl Cone {
     /// Chat with a cone - appends prompt to context, calls LLM, advances head
     #[hub_macro::hub_method(params(
         identifier = "Cone identifier - use {by_name: {name: '...'}} or {by_id: {id: '...'}}",
-        prompt = "User message / prompt to send to the LLM"
+        prompt = "User message / prompt to send to the LLM",
+        ephemeral = "If true, creates nodes but doesn't advance head and marks for deletion"
     ))]
     async fn chat(
         &self,
         identifier: ConeIdentifier,
         prompt: String,
+        ephemeral: Option<bool>,
     ) -> impl Stream<Item = ConeEvent> + Send + 'static {
         let storage = self.storage.clone();
         let llm_registry = self.llm_registry.clone();
 
         stream! {
+            let is_ephemeral = ephemeral.unwrap_or(false);
+
             // Resolve identifier to ConeId
             let cone_id = match storage.resolve_cone_identifier(&identifier).await {
                 Ok(id) => id,
@@ -209,34 +213,66 @@ impl Cone {
                 }
             };
 
-            // 3. Store user message in cone database
-            let user_message = match storage.message_create(
-                &cone_id,
-                MessageRole::User,
-                prompt.clone(),
-                None,
-                None,
-                None,
-            ).await {
-                Ok(msg) => msg,
-                Err(e) => {
-                    yield ConeEvent::Error { message: format!("Failed to store user message: {}", e.message) };
-                    return;
+            // 3. Store user message in cone database (ephemeral if requested)
+            let user_message = if is_ephemeral {
+                match storage.message_create_ephemeral(
+                    &cone_id,
+                    MessageRole::User,
+                    prompt.clone(),
+                    None,
+                    None,
+                    None,
+                ).await {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        yield ConeEvent::Error { message: format!("Failed to store user message: {}", e.message) };
+                        return;
+                    }
+                }
+            } else {
+                match storage.message_create(
+                    &cone_id,
+                    MessageRole::User,
+                    prompt.clone(),
+                    None,
+                    None,
+                    None,
+                ).await {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        yield ConeEvent::Error { message: format!("Failed to store user message: {}", e.message) };
+                        return;
+                    }
                 }
             };
 
-            // Create external node with handle pointing to user message
+            // Create external node with handle pointing to user message (ephemeral if requested)
             let user_handle = ConeStorage::message_to_handle(&user_message, "user");
-            let user_node_id = match storage.arbor().node_create_external(
-                &cone.head.tree_id,
-                Some(cone.head.node_id),
-                user_handle,
-                None,
-            ).await {
-                Ok(id) => id,
-                Err(e) => {
-                    yield ConeEvent::Error { message: format!("Failed to create user node: {}", e) };
-                    return;
+            let user_node_id = if is_ephemeral {
+                match storage.arbor().node_create_external_ephemeral(
+                    &cone.head.tree_id,
+                    Some(cone.head.node_id),
+                    user_handle,
+                    None,
+                ).await {
+                    Ok(id) => id,
+                    Err(e) => {
+                        yield ConeEvent::Error { message: format!("Failed to create user node: {}", e) };
+                        return;
+                    }
+                }
+            } else {
+                match storage.arbor().node_create_external(
+                    &cone.head.tree_id,
+                    Some(cone.head.node_id),
+                    user_handle,
+                    None,
+                ).await {
+                    Ok(id) => id,
+                    Err(e) => {
+                        yield ConeEvent::Error { message: format!("Failed to create user node: {}", e) };
+                        return;
+                    }
                 }
             };
 
@@ -307,43 +343,77 @@ impl Cone {
                 }
             }
 
-            // 5. Store assistant response in cone database
-            let assistant_message = match storage.message_create(
-                &cone_id,
-                MessageRole::Assistant,
-                full_response,
-                Some(cone.model_id.clone()),
-                input_tokens,
-                output_tokens,
-            ).await {
-                Ok(msg) => msg,
-                Err(e) => {
-                    yield ConeEvent::Error { message: format!("Failed to store assistant message: {}", e.message) };
-                    return;
+            // 5. Store assistant response in cone database (ephemeral if requested)
+            let assistant_message = if is_ephemeral {
+                match storage.message_create_ephemeral(
+                    &cone_id,
+                    MessageRole::Assistant,
+                    full_response,
+                    Some(cone.model_id.clone()),
+                    input_tokens,
+                    output_tokens,
+                ).await {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        yield ConeEvent::Error { message: format!("Failed to store assistant message: {}", e.message) };
+                        return;
+                    }
+                }
+            } else {
+                match storage.message_create(
+                    &cone_id,
+                    MessageRole::Assistant,
+                    full_response,
+                    Some(cone.model_id.clone()),
+                    input_tokens,
+                    output_tokens,
+                ).await {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        yield ConeEvent::Error { message: format!("Failed to store assistant message: {}", e.message) };
+                        return;
+                    }
                 }
             };
 
-            // Create external node with handle pointing to assistant message
+            // Create external node with handle pointing to assistant message (ephemeral if requested)
             let assistant_handle = ConeStorage::message_to_handle(&assistant_message, &cone.name);
-            let response_node_id = match storage.arbor().node_create_external(
-                &cone.head.tree_id,
-                Some(user_node_id),
-                assistant_handle,
-                None,
-            ).await {
-                Ok(id) => id,
-                Err(e) => {
-                    yield ConeEvent::Error { message: format!("Failed to create response node: {}", e) };
-                    return;
+            let response_node_id = if is_ephemeral {
+                match storage.arbor().node_create_external_ephemeral(
+                    &cone.head.tree_id,
+                    Some(user_node_id),
+                    assistant_handle,
+                    None,
+                ).await {
+                    Ok(id) => id,
+                    Err(e) => {
+                        yield ConeEvent::Error { message: format!("Failed to create response node: {}", e) };
+                        return;
+                    }
+                }
+            } else {
+                match storage.arbor().node_create_external(
+                    &cone.head.tree_id,
+                    Some(user_node_id),
+                    assistant_handle,
+                    None,
+                ).await {
+                    Ok(id) => id,
+                    Err(e) => {
+                        yield ConeEvent::Error { message: format!("Failed to create response node: {}", e) };
+                        return;
+                    }
                 }
             };
 
             let new_head = user_position.advance(response_node_id);
 
-            // 6. Update canonical_head
-            if let Err(e) = storage.cone_update_head(&cone_id, response_node_id).await {
-                yield ConeEvent::Error { message: format!("Failed to update head: {}", e.message) };
-                return;
+            // 6. Update canonical_head (skip for ephemeral)
+            if !is_ephemeral {
+                if let Err(e) = storage.cone_update_head(&cone_id, response_node_id).await {
+                    yield ConeEvent::Error { message: format!("Failed to update head: {}", e.message) };
+                    return;
+                }
             }
 
             let usage_info = if input_tokens.is_some() || output_tokens.is_some() {
@@ -356,9 +426,10 @@ impl Cone {
                 None
             };
 
+            // For ephemeral, return original head (not the ephemeral node)
             yield ConeEvent::ChatComplete {
                 cone_id,
-                new_head,
+                new_head: if is_ephemeral { cone.head } else { new_head },
                 usage: usage_info,
             };
         }
