@@ -29,7 +29,6 @@ thiserror = "1.0"
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 either = "1.9"
-semantic-query = "0.2.0"
 schemars = { version = "1.0.4", features = ["derive", "uuid1"] }
 axum = { version = "0.7" }
 tower = "0.4"
@@ -38,6 +37,8 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 rand = "0.8"
 hostname = "0.3"
 regex = "1.10"
+dirs = "5.0"
+which = "6.0"
 # JSON-RPC server dependencies
 jsonrpc-core = "18.0"
 jsonrpc-stdio-server = "18.0"
@@ -51,16 +52,13 @@ http = "1.0"
 http-body-util = "0.1"
 
 # LLM client
-cllient = { path = "../cllient" }
+cllient = { path = "../../../../cllient" }
 
 # Session types for method protocols
 dialectic = { version = "0.4.1", features = ["tokio"] }
 
 # Hub method macro
-hub-macro = { path = "../hub-macro" }
-
-[patch.crates-io]
-semantic-query = { path = "../semantic-query" }
+hub-macro = { path = "../../../../hub-macro" }
 
 [dev-dependencies]
 hyper = "1"

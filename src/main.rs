@@ -5,6 +5,7 @@ use substrate::{
         health::Health,
         arbor::{ArborConfig, ArborStorage, Arbor},
         cone::{ConeStorageConfig, Cone},
+        claudecode::{ClaudeCode, ClaudeCodeStorage, ClaudeCodeStorageConfig},
     },
 };
 use jsonrpsee::server::{Server, ServerHandle};
@@ -19,19 +20,20 @@ fn substrate_data_dir() -> PathBuf {
 }
 
 /// Ensure the substrate data directory exists and return paths for databases
-fn init_data_dir() -> std::io::Result<(PathBuf, PathBuf)> {
+fn init_data_dir() -> std::io::Result<(PathBuf, PathBuf, PathBuf)> {
     let data_dir = substrate_data_dir();
     std::fs::create_dir_all(&data_dir)?;
 
     let arbor_db = data_dir.join("arbor.db");
     let cone_db = data_dir.join("cone.db");
+    let claudecode_db = data_dir.join("claudecode.db");
 
-    Ok((arbor_db, cone_db))
+    Ok((arbor_db, cone_db, claudecode_db))
 }
 
 /// Build the plexus with all activations registered
 async fn build_plexus() -> Plexus {
-    let (arbor_db, cone_db) = init_data_dir()
+    let (arbor_db, cone_db, claudecode_db) = init_data_dir()
         .expect("Failed to initialize substrate data directory");
 
     // Create shared arbor storage
@@ -50,11 +52,22 @@ async fn build_plexus() -> Plexus {
         db_path: cone_db,
     };
 
+    // ClaudeCode shares the same arbor storage
+    let claudecode_config = ClaudeCodeStorageConfig {
+        db_path: claudecode_db,
+    };
+    let claudecode_storage = Arc::new(
+        ClaudeCodeStorage::new(claudecode_config, arbor_storage.clone())
+            .await
+            .expect("Failed to initialize ClaudeCode storage")
+    );
+
     Plexus::new()
         .register(Health::new())
         .register(Bash::new())
         .register(Arbor::with_storage(arbor_storage.clone()))
         .register(Cone::new(cone_config, arbor_storage).await.unwrap())
+        .register(ClaudeCode::new(claudecode_storage))
 }
 
 #[tokio::main]
