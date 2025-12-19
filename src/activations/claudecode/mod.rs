@@ -9,6 +9,7 @@ pub use executor::{ClaudeCodeExecutor, LaunchConfig};
 pub use storage::{ClaudeCodeStorage, ClaudeCodeStorageConfig};
 pub use types::{
     ChatEvent, ChatUsage, ClaudeCodeConfig, ClaudeCodeError, ClaudeCodeId,
-    ClaudeCodeInfo, Message, MessageId, MessageRole, Model, Position,
-    RawClaudeEvent, RawContentBlock, RawMessage, SessionEvent,
+    ClaudeCodeInfo, CreateResult, DeleteResult, ForkResult, GetResult, ListResult,
+    Message, MessageId, MessageRole, Model, Position,
+    RawClaudeEvent, RawContentBlock, RawMessage,
 };

@@ -184,49 +184,86 @@ pub struct ChatUsage {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SESSION EVENTS - CRUD operations on ClaudeCode sessions
+// METHOD-SPECIFIC RETURN TYPES
+// Each method returns exactly what it needs - no shared enums
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Events emitted by session management operations (create, get, list, delete, fork)
+/// Result of creating a session
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, StreamEvent)]
-#[stream_event(content_type = "claudecode.session")]
+#[stream_event(content_type = "claudecode.created")]
 #[serde(tag = "type")]
-pub enum SessionEvent {
-    /// Session created successfully
+pub enum CreateResult {
     #[serde(rename = "created")]
     #[terminal]
-    Created {
-        claudecode_id: ClaudeCodeId,
+    Ok {
+        id: ClaudeCodeId,
         head: Position,
-        claude_session_id: Option<String>,
     },
-
-    /// Session deleted successfully
-    #[serde(rename = "deleted")]
-    #[terminal]
-    Deleted { claudecode_id: ClaudeCodeId },
-
-    /// Session data returned
-    #[serde(rename = "data")]
-    #[terminal]
-    Data { config: ClaudeCodeConfig },
-
-    /// List of sessions
-    #[serde(rename = "list")]
-    #[terminal]
-    List { sessions: Vec<ClaudeCodeInfo> },
-
-    /// Error during session operation
     #[serde(rename = "error")]
     #[terminal]
-    Error { message: String },
+    Err { message: String },
+}
+
+/// Result of getting a session
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, StreamEvent)]
+#[stream_event(content_type = "claudecode.get")]
+#[serde(tag = "type")]
+pub enum GetResult {
+    #[serde(rename = "ok")]
+    #[terminal]
+    Ok { config: ClaudeCodeConfig },
+    #[serde(rename = "error")]
+    #[terminal]
+    Err { message: String },
+}
+
+/// Result of listing sessions
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, StreamEvent)]
+#[stream_event(content_type = "claudecode.list")]
+#[serde(tag = "type")]
+pub enum ListResult {
+    #[serde(rename = "ok")]
+    #[terminal]
+    Ok { sessions: Vec<ClaudeCodeInfo> },
+    #[serde(rename = "error")]
+    #[terminal]
+    Err { message: String },
+}
+
+/// Result of deleting a session
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, StreamEvent)]
+#[stream_event(content_type = "claudecode.deleted")]
+#[serde(tag = "type")]
+pub enum DeleteResult {
+    #[serde(rename = "deleted")]
+    #[terminal]
+    Ok { id: ClaudeCodeId },
+    #[serde(rename = "error")]
+    #[terminal]
+    Err { message: String },
+}
+
+/// Result of forking a session
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, StreamEvent)]
+#[stream_event(content_type = "claudecode.forked")]
+#[serde(tag = "type")]
+pub enum ForkResult {
+    #[serde(rename = "forked")]
+    #[terminal]
+    Ok {
+        id: ClaudeCodeId,
+        head: Position,
+    },
+    #[serde(rename = "error")]
+    #[terminal]
+    Err { message: String },
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CHAT EVENTS - Streaming conversation with Claude Code
+// CHAT EVENTS - Streaming conversation (needs enum for multiple event types)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Events emitted during chat streaming (mirrors Cone's chat events)
+/// Events emitted during chat streaming
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, StreamEvent)]
 #[stream_event(content_type = "claudecode.chat")]
 #[serde(tag = "type")]
@@ -234,31 +271,25 @@ pub enum ChatEvent {
     /// Chat started - user message stored, streaming begins
     #[serde(rename = "start")]
     Start {
-        claudecode_id: ClaudeCodeId,
-        /// Position of the user message node
+        id: ClaudeCodeId,
         user_position: Position,
     },
 
     /// Content chunk (streaming tokens)
     #[serde(rename = "content")]
-    Content {
-        claudecode_id: ClaudeCodeId,
-        content: String,
-    },
+    Content { text: String },
 
     /// Tool use detected
     #[serde(rename = "tool_use")]
     ToolUse {
-        claudecode_id: ClaudeCodeId,
         tool_name: String,
         tool_use_id: String,
-        tool_input: Value,
+        input: Value,
     },
 
     /// Tool result received
     #[serde(rename = "tool_result")]
     ToolResult {
-        claudecode_id: ClaudeCodeId,
         tool_use_id: String,
         output: String,
         is_error: bool,
@@ -268,19 +299,15 @@ pub enum ChatEvent {
     #[serde(rename = "complete")]
     #[terminal]
     Complete {
-        claudecode_id: ClaudeCodeId,
-        /// New head position after response
         new_head: Position,
-        /// Updated Claude session ID
         claude_session_id: String,
-        /// Usage info
         usage: Option<ChatUsage>,
     },
 
     /// Error during chat
     #[serde(rename = "error")]
     #[terminal]
-    Error { message: String },
+    Err { message: String },
 }
 
 /// Error type for ClaudeCode operations
