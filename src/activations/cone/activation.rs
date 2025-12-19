@@ -55,8 +55,17 @@ impl Cone {
         metadata: Option<serde_json::Value>,
     ) -> impl Stream<Item = ConeEvent> + Send + 'static {
         let storage = self.storage.clone();
+        let llm_registry = self.llm_registry.clone();
 
         stream! {
+            // Validate model exists before creating cone
+            if let Err(e) = llm_registry.from_id(&model_id) {
+                yield ConeEvent::Error {
+                    message: format!("Invalid model_id '{}': {}", model_id, e)
+                };
+                return;
+            }
+
             match storage.cone_create(name, model_id, system_prompt, metadata).await {
                 Ok(cone) => {
                     yield ConeEvent::ConeCreated {

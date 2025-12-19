@@ -6,6 +6,7 @@ use super::{
 use async_stream::stream;
 use futures::{Stream, StreamExt};
 use hub_macro::hub_methods;
+use serde_json::Value;
 use std::sync::Arc;
 
 /// ClaudeCode activation - manages Claude Code sessions with Arbor-backed history
@@ -143,6 +144,11 @@ impl ClaudeCode {
 
             let mut raw_stream = executor.launch(launch_config).await;
 
+            // Track current tool use for streaming tool input
+            let mut current_tool_id: Option<String> = None;
+            let mut current_tool_name: Option<String> = None;
+            let mut current_tool_input = String::new();
+
             while let Some(event) = raw_stream.next().await {
                 match event {
                     RawClaudeEvent::System { session_id: sid, .. } => {
@@ -150,17 +156,64 @@ impl ClaudeCode {
                             claude_session_id = Some(id);
                         }
                     }
+                    RawClaudeEvent::StreamEvent { event: inner, session_id: sid } => {
+                        if let Some(id) = sid {
+                            claude_session_id = Some(id);
+                        }
+                        match inner {
+                            StreamEventInner::ContentBlockDelta { delta, .. } => {
+                                match delta {
+                                    StreamDelta::TextDelta { text } => {
+                                        response_content.push_str(&text);
+                                        yield ClaudeCodeEvent::ChatContent {
+                                            claudecode_id: session_id,
+                                            content: text,
+                                        };
+                                    }
+                                    StreamDelta::InputJsonDelta { partial_json } => {
+                                        current_tool_input.push_str(&partial_json);
+                                    }
+                                }
+                            }
+                            StreamEventInner::ContentBlockStart { content_block, .. } => {
+                                if let Some(StreamContentBlock::ToolUse { id, name, .. }) = content_block {
+                                    current_tool_id = Some(id);
+                                    current_tool_name = Some(name);
+                                    current_tool_input.clear();
+                                }
+                            }
+                            StreamEventInner::ContentBlockStop { .. } => {
+                                // Emit tool use if we were building one
+                                if let (Some(id), Some(name)) = (current_tool_id.take(), current_tool_name.take()) {
+                                    let input: Value = serde_json::from_str(&current_tool_input)
+                                        .unwrap_or(Value::Object(serde_json::Map::new()));
+                                    yield ClaudeCodeEvent::ChatToolUse {
+                                        claudecode_id: session_id,
+                                        tool_name: name,
+                                        tool_use_id: id,
+                                        tool_input: input,
+                                    };
+                                    current_tool_input.clear();
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
                     RawClaudeEvent::Assistant { message } => {
+                        // Still handle non-streaming assistant messages (tool results, etc.)
                         if let Some(msg) = message {
                             if let Some(content) = msg.content {
                                 for block in content {
                                     match block {
                                         RawContentBlock::Text { text } => {
-                                            response_content.push_str(&text);
-                                            yield ClaudeCodeEvent::ChatContent {
-                                                claudecode_id: session_id,
-                                                content: text,
-                                            };
+                                            // Only emit if we haven't already streamed this
+                                            if response_content.is_empty() {
+                                                response_content.push_str(&text);
+                                                yield ClaudeCodeEvent::ChatContent {
+                                                    claudecode_id: session_id,
+                                                    content: text,
+                                                };
+                                            }
                                         }
                                         RawContentBlock::ToolUse { id, name, input } => {
                                             yield ClaudeCodeEvent::ChatToolUse {

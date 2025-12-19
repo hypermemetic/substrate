@@ -101,6 +101,7 @@ impl ClaudeCodeExecutor {
         let mut args = vec![
             "--output-format".to_string(),
             "stream-json".to_string(),
+            "--include-partial-messages".to_string(),
             "--verbose".to_string(),
             "--print".to_string(),
         ];

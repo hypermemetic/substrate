@@ -352,6 +352,84 @@ pub enum RawClaudeEvent {
         result: Option<String>,
         error: Option<String>,
     },
+
+    /// Stream event (partial message chunks from --include-partial-messages)
+    #[serde(rename = "stream_event")]
+    StreamEvent {
+        event: StreamEventInner,
+        session_id: Option<String>,
+    },
+}
+
+/// Inner event types for stream_event
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type")]
+pub enum StreamEventInner {
+    #[serde(rename = "message_start")]
+    MessageStart {
+        message: Option<StreamMessage>,
+    },
+
+    #[serde(rename = "content_block_start")]
+    ContentBlockStart {
+        index: usize,
+        content_block: Option<StreamContentBlock>,
+    },
+
+    #[serde(rename = "content_block_delta")]
+    ContentBlockDelta {
+        index: usize,
+        delta: StreamDelta,
+    },
+
+    #[serde(rename = "content_block_stop")]
+    ContentBlockStop {
+        index: usize,
+    },
+
+    #[serde(rename = "message_delta")]
+    MessageDelta {
+        delta: MessageDeltaInfo,
+    },
+
+    #[serde(rename = "message_stop")]
+    MessageStop,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct StreamMessage {
+    pub model: Option<String>,
+    pub role: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type")]
+pub enum StreamContentBlock {
+    #[serde(rename = "text")]
+    Text { text: Option<String> },
+
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        id: String,
+        name: String,
+        input: Option<Value>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type")]
+pub enum StreamDelta {
+    #[serde(rename = "text_delta")]
+    TextDelta { text: String },
+
+    #[serde(rename = "input_json_delta")]
+    InputJsonDelta { partial_json: String },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MessageDeltaInfo {
+    pub stop_reason: Option<String>,
+    pub stop_sequence: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
