@@ -100,13 +100,15 @@ pub struct PlexusSchema {
 ///     }
 /// }
 /// ```
+use super::method_enum::MethodEnumSchema;
+
 #[async_trait]
 pub trait Activation: Send + Sync + Clone + 'static {
     /// The Method enum type defining all methods this activation supports
     ///
-    /// This type must implement JsonSchema and Serialize. The schema will be
-    /// automatically generated from this type.
-    type Methods: schemars::JsonSchema + serde::Serialize;
+    /// This type must implement JsonSchema, Serialize, and MethodEnumSchema.
+    /// The schema will be automatically generated with proper const discriminators.
+    type Methods: MethodEnumSchema;
 
     /// Activation namespace (e.g., "health", "bash", "arbor")
     fn namespace(&self) -> &str;

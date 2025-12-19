@@ -322,3 +322,63 @@ mod tests {
             "Schema should contain descriptions from doc comments");
     }
 }
+
+impl crate::plexus::MethodEnumSchema for ArborMethod {
+    fn method_names() -> &'static [&'static str] {
+        &[
+            "tree_create",
+            "tree_get",
+            "tree_get_skeleton",
+            "tree_list",
+            "tree_update_metadata",
+            "tree_claim",
+            "tree_release",
+            "node_create_text",
+            "node_create_external",
+            "node_get",
+            "node_get_children",
+            "node_get_parent",
+            "node_get_path",
+            "context_list_leaves",
+            "context_get_path",
+            "context_get_handles",
+            "tree_list_scheduled",
+            "tree_list_archived",
+            "tree_render",
+        ]
+    }
+
+    fn schema_with_consts() -> serde_json::Value {
+        use schemars::JsonSchema;
+        let schema = Self::json_schema(&mut schemars::SchemaGenerator::default());
+        let mut value = serde_json::to_value(schema).expect("Schema should serialize");
+        let method_names = Self::method_names();
+
+        if let Some(obj) = value.as_object_mut() {
+            if let Some(one_of) = obj.get_mut("oneOf") {
+                if let Some(variants) = one_of.as_array_mut() {
+                    for (i, variant) in variants.iter_mut().enumerate() {
+                        if let Some(variant_obj) = variant.as_object_mut() {
+                            if let Some(props) = variant_obj.get_mut("properties") {
+                                if let Some(props_obj) = props.as_object_mut() {
+                                    if let Some(method_prop) = props_obj.get_mut("method") {
+                                        if let Some(method_obj) = method_prop.as_object_mut() {
+                                            method_obj.remove("type");
+                                            if let Some(name) = method_names.get(i) {
+                                                method_obj.insert(
+                                                    "const".to_string(),
+                                                    serde_json::Value::String(name.to_string()),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        value
+    }
+}
