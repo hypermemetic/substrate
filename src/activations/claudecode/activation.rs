@@ -258,6 +258,9 @@ impl ClaudeCode {
                                                 is_error: is_error.unwrap_or(false),
                                             };
                                         }
+                                        RawContentBlock::Thinking { thinking, .. } => {
+                                            yield ChatEvent::Thinking { thinking };
+                                        }
                                     }
                                 }
                             }
@@ -285,7 +288,27 @@ impl ClaudeCode {
                             }
                         }
                     }
-                    _ => {}
+                    RawClaudeEvent::Unknown { event_type, data } => {
+                        // Store unknown event and get handle
+                        match storage.unknown_event_store(Some(&session_id), &event_type, &data).await {
+                            Ok(handle) => {
+                                tracing::debug!(event_type = %event_type, handle = %handle, "Unknown Claude event stored");
+                                yield ChatEvent::Unknown { event_type, handle, data };
+                            }
+                            Err(e) => {
+                                tracing::warn!(event_type = %event_type, error = %e, "Failed to store unknown event");
+                                // Still forward the event even if storage fails
+                                yield ChatEvent::Unknown {
+                                    event_type,
+                                    handle: "storage-failed".to_string(),
+                                    data,
+                                };
+                            }
+                        }
+                    }
+                    RawClaudeEvent::User { .. } => {
+                        // User events are echoed back but we don't need to process them
+                    }
                 }
             }
 

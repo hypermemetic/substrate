@@ -279,6 +279,10 @@ pub enum ChatEvent {
     #[serde(rename = "content")]
     Content { text: String },
 
+    /// Thinking block - Claude's internal reasoning
+    #[serde(rename = "thinking")]
+    Thinking { thinking: String },
+
     /// Tool use detected
     #[serde(rename = "tool_use")]
     ToolUse {
@@ -302,6 +306,15 @@ pub enum ChatEvent {
         new_head: Position,
         claude_session_id: String,
         usage: Option<ChatUsage>,
+    },
+
+    /// Unknown event from Claude Code - forwards unrecognized events
+    /// Data is stored separately (referenced by handle) and also forwarded inline
+    #[serde(rename = "unknown")]
+    Unknown {
+        event_type: String,
+        handle: String,
+        data: Value,
     },
 
     /// Error during chat
@@ -385,6 +398,14 @@ pub enum RawClaudeEvent {
     StreamEvent {
         event: StreamEventInner,
         session_id: Option<String>,
+    },
+
+    /// Unknown event type - captures events we don't recognize
+    /// This is constructed manually in executor.rs, not via serde
+    #[serde(skip)]
+    Unknown {
+        event_type: String,
+        data: Value,
     },
 }
 
@@ -472,6 +493,13 @@ pub struct RawMessage {
 pub enum RawContentBlock {
     #[serde(rename = "text")]
     Text { text: String },
+
+    #[serde(rename = "thinking")]
+    Thinking {
+        thinking: String,
+        #[serde(default)]
+        signature: Option<String>,
+    },
 
     #[serde(rename = "tool_use")]
     ToolUse {

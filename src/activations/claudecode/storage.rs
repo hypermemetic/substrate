@@ -86,6 +86,18 @@ impl ClaudeCodeStorage {
             CREATE INDEX IF NOT EXISTS idx_claudecode_sessions_name ON claudecode_sessions(name);
             CREATE INDEX IF NOT EXISTS idx_claudecode_sessions_tree ON claudecode_sessions(tree_id);
             CREATE INDEX IF NOT EXISTS idx_claudecode_messages_session ON claudecode_messages(session_id);
+
+            CREATE TABLE IF NOT EXISTS claudecode_unknown_events (
+                id TEXT PRIMARY KEY,
+                session_id TEXT,
+                event_type TEXT NOT NULL,
+                data TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES claudecode_sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_claudecode_unknown_events_session ON claudecode_unknown_events(session_id);
+            CREATE INDEX IF NOT EXISTS idx_claudecode_unknown_events_type ON claudecode_unknown_events(event_type);
             "#,
         )
         .execute(&self.pool)
@@ -526,6 +538,78 @@ impl ClaudeCodeStorage {
             identifier: format!("msg-{}:{}:{}", message.id, message.role.as_str(), name),
             metadata: None,
         }
+    }
+
+    // ========================================================================
+    // Unknown Event Operations
+    // ========================================================================
+
+    /// Store an unknown event and return its ID (handle)
+    pub async fn unknown_event_store(
+        &self,
+        session_id: Option<&ClaudeCodeId>,
+        event_type: &str,
+        data: &Value,
+    ) -> Result<String, ClaudeCodeError> {
+        let id = Uuid::new_v4().to_string();
+        let now = current_timestamp();
+        let data_json = serde_json::to_string(data)
+            .map_err(|e| format!("Failed to serialize unknown event data: {}", e))?;
+
+        sqlx::query(
+            "INSERT INTO claudecode_unknown_events (id, session_id, event_type, data, created_at)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(session_id.map(|s| s.to_string()))
+        .bind(event_type)
+        .bind(&data_json)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to store unknown event: {}", e))?;
+
+        Ok(id)
+    }
+
+    /// Retrieve an unknown event by ID
+    pub async fn unknown_event_get(&self, id: &str) -> Result<(String, Value), ClaudeCodeError> {
+        let row = sqlx::query(
+            "SELECT event_type, data FROM claudecode_unknown_events WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to fetch unknown event: {}", e))?
+        .ok_or_else(|| format!("Unknown event not found: {}", id))?;
+
+        let event_type: String = row.get("event_type");
+        let data_json: String = row.get("data");
+        let data: Value = serde_json::from_str(&data_json)
+            .map_err(|e| format!("Failed to parse unknown event data: {}", e))?;
+
+        Ok((event_type, data))
+    }
+
+    /// List unknown events by type (for analysis/debugging)
+    pub async fn unknown_events_by_type(&self, event_type: &str) -> Result<Vec<(String, Value)>, ClaudeCodeError> {
+        let rows = sqlx::query(
+            "SELECT id, data FROM claudecode_unknown_events WHERE event_type = ? ORDER BY created_at DESC",
+        )
+        .bind(event_type)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to list unknown events: {}", e))?;
+
+        rows.iter()
+            .map(|row| {
+                let id: String = row.get("id");
+                let data_json: String = row.get("data");
+                let data: Value = serde_json::from_str(&data_json)
+                    .map_err(|e| format!("Failed to parse unknown event data: {}", e))?;
+                Ok((id, data))
+            })
+            .collect()
     }
 
     // ========================================================================
