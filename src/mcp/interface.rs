@@ -173,10 +173,17 @@ impl McpInterface {
         Ok(Value::Null)
     }
 
-    // === Utility Handlers (stubs - implemented in MCP-7) ===
+    // === Utility Handlers ===
 
+    /// Handle the `ping` request (MCP-7)
+    ///
+    /// Simple health check that returns an empty object.
+    /// Can be used for keepalive in long-running connections.
     async fn handle_ping(&self, _params: Value) -> Result<Value, McpError> {
-        Err(McpError::NotImplemented("ping".to_string()))
+        // Ping works in Ready state only
+        self.state.require_ready()?;
+
+        Ok(serde_json::json!({}))
     }
 
     // === Tool Handlers ===
@@ -287,9 +294,8 @@ mod tests {
         let mcp = McpInterface::new(plexus);
 
         // Stub methods should return NotImplemented until implemented
-        // Note: initialize (MCP-4), initialized (MCP-6), tools/list (MCP-5/MCP-8) are implemented
+        // Implemented: initialize, initialized, tools/list, ping
         let stub_methods = [
-            "ping",
             "tools/call",
             "resources/list",
             "resources/read",
@@ -442,6 +448,30 @@ mod tests {
         });
         mcp.handle("initialize", init_params).await.unwrap();
         mcp.handle("notifications/initialized", Value::Null).await.unwrap();
+    }
+
+    // === Ping Tests (MCP-7) ===
+
+    #[tokio::test]
+    async fn test_ping_requires_ready() {
+        let plexus = Arc::new(Plexus::new());
+        let mcp = McpInterface::new(plexus);
+
+        // Without handshake, should fail
+        let result = mcp.handle("ping", Value::Null).await;
+        assert!(matches!(result, Err(McpError::State(_))));
+    }
+
+    #[tokio::test]
+    async fn test_ping_success() {
+        let plexus = Arc::new(Plexus::new());
+        let mcp = McpInterface::new(plexus);
+        complete_handshake(&mcp).await;
+
+        let result = mcp.handle("ping", Value::Null).await.unwrap();
+
+        // Ping returns empty object
+        assert_eq!(result, json!({}));
     }
 
     // === Tools List Tests (MCP-5 + MCP-8) ===
