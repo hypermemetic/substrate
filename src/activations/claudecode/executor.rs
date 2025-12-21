@@ -212,12 +212,28 @@ impl ClaudeCodeExecutor {
                 None
             };
 
-            // Spawn Claude process
-            let mut cmd = Command::new(&claude_path);
-            cmd.args(&args)
+            // Spawn Claude process via shell to ensure clean process context
+            // This avoids any potential issues with nested Claude sessions
+            fn shell_escape(s: &str) -> String {
+                // Escape by wrapping in single quotes and escaping any single quotes
+                format!("'{}'", s.replace("'", "'\\''"))
+            }
+
+            let shell_cmd = format!(
+                "{} {}",
+                shell_escape(&claude_path),
+                args.iter()
+                    .map(|a| shell_escape(a))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+
+            let mut cmd = Command::new("bash");
+            cmd.args(&["-c", &shell_cmd])
                 .current_dir(&working_dir)
                 .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
+                .stderr(Stdio::piped())
+                .stdin(Stdio::null());
 
             let mut child = match cmd.spawn() {
                 Ok(c) => c,
@@ -253,9 +269,24 @@ impl ClaudeCodeExecutor {
                             break;
                         }
                     }
-                    Err(e) => {
-                        // Log parse error but continue - some lines may be non-JSON
-                        eprintln!("Failed to parse Claude event: {} - line: {}", e, &line[..line.len().min(100)]);
+                    Err(_) => {
+                        // Try to parse as generic JSON and wrap as Unknown event
+                        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+                            let event_type = value.get("type")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("unknown_json")
+                                .to_string();
+                            yield RawClaudeEvent::Unknown {
+                                event_type,
+                                data: value,
+                            };
+                        } else {
+                            // Non-JSON output (raw text, errors, etc.)
+                            yield RawClaudeEvent::Unknown {
+                                event_type: "raw_output".to_string(),
+                                data: serde_json::Value::String(line),
+                            };
+                        }
                     }
                 }
             }
