@@ -266,14 +266,15 @@ trait ActivationObject: Send + Sync + ActivationGuidanceInfo + 'static {
 pub struct Plexus {
     activations: HashMap<String, Arc<dyn ActivationObject>>,
     /// Pending activations that haven't been converted to RPC yet
-    pending_rpc: Vec<Box<dyn FnOnce() -> Methods + Send>>,
+    /// Wrapped in Mutex to make Plexus Sync (required for MCP HTTP transport)
+    pending_rpc: std::sync::Mutex<Vec<Box<dyn FnOnce() -> Methods + Send>>>,
 }
 
 impl Plexus {
     pub fn new() -> Self {
         Self {
             activations: HashMap::new(),
-            pending_rpc: Vec::new(),
+            pending_rpc: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -289,6 +290,8 @@ impl Plexus {
         let wrapped = ActivationWrapper::new(activation);
         self.activations.insert(namespace, Arc::new(wrapped));
         self.pending_rpc
+            .lock()
+            .unwrap()
             .push(Box::new(move || activation_for_rpc.into_rpc_methods()));
         self
     }
@@ -661,8 +664,9 @@ impl Plexus {
             },
         )?;
 
-        // Merge activation methods
-        for factory in self.pending_rpc {
+        // Merge activation methods (drain from mutex)
+        let pending = std::mem::take(&mut *self.pending_rpc.lock().unwrap());
+        for factory in pending {
             module.merge(factory())?;
         }
         Ok(module)

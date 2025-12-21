@@ -7,6 +7,7 @@ use substrate::{
         cone::{ConeStorageConfig, Cone},
         claudecode::{ClaudeCode, ClaudeCodeStorage, ClaudeCodeStorageConfig},
     },
+    mcp::{McpInterface, transport::mcp_router},
 };
 use jsonrpsee::server::{Server, ServerHandle};
 use jsonrpsee::RpcModule;
@@ -203,14 +204,30 @@ async fn main() -> anyhow::Result<()> {
         // Stdio transport (MCP-compatible)
         serve_stdio(module).await
     } else {
-        // WebSocket transport (default)
-        let addr: SocketAddr = format!("127.0.0.1:{}", args.port).parse()?;
-        let server = Server::builder()
-            .build(addr)
-            .await?;
-        let handle: ServerHandle = server.start(module);
+        // WebSocket transport (default) + MCP HTTP endpoint
+        let ws_addr: SocketAddr = format!("127.0.0.1:{}", args.port).parse()?;
+        let mcp_addr: SocketAddr = format!("127.0.0.1:{}", args.port + 1).parse()?;
 
-        tracing::info!("Substrate plexus started at ws://{}", addr);
+        // Start WebSocket server for Plexus RPC
+        let ws_server = Server::builder()
+            .build(ws_addr)
+            .await?;
+        let ws_handle: ServerHandle = ws_server.start(module);
+
+        // Build MCP interface with a fresh Plexus (since module consumed the first one)
+        let mcp_plexus = Arc::new(build_plexus().await);
+        let mcp_interface = Arc::new(McpInterface::new(mcp_plexus));
+        let mcp_app = mcp_router(mcp_interface);
+
+        // Start MCP HTTP server
+        let mcp_listener = tokio::net::TcpListener::bind(mcp_addr).await?;
+        let mcp_handle = tokio::spawn(async move {
+            axum::serve(mcp_listener, mcp_app).await
+        });
+
+        tracing::info!("Substrate plexus started");
+        tracing::info!("  WebSocket: ws://{}", ws_addr);
+        tracing::info!("  MCP HTTP:  http://{}/mcp", mcp_addr);
         tracing::info!("Data directory: {}", substrate_data_dir().display());
         tracing::info!("Plexus hash: {}", plexus_hash);
         tracing::info!("");
@@ -233,8 +250,19 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("");
         tracing::info!("Total methods: {} (+{} plexus)", methods.len(), plexus_methods.len());
 
-        // Keep server running
-        handle.stopped().await;
+        // Wait for either server to stop
+        tokio::select! {
+            _ = ws_handle.stopped() => {
+                tracing::info!("WebSocket server stopped");
+            }
+            result = mcp_handle => {
+                match result {
+                    Ok(Ok(())) => tracing::info!("MCP server stopped"),
+                    Ok(Err(e)) => tracing::error!("MCP server error: {}", e),
+                    Err(e) => tracing::error!("MCP server task failed: {}", e),
+                }
+            }
+        }
 
         Ok(())
     }

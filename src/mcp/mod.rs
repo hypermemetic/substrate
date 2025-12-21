@@ -21,6 +21,7 @@ pub mod error;
 pub mod interface;
 pub mod schema;
 pub mod state;
+pub mod transport;
 pub mod types;
 
 pub use error::{ErrorCode, JsonRpcError, McpError};
