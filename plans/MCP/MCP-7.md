@@ -2,7 +2,7 @@
 
 ## Metadata
 - **blocked_by:** [MCP-6]
-- **unlocks:** [MCP-8, MCP-10]
+- **unlocks:** [MCP-8, MCP-9]
 - **priority:** Critical (on critical path)
 
 ## Scope

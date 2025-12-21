@@ -1,133 +1,192 @@
-# MCP-9: Stream Buffering Utilities
+# MCP-9: Tools Call + SSE Streaming
 
 ## Metadata
-- **blocked_by:** [MCP-2]
-- **unlocks:** [MCP-10]
-- **priority:** High (can start early, parallel with lifecycle)
+- **blocked_by:** [MCP-3, MCP-7]
+- **unlocks:** [MCP-10, MCP-11]
+- **priority:** Critical (on critical path)
 
 ## Scope
 
-Create utilities to buffer Plexus streaming events into MCP's single-response format.
+Implement `tools/call` with native SSE streaming. No buffering - stream Plexus events directly as MCP progress notifications.
+
+## Protocol
+
+**Request:**
+```http
+POST /mcp HTTP/1.1
+Content-Type: application/json
+Accept: text/event-stream
+
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"claudecode.chat","arguments":{...}}}
+```
+
+**Response (SSE stream):**
+```http
+HTTP/1.1 200 OK
+Content-Type: text/event-stream
+Mcp-Session-Id: abc123
+
+event: message
+id: evt-1
+data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"xyz","message":"Hello"}}
+
+event: message
+id: evt-2
+data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"xyz","message":" world"}}
+
+event: message
+id: evt-3
+data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"Hello world"}],"isError":false}}
+```
 
 ## Implementation
 
 ```rust
-// src/mcp/buffer.rs
+// src/mcp/handlers/tools_call.rs
 
-use futures::StreamExt;
+impl McpInterface {
+    /// Stream tools/call as SSE - no buffering
+    pub fn handle_tools_call_sse(
+        &self,
+        request_id: Value,
+        params: ToolsCallParams,
+    ) -> impl Stream<Item = SseEvent> {
+        let progress_token = Uuid::new_v4().to_string();
+        let plexus = self.plexus.clone();
 
-#[derive(Debug, Serialize)]
-pub struct McpContent {
-    #[serde(rename = "type")]
-    pub content_type: String,
-    pub text: String,
-}
+        async_stream::stream! {
+            // Parse tool name
+            let (namespace, method) = match params.name.split_once('.') {
+                Some(parts) => parts,
+                None => {
+                    yield error_sse(request_id, "Invalid tool name format");
+                    return;
+                }
+            };
 
-#[derive(Debug, Serialize)]
-pub struct ToolCallResult {
-    pub content: Vec<McpContent>,
-    #[serde(rename = "isError")]
-    pub is_error: bool,
-}
+            // Get stream from Plexus
+            let stream = match plexus.call(&format!("{}.{}", namespace, method), params.arguments).await {
+                Ok(s) => s,
+                Err(e) => {
+                    yield error_sse(request_id, &e.to_string());
+                    return;
+                }
+            };
 
-/// Buffer a Plexus stream into an MCP tools/call result
-pub async fn buffer_plexus_stream<S, E>(stream: S) -> ToolCallResult
-where
-    S: Stream<Item = E> + Unpin,
-    E: PlexusEvent,
-{
-    let mut contents = Vec::new();
-    let mut is_error = false;
-    let mut text_buffer = String::new();
+            let mut event_id = 0;
+            let mut final_content = Vec::new();
 
-    pin_mut!(stream);
-    while let Some(event) = stream.next().await {
-        match event.event_type() {
-            // Accumulate text content
-            EventType::Content => {
-                if let Some(text) = event.text() {
-                    text_buffer.push_str(&text);
+            pin_mut!(stream);
+            while let Some(event) = stream.next().await {
+                event_id += 1;
+
+                match event.event_type() {
+                    EventType::Content => {
+                        if let Some(text) = event.text() {
+                            final_content.push(text.clone());
+                            yield progress_sse(&progress_token, event_id, &text);
+                        }
+                    }
+                    EventType::ToolUse => {
+                        if let Some(info) = event.tool_info() {
+                            yield progress_sse(&progress_token, event_id,
+                                &format!("Using tool: {}", info.name));
+                        }
+                    }
+                    EventType::Error => {
+                        yield error_sse(request_id.clone(),
+                            &event.error_message().unwrap_or_default());
+                        return;
+                    }
+                    EventType::Complete => {
+                        yield result_sse(request_id.clone(), &final_content.join(""), false);
+                        return;
+                    }
+                    _ => {}
                 }
             }
 
-            // Capture tool invocations as text
-            EventType::ToolUse => {
-                if let Some(tool_info) = event.tool_info() {
-                    contents.push(McpContent {
-                        content_type: "text".into(),
-                        text: format!("[Tool: {}] {}", tool_info.name, tool_info.input),
-                    });
-                }
-            }
-
-            // Capture errors
-            EventType::Error => {
-                is_error = true;
-                if let Some(msg) = event.error_message() {
-                    contents.push(McpContent {
-                        content_type: "text".into(),
-                        text: msg,
-                    });
-                }
-            }
-
-            // Terminal events
-            EventType::Complete | EventType::Done => break,
-
-            // Skip lifecycle events
-            _ => {}
+            // Stream ended without Complete event
+            yield result_sse(request_id, &final_content.join(""), false);
         }
     }
-
-    // Prepend accumulated text as first content block
-    if !text_buffer.is_empty() {
-        contents.insert(0, McpContent {
-            content_type: "text".into(),
-            text: text_buffer,
-        });
-    }
-
-    // Ensure at least one content block
-    if contents.is_empty() {
-        contents.push(McpContent {
-            content_type: "text".into(),
-            text: "".into(),
-        });
-    }
-
-    ToolCallResult { content: contents, is_error }
 }
 
-/// Trait for extracting info from various Plexus event types
-pub trait PlexusEvent {
-    fn event_type(&self) -> EventType;
-    fn text(&self) -> Option<String>;
-    fn error_message(&self) -> Option<String>;
-    fn tool_info(&self) -> Option<ToolInfo>;
+fn progress_sse(token: &str, id: usize, message: &str) -> SseEvent {
+    SseEvent {
+        id: format!("evt-{}", id),
+        data: json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": {
+                "progressToken": token,
+                "progress": id,
+                "message": message
+            }
+        }),
+    }
 }
 
-pub enum EventType {
-    Start,
-    Content,
-    ToolUse,
-    ToolResult,
-    Error,
-    Complete,
-    Done,
-    Unknown,
+fn result_sse(request_id: Value, text: &str, is_error: bool) -> SseEvent {
+    SseEvent {
+        id: "final".into(),
+        data: json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "content": [{ "type": "text", "text": text }],
+                "isError": is_error
+            }
+        }),
+    }
+}
+```
+
+## HTTP Handler
+
+```rust
+// src/transport/http.rs
+
+async fn handle_mcp_post(req: Request, mcp: Arc<McpInterface>) -> Response {
+    let body: JsonRpcRequest = req.json().await?;
+
+    match body.method.as_str() {
+        "tools/call" => {
+            // Always stream via SSE
+            let params: ToolsCallParams = serde_json::from_value(body.params)?;
+            let stream = mcp.handle_tools_call_sse(body.id, params);
+
+            Response::builder()
+                .header("Content-Type", "text/event-stream")
+                .header("Cache-Control", "no-cache")
+                .header("Mcp-Session-Id", Uuid::new_v4().to_string())
+                .body(Body::from_stream(stream))
+        }
+        _ => {
+            // Other methods return JSON directly
+            let result = mcp.handle(&body.method, body.params).await?;
+            Response::json(json!({
+                "jsonrpc": "2.0",
+                "id": body.id,
+                "result": result
+            }))
+        }
+    }
 }
 ```
 
 ## Files to Create/Modify
 
-- Create `src/mcp/buffer.rs`
-- Update `src/mcp/mod.rs`
+- Create `src/mcp/handlers/tools_call.rs`
+- Create `src/mcp/sse.rs` (SSE event types)
+- Create `src/transport/http.rs`
+- Update `src/main.rs` for HTTP server
 
 ## Acceptance Criteria
 
-- [ ] Buffers stream events into single `ToolCallResult`
-- [ ] Accumulates text content into single block
-- [ ] Captures tool usage as text descriptions
-- [ ] Sets `isError: true` on error events
-- [ ] Works with any Plexus activation's event stream
-- [ ] Unit tests with mock streams
+- [ ] `tools/call` streams SSE events
+- [ ] Progress notifications include message field
+- [ ] Final result ends the stream
+- [ ] Error events close stream with `isError: true`
+- [ ] Mcp-Session-Id header for tracking
+- [ ] Works with MCP 2025-03-26 Streamable HTTP spec

@@ -1,120 +1,109 @@
-# MCP-12: Streamable HTTP Transport (SSE)
+# MCP-12: Prompts (Cone Integration)
 
 ## Metadata
-- **blocked_by:** [MCP-10]
-- **unlocks:** [MCP-14, MCP-15]
-- **priority:** Medium
+- **blocked_by:** [MCP-11]
+- **unlocks:** []
+- **priority:** Low (optional feature)
 
 ## Scope
 
-Implement MCP 2025-03-26 Streamable HTTP transport with SSE for real-time progress.
+Expose Cone sessions as MCP prompt templates.
 
-## Endpoints
+## Protocol
 
-```
-POST /mcp          - JSON-RPC requests (may return SSE stream)
-GET  /mcp          - Server-initiated messages (optional)
-DELETE /mcp        - Session termination
-```
+### prompts/list
 
-## Request/Response Flow
-
-**Simple JSON response (short operations):**
-```http
-POST /mcp HTTP/1.1
-Content-Type: application/json
-
-{"jsonrpc":"2.0","id":1,"method":"ping"}
-
----
-
-HTTP/1.1 200 OK
-Content-Type: application/json
-
-{"jsonrpc":"2.0","id":1,"result":{}}
+**Response:**
+```json
+{
+  "result": {
+    "prompts": [{
+      "name": "cone:research-assistant",
+      "description": "Research assistant with web access",
+      "arguments": [{ "name": "query", "required": true }]
+    }]
+  }
+}
 ```
 
-**SSE streaming response (long operations):**
-```http
-POST /mcp HTTP/1.1
-Content-Type: application/json
-Accept: application/json, text/event-stream
+### prompts/get
 
-{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"claudecode.chat",...}}
+**Request:**
+```json
+{ "method": "prompts/get", "params": { "name": "cone:research-assistant", "arguments": { "query": "quantum computing" } } }
+```
 
----
-
-HTTP/1.1 200 OK
-Content-Type: text/event-stream
-Mcp-Session-Id: abc123
-
-event: message
-id: evt-1
-data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"xyz","message":"Hello"}}
-
-event: message
-id: evt-2
-data: {"jsonrpc":"2.0","id":1,"result":{"content":[...],"isError":false}}
+**Response:**
+```json
+{
+  "result": {
+    "description": "Research assistant session",
+    "messages": [{
+      "role": "user",
+      "content": { "type": "text", "text": "Research the following: quantum computing" }
+    }]
+  }
+}
 ```
 
 ## Implementation
 
 ```rust
-// src/transport/http.rs
+impl McpInterface {
+    pub async fn handle_prompts_list(&self, _params: Value) -> Result<Value, McpError> {
+        self.state.require_ready()?;
 
-pub struct HttpMcpTransport {
-    mcp: McpInterface,
-}
+        let cone = match self.plexus.get_activation("cone") {
+            Some(c) => c,
+            None => return Ok(json!({ "prompts": [] })),
+        };
 
-impl HttpMcpTransport {
-    async fn handle_post(&self, req: Request) -> Response {
-        let accepts_sse = req.headers()
-            .get("Accept")
-            .map(|v| v.to_str().unwrap_or("").contains("text/event-stream"))
-            .unwrap_or(false);
+        let cones = cone.list().await?;
+        let prompts: Vec<McpPrompt> = cones.iter()
+            .filter(|c| c.system_prompt.is_some())
+            .map(|c| McpPrompt {
+                name: format!("cone:{}", c.name),
+                description: c.system_prompt.clone(),
+                arguments: vec![PromptArgument { name: "query".into(), required: true }],
+            })
+            .collect();
 
-        let body: JsonRpcRequest = req.json().await?;
-
-        if accepts_sse && self.is_streamable(&body.method) {
-            // Return SSE stream
-            self.stream_response(body).await
-        } else {
-            // Return buffered JSON
-            self.json_response(body).await
-        }
+        Ok(serde_json::to_value(PromptsListResult { prompts })?)
     }
 
-    fn is_streamable(&self, method: &str) -> bool {
-        method == "tools/call"
-    }
+    pub async fn handle_prompts_get(&self, params: Value) -> Result<Value, McpError> {
+        self.state.require_ready()?;
+        let params: PromptsGetParams = serde_json::from_value(params)?;
 
-    async fn stream_response(&self, request: JsonRpcRequest) -> Response {
-        let session_id = Uuid::new_v4().to_string();
+        let cone_name = params.name.strip_prefix("cone:")
+            .ok_or(McpError::PromptNotFound(params.name.clone()))?;
 
-        // Get Plexus stream and convert to SSE
-        let sse_stream = self.mcp.stream_tools_call(request).await;
+        let cone = self.plexus.get_activation("cone")?;
+        let config = cone.get_by_name(cone_name).await?;
 
-        Response::builder()
-            .header("Content-Type", "text/event-stream")
-            .header("Cache-Control", "no-cache")
-            .header("Mcp-Session-Id", &session_id)
-            .body(Body::from_stream(sse_stream))
+        let query = params.arguments.get("query")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        Ok(serde_json::to_value(PromptsGetResult {
+            description: config.system_prompt,
+            messages: vec![PromptMessage {
+                role: "user".into(),
+                content: MessageContent::Text { text: query.to_string() },
+            }],
+        })?)
     }
 }
 ```
 
 ## Files to Create/Modify
 
-- Create `src/transport/http.rs`
-- Create `src/mcp/streaming.rs` (SSE event generation)
-- Modify `src/main.rs` for HTTP server option
+- Create `src/mcp/handlers/prompts.rs`
+- Update `src/mcp/handlers/mod.rs`
 
 ## Acceptance Criteria
 
-- [ ] POST /mcp accepts JSON-RPC requests
-- [ ] Short operations return JSON
-- [ ] Long operations stream SSE with progress
-- [ ] Mcp-Session-Id header for session tracking
-- [ ] Progress notifications include message field
-- [ ] Final result ends the SSE stream
-- [ ] Works with MCP 2025-03-26 clients
+- [ ] Lists Cone sessions with system prompts
+- [ ] Returns empty list if Cone not available
+- [ ] `prompts/get` returns initial message
+- [ ] Uses `cone:` prefix for names
