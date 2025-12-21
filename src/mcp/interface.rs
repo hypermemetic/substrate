@@ -8,8 +8,11 @@ use serde_json::Value;
 
 use super::{
     error::McpError,
-    state::McpStateMachine,
-    types::ServerInfo,
+    state::{McpState, McpStateMachine},
+    types::{
+        InitializeParams, InitializeResult, LoggingCapability, ResourcesCapability,
+        ServerCapabilities, ServerInfo, ToolsCapability, SUPPORTED_VERSIONS,
+    },
 };
 use crate::plexus::Plexus;
 
@@ -86,10 +89,68 @@ impl McpInterface {
         }
     }
 
-    // === Lifecycle Handlers (stubs - implemented in MCP-4, MCP-6) ===
+    // === Lifecycle Handlers ===
 
-    async fn handle_initialize(&self, _params: Value) -> Result<Value, McpError> {
-        Err(McpError::NotImplemented("initialize".to_string()))
+    /// Handle the `initialize` request (MCP-4)
+    ///
+    /// This must be called first before any other methods.
+    /// Validates protocol version and returns server capabilities.
+    async fn handle_initialize(&self, params: Value) -> Result<Value, McpError> {
+        // Must be in Uninitialized state
+        self.state.require(McpState::Uninitialized)?;
+
+        // Parse params
+        let params: InitializeParams = serde_json::from_value(params)?;
+
+        // Validate protocol version
+        if !SUPPORTED_VERSIONS.contains(&params.protocol_version.as_str()) {
+            return Err(McpError::UnsupportedVersion(params.protocol_version));
+        }
+
+        tracing::info!(
+            client = %params.client_info.name,
+            client_version = %params.client_info.version,
+            protocol_version = %params.protocol_version,
+            "MCP initialize request"
+        );
+
+        // Transition to Initializing
+        self.state.transition(McpState::Initializing)?;
+
+        // Build capabilities based on registered activations
+        let capabilities = self.build_capabilities();
+
+        let result = InitializeResult {
+            protocol_version: params.protocol_version,
+            capabilities,
+            server_info: self.server_info.clone(),
+        };
+
+        Ok(serde_json::to_value(result)?)
+    }
+
+    /// Build server capabilities based on registered activations
+    fn build_capabilities(&self) -> ServerCapabilities {
+        // Check if we have specific activations registered
+        let has_arbor = self.plexus.list_activations().iter().any(|a| a.namespace == "arbor");
+
+        ServerCapabilities {
+            // Tools are always available (from Plexus activations)
+            tools: Some(ToolsCapability { list_changed: true }),
+            // Resources only if Arbor is available
+            resources: if has_arbor {
+                Some(ResourcesCapability {
+                    subscribe: true,
+                    list_changed: true,
+                })
+            } else {
+                None
+            },
+            // Prompts not yet implemented
+            prompts: None,
+            // Logging always available
+            logging: Some(LoggingCapability {}),
+        }
     }
 
     async fn handle_initialized(&self, _params: Value) -> Result<Value, McpError> {
@@ -143,6 +204,7 @@ impl McpInterface {
 mod tests {
     use super::*;
     use crate::plexus::Plexus;
+    use serde_json::json;
 
     #[tokio::test]
     async fn test_new_interface() {
@@ -167,9 +229,9 @@ mod tests {
         let plexus = Arc::new(Plexus::new());
         let mcp = McpInterface::new(plexus);
 
-        // All methods should return NotImplemented until implemented
-        let methods = [
-            "initialize",
+        // Stub methods should return NotImplemented until implemented
+        // Note: initialize is implemented (MCP-4)
+        let stub_methods = [
             "notifications/initialized",
             "ping",
             "tools/list",
@@ -181,7 +243,7 @@ mod tests {
             "notifications/cancelled",
         ];
 
-        for method in methods {
+        for method in stub_methods {
             let result = mcp.handle(method, Value::Null).await;
             assert!(
                 matches!(result, Err(McpError::NotImplemented(_))),
@@ -189,5 +251,77 @@ mod tests {
                 method
             );
         }
+    }
+
+    // === Initialize Tests (MCP-4) ===
+
+    #[tokio::test]
+    async fn test_initialize_success() {
+        let plexus = Arc::new(Plexus::new());
+        let mcp = McpInterface::new(plexus);
+
+        let params = json!({
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": { "name": "test-client", "version": "1.0.0" }
+        });
+
+        let result = mcp.handle("initialize", params).await.unwrap();
+
+        assert_eq!(result["protocolVersion"], "2024-11-05");
+        assert_eq!(result["serverInfo"]["name"], "substrate");
+        assert!(result["capabilities"]["tools"].is_object());
+    }
+
+    #[tokio::test]
+    async fn test_initialize_unsupported_version() {
+        let plexus = Arc::new(Plexus::new());
+        let mcp = McpInterface::new(plexus);
+
+        let params = json!({
+            "protocolVersion": "1999-01-01",
+            "capabilities": {},
+            "clientInfo": { "name": "test-client", "version": "1.0.0" }
+        });
+
+        let result = mcp.handle("initialize", params).await;
+        assert!(matches!(result, Err(McpError::UnsupportedVersion(_))));
+    }
+
+    #[tokio::test]
+    async fn test_initialize_wrong_state() {
+        let plexus = Arc::new(Plexus::new());
+        let mcp = McpInterface::new(plexus);
+
+        let params = json!({
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": { "name": "test-client", "version": "1.0.0" }
+        });
+
+        // First initialize should succeed
+        mcp.handle("initialize", params.clone()).await.unwrap();
+
+        // Second initialize should fail (already initializing)
+        let result = mcp.handle("initialize", params).await;
+        assert!(matches!(result, Err(McpError::State(_))));
+    }
+
+    #[tokio::test]
+    async fn test_initialize_transitions_state() {
+        let plexus = Arc::new(Plexus::new());
+        let mcp = McpInterface::new(plexus);
+
+        assert_eq!(mcp.state().current(), McpState::Uninitialized);
+
+        let params = json!({
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": { "name": "test-client", "version": "1.0.0" }
+        });
+
+        mcp.handle("initialize", params).await.unwrap();
+
+        assert_eq!(mcp.state().current(), McpState::Initializing);
     }
 }

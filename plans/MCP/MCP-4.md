@@ -4,7 +4,7 @@
 - **blocked_by:** [MCP-2]
 - **unlocks:** [MCP-6]
 - **priority:** Critical (on critical path)
-- **assigned:** false
+- **assigned:** true
 
 ## Scope
 
@@ -114,8 +114,8 @@ const SUPPORTED_VERSIONS: &[&str] = &["2024-11-05", "2025-03-26"];
 
 ## Acceptance Criteria
 
-- [ ] Validates protocol version against supported list
-- [ ] Returns error if called in wrong state
-- [ ] Transitions state to `Initializing`
-- [ ] Returns capabilities based on registered activations
-- [ ] Includes serverInfo from Cargo.toml
+- [x] Validates protocol version against supported list
+- [x] Returns error if called in wrong state
+- [x] Transitions state to `Initializing`
+- [x] Returns capabilities based on registered activations
+- [x] Includes serverInfo from Cargo.toml
