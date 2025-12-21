@@ -1,9 +1,14 @@
 //! MCP Interface
 //!
 //! The main MCP interface that wraps Plexus and routes MCP protocol methods.
+//!
+//! This module provides two modes of operation:
+//! 1. `McpInterface` - A self-contained interface with its own state machine (for testing)
+//! 2. Standalone functions for transport layer to use with per-session state
 
 use std::sync::Arc;
 
+use futures::StreamExt;
 use serde_json::Value;
 
 use super::{
@@ -12,11 +17,232 @@ use super::{
     state::{McpState, McpStateMachine},
     types::{
         InitializeParams, InitializeResult, LoggingCapability, ResourcesCapability,
-        ServerCapabilities, ServerInfo, ToolsCapability, ToolsListParams, ToolsListResult,
-        SUPPORTED_VERSIONS,
+        ServerCapabilities, ServerInfo, ToolContent, ToolsCallParams, ToolsCallResult,
+        ToolsCapability, ToolsListParams, ToolsListResult, SUPPORTED_VERSIONS,
     },
 };
-use crate::plexus::Plexus;
+use crate::plexus::{types::PlexusStreamEvent, Plexus};
+
+// ============================================================================
+// Standalone request handlers (used by transport layer with per-session state)
+// ============================================================================
+
+/// Handle an initialize request (creates new session)
+pub async fn handle_initialize_request(
+    plexus: &Arc<Plexus>,
+    params: Value,
+) -> Result<Value, McpError> {
+    // Parse params
+    let params: InitializeParams = serde_json::from_value(params)?;
+
+    // Validate protocol version
+    if !SUPPORTED_VERSIONS.contains(&params.protocol_version.as_str()) {
+        return Err(McpError::UnsupportedVersion(params.protocol_version));
+    }
+
+    tracing::info!(
+        client = %params.client_info.name,
+        client_version = %params.client_info.version,
+        protocol_version = %params.protocol_version,
+        "MCP initialize request"
+    );
+
+    // Build capabilities based on registered activations
+    let capabilities = build_capabilities(plexus);
+
+    let result = InitializeResult {
+        protocol_version: params.protocol_version,
+        capabilities,
+        server_info: ServerInfo {
+            name: "substrate".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+        },
+    };
+
+    Ok(serde_json::to_value(result)?)
+}
+
+/// Handle a general MCP request (requires Ready state - transport must verify)
+pub async fn handle_mcp_request(
+    plexus: &Arc<Plexus>,
+    method: &str,
+    params: Value,
+) -> Result<Value, McpError> {
+    tracing::debug!(method = %method, "Handling MCP request");
+
+    match method {
+        // Utility - ping returns timestamp per mcp-validator expectations
+        "ping" => Ok(serde_json::json!({
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        })),
+
+        // Tools
+        "tools/list" => handle_tools_list_impl(plexus, params).await,
+        "tools/call" => handle_tools_call_impl(plexus, params).await,
+
+        // Resources
+        "resources/list" => Err(McpError::NotImplemented("resources/list".to_string())),
+        "resources/read" => Err(McpError::NotImplemented("resources/read".to_string())),
+
+        // Prompts
+        "prompts/list" => Err(McpError::NotImplemented("prompts/list".to_string())),
+        "prompts/get" => Err(McpError::NotImplemented("prompts/get".to_string())),
+
+        // Notifications (shouldn't come through here)
+        "notifications/cancelled" => Err(McpError::NotImplemented(
+            "notifications/cancelled".to_string(),
+        )),
+
+        // Unknown method
+        _ => Err(McpError::MethodNotFound(method.to_string())),
+    }
+}
+
+/// Build server capabilities based on registered activations
+fn build_capabilities(plexus: &Arc<Plexus>) -> ServerCapabilities {
+    // Check if we have specific activations registered
+    let has_arbor = plexus
+        .list_activations()
+        .iter()
+        .any(|a| a.namespace == "arbor");
+
+    ServerCapabilities {
+        // Tools are always available (from Plexus activations)
+        tools: Some(ToolsCapability { list_changed: true }),
+        // Resources only if Arbor is available
+        resources: if has_arbor {
+            Some(ResourcesCapability {
+                subscribe: true,
+                list_changed: true,
+            })
+        } else {
+            None
+        },
+        // Prompts not yet implemented
+        prompts: None,
+        // Logging always available
+        logging: Some(LoggingCapability {}),
+    }
+}
+
+/// Handle tools/list request
+async fn handle_tools_list_impl(plexus: &Arc<Plexus>, params: Value) -> Result<Value, McpError> {
+    // Parse params (cursor is optional)
+    let params: ToolsListParams = serde_json::from_value(params).unwrap_or_default();
+
+    // Get all activation schemas and transform to MCP tools
+    let schemas = plexus.list_full_schemas();
+    let all_tools = schemas_to_mcp_tools(&schemas);
+
+    // Handle pagination (50 tools per page)
+    let (tools, next_cursor) = paginate(all_tools, params.cursor.as_deref(), 50);
+
+    let result = ToolsListResult { tools, next_cursor };
+
+    Ok(serde_json::to_value(result)?)
+}
+
+/// Handle tools/call request
+async fn handle_tools_call_impl(plexus: &Arc<Plexus>, params: Value) -> Result<Value, McpError> {
+    // Parse params
+    let params: ToolsCallParams = serde_json::from_value(params)?;
+
+    tracing::debug!(
+        tool = %params.name,
+        "Executing tool call"
+    );
+
+    // Call the Plexus method
+    let mut stream = plexus.call(&params.name, params.arguments).await?;
+
+    // Collect stream results
+    let mut content: Vec<ToolContent> = Vec::new();
+    let mut is_error = false;
+    let mut error_messages: Vec<String> = Vec::new();
+
+    while let Some(item) = stream.next().await {
+        match item.event {
+            PlexusStreamEvent::Data {
+                data, content_type, ..
+            } => {
+                let text = if content_type == "text/plain" {
+                    data.as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| serde_json::to_string_pretty(&data).unwrap_or_default())
+                } else {
+                    serde_json::to_string_pretty(&data).unwrap_or_default()
+                };
+                content.push(ToolContent::Text { text });
+            }
+            PlexusStreamEvent::Error { error, .. } => {
+                is_error = true;
+                error_messages.push(error);
+            }
+            PlexusStreamEvent::Guidance {
+                error_type,
+                suggestion,
+                ..
+            } => {
+                is_error = true;
+                let msg = format!("Guidance: {:?} - {:?}", error_type, suggestion);
+                error_messages.push(msg);
+            }
+            PlexusStreamEvent::Progress {
+                message,
+                percentage,
+                ..
+            } => {
+                tracing::trace!(
+                    tool = %params.name,
+                    message = %message,
+                    percentage = ?percentage,
+                    "Tool progress"
+                );
+            }
+            PlexusStreamEvent::Done { .. } => {
+                tracing::debug!(tool = %params.name, "Tool call complete");
+            }
+        }
+    }
+
+    // Add error messages as text content
+    if !error_messages.is_empty() {
+        for msg in error_messages {
+            content.push(ToolContent::Text { text: msg });
+        }
+    }
+
+    // Ensure at least one content item
+    if content.is_empty() {
+        content.push(ToolContent::Text {
+            text: "Tool executed successfully (no output)".to_string(),
+        });
+    }
+
+    let result = ToolsCallResult { content, is_error };
+    Ok(serde_json::to_value(result)?)
+}
+
+/// Paginate a list of items
+fn paginate<T>(items: Vec<T>, cursor: Option<&str>, page_size: usize) -> (Vec<T>, Option<String>) {
+    let start = cursor
+        .and_then(|c| c.parse::<usize>().ok())
+        .unwrap_or(0);
+
+    let page: Vec<T> = items.into_iter().skip(start).take(page_size).collect();
+    let count = page.len();
+    let next = if count == page_size {
+        Some((start + page_size).to_string())
+    } else {
+        None
+    };
+
+    (page, next)
+}
+
+// ============================================================================
+// McpInterface - Self-contained interface (for testing and simple use cases)
+// ============================================================================
 
 /// The MCP Interface - routes MCP protocol methods to handlers
 pub struct McpInterface {
@@ -233,8 +459,92 @@ impl McpInterface {
         (page, next)
     }
 
-    async fn handle_tools_call(&self, _params: Value) -> Result<Value, McpError> {
-        Err(McpError::NotImplemented("tools/call".to_string()))
+    /// Handle the `tools/call` request (MCP-9)
+    ///
+    /// Invokes a tool (Plexus activation method) and returns the result.
+    /// The response contains content items (text, image, or resource) and
+    /// an isError flag if the tool execution failed.
+    async fn handle_tools_call(&self, params: Value) -> Result<Value, McpError> {
+        // Require Ready state
+        self.state.require_ready()?;
+
+        // Parse params
+        let params: ToolsCallParams = serde_json::from_value(params)?;
+
+        tracing::debug!(
+            tool = %params.name,
+            "Executing tool call"
+        );
+
+        // Call the Plexus method
+        // Tool names are in format "namespace.method" (e.g., "bash.execute")
+        let mut stream = self.plexus.call(&params.name, params.arguments).await?;
+
+        // Collect stream results
+        let mut content: Vec<ToolContent> = Vec::new();
+        let mut is_error = false;
+        let mut error_messages: Vec<String> = Vec::new();
+
+        while let Some(item) = stream.next().await {
+            match item.event {
+                PlexusStreamEvent::Data { data, content_type, .. } => {
+                    // Convert data to text content
+                    let text = if content_type == "text/plain" {
+                        // If it's plain text, try to extract string directly
+                        data.as_str().map(|s| s.to_string()).unwrap_or_else(|| {
+                            serde_json::to_string_pretty(&data).unwrap_or_default()
+                        })
+                    } else {
+                        // For other types, serialize to JSON
+                        serde_json::to_string_pretty(&data).unwrap_or_default()
+                    };
+                    content.push(ToolContent::Text { text });
+                }
+                PlexusStreamEvent::Error { error, .. } => {
+                    is_error = true;
+                    error_messages.push(error);
+                }
+                PlexusStreamEvent::Guidance { error_type, suggestion, .. } => {
+                    // Convert guidance to error message
+                    is_error = true;
+                    let msg = format!(
+                        "Guidance: {:?} - {:?}",
+                        error_type, suggestion
+                    );
+                    error_messages.push(msg);
+                }
+                PlexusStreamEvent::Progress { message, percentage, .. } => {
+                    // Log progress but don't add to content
+                    tracing::trace!(
+                        tool = %params.name,
+                        message = %message,
+                        percentage = ?percentage,
+                        "Tool progress"
+                    );
+                }
+                PlexusStreamEvent::Done { .. } => {
+                    // Stream complete
+                    tracing::debug!(tool = %params.name, "Tool call complete");
+                }
+            }
+        }
+
+        // If we had errors, add them as text content
+        if !error_messages.is_empty() {
+            for msg in error_messages {
+                content.push(ToolContent::Text { text: msg });
+            }
+        }
+
+        // Ensure we have at least one content item
+        if content.is_empty() {
+            content.push(ToolContent::Text {
+                text: "Tool executed successfully (no output)".to_string(),
+            });
+        }
+
+        let result = ToolsCallResult { content, is_error };
+        Ok(serde_json::to_value(result)?)
     }
 
     // === Resource Handlers (stubs - implemented in MCP-11) ===
@@ -294,9 +604,8 @@ mod tests {
         let mcp = McpInterface::new(plexus);
 
         // Stub methods should return NotImplemented until implemented
-        // Implemented: initialize, initialized, tools/list, ping
+        // Implemented: initialize, initialized, tools/list, tools/call, ping
         let stub_methods = [
-            "tools/call",
             "resources/list",
             "resources/read",
             "prompts/list",
@@ -512,5 +821,51 @@ mod tests {
             .unwrap();
 
         assert!(result["tools"].is_array());
+    }
+
+    // === Tools Call Tests (MCP-9) ===
+
+    #[tokio::test]
+    async fn test_tools_call_requires_ready() {
+        let plexus = Arc::new(Plexus::new());
+        let mcp = McpInterface::new(plexus);
+
+        // Without handshake, should fail
+        let result = mcp
+            .handle("tools/call", json!({ "name": "health.check", "arguments": {} }))
+            .await;
+        assert!(matches!(result, Err(McpError::State(_))));
+    }
+
+    #[tokio::test]
+    async fn test_tools_call_unknown_tool() {
+        let plexus = Arc::new(Plexus::new());
+        let mcp = McpInterface::new(plexus);
+        complete_handshake(&mcp).await;
+
+        // Call a non-existent tool
+        let result = mcp
+            .handle(
+                "tools/call",
+                json!({ "name": "nonexistent.method", "arguments": {} }),
+            )
+            .await
+            .unwrap();
+
+        // Should return result with isError: true and guidance
+        assert!(result["isError"].as_bool().unwrap_or(false));
+        assert!(result["content"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_tools_call_invalid_params() {
+        let plexus = Arc::new(Plexus::new());
+        let mcp = McpInterface::new(plexus);
+        complete_handshake(&mcp).await;
+
+        // Missing required 'name' field - serde deserialization fails
+        let result = mcp.handle("tools/call", json!({})).await;
+        // Serde errors become Serialization errors
+        assert!(matches!(result, Err(McpError::Serialization(_))));
     }
 }

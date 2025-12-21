@@ -61,6 +61,6 @@ hub-macro = { path = "../../../../hub-macro" }
 [dev-dependencies]
 hyper = "1"
 tower = { version = "0.5", features = ["util"] }
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["blocking", "json"] }
 jsonrpsee = { version = "0.26", features = ["client", "ws-client"] }
 tokio-tungstenite = "0.21"

@@ -7,7 +7,7 @@ use substrate::{
         cone::{ConeStorageConfig, Cone},
         claudecode::{ClaudeCode, ClaudeCodeStorage, ClaudeCodeStorageConfig},
     },
-    mcp::{McpInterface, transport::mcp_router},
+    mcp::transport::mcp_router,
 };
 use jsonrpsee::server::{Server, ServerHandle};
 use jsonrpsee::RpcModule;
@@ -214,10 +214,9 @@ async fn main() -> anyhow::Result<()> {
             .await?;
         let ws_handle: ServerHandle = ws_server.start(module);
 
-        // Build MCP interface with a fresh Plexus (since module consumed the first one)
+        // Build MCP router with a fresh Plexus (since module consumed the first one)
         let mcp_plexus = Arc::new(build_plexus().await);
-        let mcp_interface = Arc::new(McpInterface::new(mcp_plexus));
-        let mcp_app = mcp_router(mcp_interface);
+        let mcp_app = mcp_router(mcp_plexus);
 
         // Start MCP HTTP server
         let mcp_listener = tokio::net::TcpListener::bind(mcp_addr).await?;

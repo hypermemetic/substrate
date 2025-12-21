@@ -1,12 +1,12 @@
 //! MCP Protocol Types
 //!
-//! Types for the Model Context Protocol (MCP) 2024-11-05 and 2025-03-26 specifications.
+//! Types for the Model Context Protocol (MCP) specifications.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Supported MCP protocol versions
-pub const SUPPORTED_VERSIONS: &[&str] = &["2024-11-05", "2025-03-26"];
+pub const SUPPORTED_VERSIONS: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18"];
 
 /// Server information returned in initialize response
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,12 +89,18 @@ pub struct LoggingCapability {}
 /// Initialize request parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InitializeParams {
-    #[serde(rename = "protocolVersion")]
+    /// Protocol version (required for 2024-11-05/2025-03-26, optional for 2025-06-18 which uses header)
+    #[serde(rename = "protocolVersion", default = "default_protocol_version")]
     pub protocol_version: String,
-    #[serde(default)]
+    /// Client capabilities (renamed in 2025-06-18 to clientCapabilities)
+    #[serde(default, alias = "clientCapabilities")]
     pub capabilities: ClientCapabilities,
     #[serde(rename = "clientInfo")]
     pub client_info: ClientInfo,
+}
+
+fn default_protocol_version() -> String {
+    "2025-06-18".to_string()
 }
 
 /// Initialize response result
@@ -110,11 +116,13 @@ pub struct InitializeResult {
 // === Tools ===
 
 /// MCP Tool definition
+///
+/// Per MCP 2025-06-18 spec: Each tool MUST include name, description, and inputSchema
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpTool {
     pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    /// Required per MCP 2025-06-18 spec
+    pub description: String,
     #[serde(rename = "inputSchema")]
     pub input_schema: Value,
 }

@@ -10,18 +10,25 @@ use crate::plexus::{ActivationFullSchema, MethodSchemaInfo};
 /// Transform Plexus activation schemas to MCP tools list
 ///
 /// Each activation method becomes an MCP tool with name format "namespace.method"
+/// Per MCP 2025-06-18 spec, description is required, so we provide a default if empty.
 pub fn schemas_to_mcp_tools(schemas: &[ActivationFullSchema]) -> Vec<McpTool> {
     schemas
         .iter()
         .flat_map(|activation| {
             activation.methods.iter().map(move |method| {
+                // Description is required per MCP 2025-06-18 spec
+                let description = if method.description.is_empty() {
+                    format!(
+                        "{} method from {} activation",
+                        method.name, activation.namespace
+                    )
+                } else {
+                    method.description.clone()
+                };
+
                 McpTool {
                     name: format!("{}.{}", activation.namespace, method.name),
-                    description: if method.description.is_empty() {
-                        None
-                    } else {
-                        Some(method.description.clone())
-                    },
+                    description,
                     input_schema: build_input_schema(method),
                 }
             })
@@ -87,9 +94,10 @@ mod tests {
 
         assert_eq!(tools.len(), 2);
         assert_eq!(tools[0].name, "test.method1");
-        assert_eq!(tools[0].description, Some("First method".to_string()));
+        assert_eq!(tools[0].description, "First method");
         assert_eq!(tools[1].name, "test.method2");
-        assert_eq!(tools[1].description, None); // Empty description becomes None
+        // Empty description gets a default per MCP 2025-06-18 spec
+        assert_eq!(tools[1].description, "method2 method from test activation");
     }
 
     #[test]

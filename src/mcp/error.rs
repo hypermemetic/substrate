@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::state::McpStateError;
+use crate::plexus::PlexusError;
 
 /// Standard JSON-RPC 2.0 error codes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +80,19 @@ impl From<McpStateError> for McpError {
 impl From<serde_json::Error> for McpError {
     fn from(e: serde_json::Error) -> Self {
         McpError::Serialization(e.to_string())
+    }
+}
+
+impl From<PlexusError> for McpError {
+    fn from(e: PlexusError) -> Self {
+        match e {
+            PlexusError::ActivationNotFound(name) => McpError::ToolNotFound(name),
+            PlexusError::MethodNotFound { activation, method } => {
+                McpError::ToolNotFound(format!("{}.{}", activation, method))
+            }
+            PlexusError::InvalidParams(msg) => McpError::InvalidParams(msg),
+            PlexusError::ExecutionError(msg) => McpError::Internal(msg),
+        }
     }
 }
 
