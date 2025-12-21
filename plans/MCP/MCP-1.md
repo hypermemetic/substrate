@@ -29,27 +29,26 @@ MCP is a **view layer** over Plexus, not a replacement. Same activations, differ
 ```
                          MCP-2 (McpState)
                               │
-         ┌────────────────────┼────────────────────┐
-         ▼                    ▼                    ▼
-      MCP-3               MCP-4                MCP-5
-   (McpInterface)      (initialize)      (schema transform)
-         │                    │                    │
-         │                    ▼                    │
-         │                MCP-6                    │
-         │             (initialized)               │
-         │                    │                    │
-         └────────────────────┼────────────────────┘
-                              ▼
-                          MCP-7 (ping)
-                              │
-                              ▼
-                        MCP-8 (tools/list)
-                              │
-                              ▼
-                      MCP-9 (stream buffering)
-                              │
-                              ▼
-                       MCP-10 (tools/call)
+    ┌─────────────────────────┼─────────────────────────┬─────────────┐
+    ▼                         ▼                         ▼             ▼
+ MCP-3                     MCP-4                     MCP-5         MCP-9
+(McpInterface)          (initialize)            (schema)       (buffering)
+    │                         │                      │             │
+    │                         ▼                      │             │
+    │                      MCP-6                     │             │
+    │                   (initialized)                │             │
+    │                         │                      │             │
+    │                         ▼                      │             │
+    │                      MCP-7 (ping)              │             │
+    │                         │                      │             │
+    │              ┌──────────┴──────────┐           │             │
+    │              ▼                     ▼           │             │
+    │           MCP-8 ◄──────────────────┘           │             │
+    │        (tools/list)                            │             │
+    │                                                │             │
+    └────────────────────────┬───────────────────────┴─────────────┘
+                             ▼
+                         MCP-10 (tools/call)
                               │
          ┌────────────────────┼────────────────────┐
          ▼                    ▼                    ▼
@@ -62,32 +61,34 @@ MCP is a **view layer** over Plexus, not a replacement. Same activations, differ
                       (resources/*)         (prompts/*)
 ```
 
+**Key insight:** `tools/list` and `tools/call` are independent - buffering (MCP-9) doesn't need schema (MCP-5).
+
 ## Phases
 
 ### Phase 1: Foundation
 | Ticket | Description | Blocked By | Unlocks |
 |--------|-------------|------------|---------|
-| MCP-2  | McpState enum and state machine | - | MCP-3, MCP-4, MCP-5 |
+| MCP-2  | McpState enum and state machine | - | MCP-3, MCP-4, MCP-5, MCP-9 |
 
 ### Phase 2: Core Handlers (Parallel)
 | Ticket | Description | Blocked By | Unlocks |
 |--------|-------------|------------|---------|
-| MCP-3  | McpInterface struct wrapping Plexus | MCP-2 | MCP-8 |
+| MCP-3  | McpInterface struct wrapping Plexus | MCP-2 | MCP-10 |
 | MCP-4  | `initialize` request handler | MCP-2 | MCP-6 |
 | MCP-5  | Schema → MCP tool transform | MCP-2 | MCP-8 |
+| MCP-9  | Stream buffering utilities | MCP-2 | MCP-10 |
 
 ### Phase 3: Lifecycle Completion
 | Ticket | Description | Blocked By | Unlocks |
 |--------|-------------|------------|---------|
 | MCP-6  | `notifications/initialized` handler | MCP-4 | MCP-7 |
-| MCP-7  | `ping` handler | MCP-6 | MCP-8 |
+| MCP-7  | `ping` handler | MCP-6 | MCP-8, MCP-10 |
 
-### Phase 4: Tools
+### Phase 4: Tools (Parallel)
 | Ticket | Description | Blocked By | Unlocks |
 |--------|-------------|------------|---------|
-| MCP-8  | `tools/list` implementation | MCP-3, MCP-5, MCP-7 | MCP-9 |
-| MCP-9  | Stream buffering utilities | MCP-8 | MCP-10 |
-| MCP-10 | `tools/call` implementation | MCP-9 | MCP-11, MCP-12, MCP-13 |
+| MCP-8  | `tools/list` implementation | MCP-5, MCP-7 | - |
+| MCP-10 | `tools/call` implementation | MCP-3, MCP-7, MCP-9 | MCP-11, MCP-12, MCP-13 |
 
 ### Phase 5: Transports & Extensions (Parallel)
 | Ticket | Description | Blocked By | Unlocks |
@@ -105,13 +106,14 @@ MCP is a **view layer** over Plexus, not a replacement. Same activations, differ
 ## Critical Path
 
 ```
-MCP-2 → MCP-4 → MCP-6 → MCP-7 → MCP-8 → MCP-9 → MCP-10 → MCP-11
+MCP-2 → MCP-4 → MCP-6 → MCP-7 → MCP-10 → MCP-11
 ```
 
-**Length: 8 tickets**
+**Length: 6 tickets** (reduced from 8)
 
 Parallelism opportunities:
-- After MCP-2: 3 tickets can run concurrently (MCP-3, MCP-4, MCP-5)
+- After MCP-2: 4 tickets can run concurrently (MCP-3, MCP-4, MCP-5, MCP-9)
+- After MCP-7: 2 tickets can run concurrently (MCP-8, MCP-10)
 - After MCP-10: 3 tickets can run concurrently (MCP-11, MCP-12, MCP-13)
 - After MCP-11/12: 2 tickets can run concurrently (MCP-14, MCP-15)
 

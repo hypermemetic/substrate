@@ -1,7 +1,7 @@
 # MCP-10: Tools Call Handler
 
 ## Metadata
-- **blocked_by:** [MCP-9]
+- **blocked_by:** [MCP-3, MCP-7, MCP-9]
 - **unlocks:** [MCP-11, MCP-12, MCP-13]
 - **priority:** Critical (on critical path)
 

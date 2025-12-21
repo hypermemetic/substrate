@@ -1,9 +1,9 @@
 # MCP-8: Tools List Handler
 
 ## Metadata
-- **blocked_by:** [MCP-3, MCP-5, MCP-7]
-- **unlocks:** [MCP-9]
-- **priority:** Critical (on critical path)
+- **blocked_by:** [MCP-5, MCP-7]
+- **unlocks:** []
+- **priority:** Medium (not on critical path)
 
 ## Scope
 

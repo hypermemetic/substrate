@@ -1,9 +1,9 @@
 # MCP-9: Stream Buffering Utilities
 
 ## Metadata
-- **blocked_by:** [MCP-8]
+- **blocked_by:** [MCP-2]
 - **unlocks:** [MCP-10]
-- **priority:** Critical (on critical path)
+- **priority:** High (can start early, parallel with lifecycle)
 
 ## Scope
 
