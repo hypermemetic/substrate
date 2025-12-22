@@ -42,8 +42,8 @@ use substrate::{
 
 /// Convert Plexus activation schemas to rmcp Tool format
 ///
-/// REVIEW: This uses tight mapping with fallback - serializes schemars::Schema
-/// to JSON Value, extracts the object, wraps in Arc.
+/// MCP requires all tool inputSchema to have "type": "object" at root.
+/// schemars may produce schemas without this (e.g., for unit types).
 fn schemas_to_rmcp_tools(schemas: Vec<ActivationFullSchema>) -> Vec<Tool> {
     schemas
         .into_iter()
@@ -53,15 +53,25 @@ fn schemas_to_rmcp_tools(schemas: Vec<ActivationFullSchema>) -> Vec<Tool> {
                 let name = format!("{}.{}", namespace, method.name);
                 let description = method.description.clone();
 
-                // REVIEW: Schema transformation - tight mapping with fallback
+                // Convert schemars::Schema to JSON, ensure "type": "object" exists
                 let input_schema = method
                     .params
                     .and_then(|s| serde_json::to_value(s).ok())
                     .and_then(|v| v.as_object().cloned())
-                    .map(Arc::new)
-                    .unwrap_or_else(|| Arc::new(serde_json::Map::new()));
+                    .map(|mut obj| {
+                        // MCP requires "type": "object" at schema root
+                        if !obj.contains_key("type") {
+                            obj.insert("type".to_string(), json!("object"));
+                        }
+                        Arc::new(obj)
+                    })
+                    .unwrap_or_else(|| {
+                        // Empty params = empty object schema
+                        Arc::new(serde_json::Map::from_iter([
+                            ("type".to_string(), json!("object")),
+                        ]))
+                    });
 
-                // Tool::new takes Cow<'static, str>, so we pass owned Strings
                 Tool::new(name, description, input_schema)
             })
         })
