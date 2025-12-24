@@ -484,14 +484,18 @@ impl ConeStorage {
     }
 
     /// Create a handle for a message
-    /// Format: "msg-{id}:{role}:{name}"
+    ///
+    /// New format: `cone@1.0.0::chat:msg-{id}:{role}:{name}`
+    /// meta[0] = message ID (with msg- prefix for resolve_message_handle compatibility)
+    /// meta[1] = role
+    /// meta[2] = name
     pub fn message_to_handle(message: &Message, name: &str) -> Handle {
-        Handle {
-            source: "cone".to_string(),
-            source_version: "1.0.0".to_string(),
-            identifier: format!("msg-{}:{}:{}", message.id, message.role.as_str(), name),
-            metadata: None,
-        }
+        Handle::new("cone", "1.0.0", "chat")
+            .with_meta(vec![
+                format!("msg-{}", message.id),
+                message.role.as_str().to_string(),
+                name.to_string(),
+            ])
     }
 
     // ========================================================================

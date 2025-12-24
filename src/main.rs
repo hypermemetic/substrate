@@ -118,6 +118,9 @@ async fn main() -> anyhow::Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
+    // Log start time first
+    tracing::info!("Starting substrate at {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"));
+
     // Log level calibration sequence
     tracing::error!("▓▓▓ SUBSTRATE BOOT SEQUENCE ▓▓▓");
     tracing::warn!("  ├─ warn  :: caution signals armed");
@@ -125,7 +128,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::debug!("  ├─ debug :: introspection enabled");
     tracing::trace!("  └─ trace :: full observability unlocked");
 
-    // Build plexus with all activations
+    // Build plexus with all activations (returns Arc<Plexus>)
     let plexus = build_plexus().await;
     let activations = plexus.list_activations();
     let methods = plexus.list_methods();
@@ -133,7 +136,11 @@ async fn main() -> anyhow::Result<()> {
     let plexus_hash = plexus.compute_hash();
 
     // Convert plexus to RPC module for JSON-RPC server (consumes plexus)
-    let module = plexus.into_rpc_module()?;
+    // Arc::try_unwrap extracts the inner Plexus if this is the only reference
+    let module = match Arc::try_unwrap(plexus) {
+        Ok(p) => p.into_rpc_module()?,
+        Err(_) => panic!("plexus has multiple references - cannot convert to RPC module"),
+    };
 
     // Choose transport based on CLI flag
     if args.stdio {
@@ -151,7 +158,8 @@ async fn main() -> anyhow::Result<()> {
         let ws_handle: ServerHandle = ws_server.start(module);
 
         // Build MCP interface with a fresh Plexus (since module consumed the first one)
-        let mcp_plexus = Arc::new(build_plexus().await);
+        // build_plexus already returns Arc<Plexus>
+        let mcp_plexus = build_plexus().await;
         let mcp_interface = Arc::new(McpInterface::new(mcp_plexus));
         let mcp_app = mcp_router(mcp_interface);
 

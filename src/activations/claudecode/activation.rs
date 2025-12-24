@@ -3,17 +3,20 @@ use super::{
     storage::ClaudeCodeStorage,
     types::*,
 };
+use crate::plexus::Plexus;
 use async_stream::stream;
 use futures::{Stream, StreamExt};
 use hub_macro::hub_methods;
 use serde_json::Value;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Weak};
 
 /// ClaudeCode activation - manages Claude Code sessions with Arbor-backed history
 #[derive(Clone)]
 pub struct ClaudeCode {
     storage: Arc<ClaudeCodeStorage>,
     executor: ClaudeCodeExecutor,
+    /// Hub reference for resolving foreign handles when walking arbor trees
+    hub: Arc<OnceLock<Weak<Plexus>>>,
 }
 
 impl ClaudeCode {
@@ -21,11 +24,36 @@ impl ClaudeCode {
         Self {
             storage,
             executor: ClaudeCodeExecutor::new(),
+            hub: Arc::new(OnceLock::new()),
         }
     }
 
     pub fn with_executor(storage: Arc<ClaudeCodeStorage>, executor: ClaudeCodeExecutor) -> Self {
-        Self { storage, executor }
+        Self {
+            storage,
+            executor,
+            hub: Arc::new(OnceLock::new()),
+        }
+    }
+
+    /// Inject hub reference for resolving foreign handles
+    ///
+    /// Called during Plexus construction via Arc::new_cyclic.
+    /// This allows ClaudeCode to resolve handles from other plugins when walking arbor trees.
+    pub fn inject_hub(&self, hub: Weak<Plexus>) {
+        let _ = self.hub.set(hub);
+    }
+
+    /// Get the hub reference
+    ///
+    /// Panics if called before inject_hub.
+    #[allow(dead_code)]
+    pub fn hub(&self) -> Arc<Plexus> {
+        self.hub
+            .get()
+            .expect("hub not initialized - inject_hub must be called first")
+            .upgrade()
+            .expect("hub has been dropped")
     }
 }
 

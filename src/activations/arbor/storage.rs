@@ -96,10 +96,10 @@ impl ArborStorage {
                 archived_at INTEGER,
                 node_type TEXT NOT NULL,
                 content TEXT,
-                handle_source TEXT,
-                handle_source_version TEXT,
-                handle_identifier TEXT,
-                handle_metadata TEXT,
+                handle_plugin TEXT,
+                handle_version TEXT,
+                handle_method TEXT,
+                handle_meta TEXT,
                 created_at INTEGER NOT NULL,
                 metadata TEXT,
                 FOREIGN KEY (tree_id) REFERENCES trees(id) ON DELETE CASCADE
@@ -137,6 +137,101 @@ impl ArborStorage {
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to run migrations: {}", e))?;
+
+        // Migration: Rename handle columns from old schema to new schema
+        // Old: handle_source, handle_source_version, handle_identifier, handle_metadata
+        // New: handle_plugin, handle_version, handle_method, handle_meta
+        self.migrate_handle_columns().await?;
+
+        Ok(())
+    }
+
+    /// Migrate handle columns from old schema to new schema
+    async fn migrate_handle_columns(&self) -> Result<(), ArborError> {
+        // Check if old column exists
+        let check = sqlx::query("SELECT 1 FROM pragma_table_info('nodes') WHERE name = 'handle_source'")
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| format!("Failed to check schema: {}", e))?;
+
+        if check.is_some() {
+            // Old schema exists - need to migrate columns first
+            // SQLite 3.25+ supports RENAME COLUMN
+            sqlx::query("ALTER TABLE nodes RENAME COLUMN handle_source TO handle_plugin")
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("Failed to rename handle_source: {}", e))?;
+
+            sqlx::query("ALTER TABLE nodes RENAME COLUMN handle_source_version TO handle_version")
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("Failed to rename handle_source_version: {}", e))?;
+
+            sqlx::query("ALTER TABLE nodes RENAME COLUMN handle_identifier TO handle_method")
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("Failed to rename handle_identifier: {}", e))?;
+
+            sqlx::query("ALTER TABLE nodes RENAME COLUMN handle_metadata TO handle_meta")
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("Failed to rename handle_metadata: {}", e))?;
+
+            tracing::info!("Migrated arbor handle columns to new schema");
+        }
+
+        // Always check for and migrate old-format data
+        // (columns may have been renamed in a previous run, but data not migrated)
+        self.migrate_handle_data().await?;
+
+        Ok(())
+    }
+
+    /// Migrate handle data from old format to new format
+    ///
+    /// Old: handle_method = "msg-{uuid}:{role}:{name}", handle_meta = null
+    /// New: handle_method = "chat", handle_meta = ["msg-{uuid}", "{role}", "{name}"]
+    async fn migrate_handle_data(&self) -> Result<(), ArborError> {
+        use sqlx::Row;
+
+        // Get all external nodes with old-format data (handle_method starts with "msg-")
+        let rows = sqlx::query(
+            "SELECT id, handle_method FROM nodes WHERE node_type = 'external' AND handle_method LIKE 'msg-%'"
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to fetch nodes for data migration: {}", e))?;
+
+        let mut migrated = 0;
+        for row in rows {
+            let id: String = row.get("id");
+            let old_identifier: String = row.get("handle_method");
+
+            // Parse old format: "msg-{uuid}:{role}:{name}"
+            let parts: Vec<&str> = old_identifier.splitn(3, ':').collect();
+            if parts.len() >= 1 {
+                // Build meta array - handle variable number of parts
+                let meta: Vec<String> = parts.iter().map(|s| s.to_string()).collect();
+                let meta_json = serde_json::to_string(&meta)
+                    .map_err(|e| format!("Failed to serialize meta: {}", e))?;
+
+                // Update: set method = "chat", plugin = "cone", meta = JSON array
+                sqlx::query(
+                    "UPDATE nodes SET handle_plugin = 'cone', handle_method = 'chat', handle_meta = ? WHERE id = ?"
+                )
+                .bind(&meta_json)
+                .bind(&id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("Failed to migrate node {}: {}", id, e))?;
+
+                migrated += 1;
+            }
+        }
+
+        if migrated > 0 {
+            tracing::info!("Migrated {} handle data entries to new format", migrated);
+        }
 
         Ok(())
     }
@@ -265,8 +360,8 @@ impl ArborStorage {
     async fn get_nodes_for_tree(&self, tree_id: &TreeId) -> Result<HashMap<NodeId, Node>, ArborError> {
         let rows = sqlx::query(
             "SELECT id, tree_id, parent_id, ref_count, state, scheduled_deletion_at, archived_at,
-                    node_type, content, handle_source, handle_source_version, handle_identifier,
-                    handle_metadata, created_at, metadata
+                    node_type, content, handle_plugin, handle_version, handle_method,
+                    handle_meta, created_at, metadata
              FROM nodes WHERE tree_id = ?",
         )
         .bind(tree_id.to_string())
@@ -296,18 +391,20 @@ impl ArborStorage {
                     NodeType::Text { content }
                 }
                 "external" => {
-                    let source: String = row.get("handle_source");
-                    let source_version: String = row.get("handle_source_version");
-                    let identifier: String = row.get("handle_identifier");
-                    let metadata_json: Option<String> = row.get("handle_metadata");
-                    let metadata = metadata_json.and_then(|s| serde_json::from_str(&s).ok());
+                    let plugin: String = row.get("handle_plugin");
+                    let version: String = row.get("handle_version");
+                    let method: String = row.get("handle_method");
+                    let meta_json: Option<String> = row.get("handle_meta");
+                    let meta: Vec<String> = meta_json
+                        .and_then(|s| serde_json::from_str(&s).ok())
+                        .unwrap_or_default();
 
                     NodeType::External {
                         handle: Handle {
-                            source,
-                            source_version,
-                            identifier,
-                            metadata,
+                            plugin,
+                            version,
+                            method,
+                            meta,
                         },
                     }
                 }
@@ -745,18 +842,19 @@ impl ArborStorage {
         let now = current_timestamp();
 
         let metadata_json = metadata.map(|m| serde_json::to_string(&m).unwrap());
+        let meta_json = serde_json::to_string(&handle.meta).unwrap();
 
         sqlx::query(
-            "INSERT INTO nodes (id, tree_id, parent_id, ref_count, state, node_type, handle_source, handle_source_version, handle_identifier, handle_metadata, metadata, created_at)
+            "INSERT INTO nodes (id, tree_id, parent_id, ref_count, state, node_type, handle_plugin, handle_version, handle_method, handle_meta, metadata, created_at)
              VALUES (?, ?, ?, 1, 'active', 'external', ?, ?, ?, ?, ?, ?)",
         )
         .bind(node_id.to_string())
         .bind(tree_id.to_string())
         .bind(parent.map(|p| p.to_string()))
-        .bind(&handle.source)
-        .bind(&handle.source_version)
-        .bind(&handle.identifier)
-        .bind(handle.metadata.as_ref().map(|m| serde_json::to_string(m).unwrap()))
+        .bind(&handle.plugin)
+        .bind(&handle.version)
+        .bind(&handle.method)
+        .bind(&meta_json)
         .bind(metadata_json)
         .bind(now)
         .execute(&self.pool)
@@ -783,19 +881,20 @@ impl ArborStorage {
         let now = current_timestamp();
 
         let metadata_json = metadata.map(|m| serde_json::to_string(&m).unwrap());
+        let meta_json = serde_json::to_string(&handle.meta).unwrap();
 
         sqlx::query(
-            "INSERT INTO nodes (id, tree_id, parent_id, ref_count, state, scheduled_deletion_at, node_type, handle_source, handle_source_version, handle_identifier, handle_metadata, metadata, created_at)
+            "INSERT INTO nodes (id, tree_id, parent_id, ref_count, state, scheduled_deletion_at, node_type, handle_plugin, handle_version, handle_method, handle_meta, metadata, created_at)
              VALUES (?, ?, ?, 0, 'scheduled_delete', ?, 'external', ?, ?, ?, ?, ?, ?)",
         )
         .bind(node_id.to_string())
         .bind(tree_id.to_string())
         .bind(parent.map(|p| p.to_string()))
         .bind(now) // scheduled_deletion_at = now (will be cleaned up by cleanup_scheduled_trees)
-        .bind(&handle.source)
-        .bind(&handle.source_version)
-        .bind(&handle.identifier)
-        .bind(handle.metadata.as_ref().map(|m| serde_json::to_string(m).unwrap()))
+        .bind(&handle.plugin)
+        .bind(&handle.version)
+        .bind(&handle.method)
+        .bind(&meta_json)
         .bind(metadata_json)
         .bind(now)
         .execute(&self.pool)

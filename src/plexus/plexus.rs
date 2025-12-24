@@ -12,7 +12,7 @@ use futures::{Stream, StreamExt};
 use jsonrpsee::{core::server::Methods, RpcModule};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, pin::Pin, sync::Arc};
+use std::{collections::HashMap, pin::Pin, sync::{Arc, Weak}};
 
 /// Error type for plexus operations
 #[derive(Debug, Clone)]
@@ -160,13 +160,25 @@ pub trait Activation: Send + Sync + Clone + 'static {
     /// Call a method by name with JSON params, returns a stream
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError>;
 
+    /// Inject hub reference during construction
+    ///
+    /// Called during Plexus construction to give activations access to the hub.
+    /// Activations that need hub access (e.g., for resolving foreign handles when
+    /// walking arbor trees) should store this as `OnceLock<Weak<Plexus>>`.
+    ///
+    /// Default implementation is a no-op for activations that don't need hub access.
+    fn set_hub(&self, _hub: Weak<Plexus>) {
+        // Default: no-op for activations that don't need hub access
+    }
+
     /// Resolve a handle created by this activation
     ///
     /// Default implementation returns HandleNotSupported error.
     /// Activations that create handles should override this to resolve them.
     ///
-    /// The `hub` parameter provides access to the Plexus for resolving foreign handles.
-    async fn resolve_handle(&self, _handle: &Handle, _hub: &Plexus) -> Result<PlexusStream, PlexusError> {
+    /// Note: Activations that need hub access for resolving foreign handles
+    /// should store the hub reference via `set_hub` and use `self.hub()`.
+    async fn resolve_handle(&self, _handle: &Handle) -> Result<PlexusStream, PlexusError> {
         Err(PlexusError::HandleNotSupported(self.namespace().to_string()))
     }
 
@@ -232,8 +244,12 @@ impl<A: Activation> ActivationObject for ActivationWrapper<A> {
         self.inner.call(method, params).await
     }
 
-    async fn resolve_handle(&self, handle: &Handle, hub: &Plexus) -> Result<PlexusStream, PlexusError> {
-        self.inner.resolve_handle(handle, hub).await
+    fn set_hub(&self, hub: Weak<Plexus>) {
+        self.inner.set_hub(hub)
+    }
+
+    async fn resolve_handle(&self, handle: &Handle) -> Result<PlexusStream, PlexusError> {
+        self.inner.resolve_handle(handle).await
     }
 
     fn into_rpc_methods(self) -> Methods {
@@ -277,7 +293,8 @@ trait ActivationObject: Send + Sync + ActivationGuidanceInfo + 'static {
     fn description(&self) -> &str;
     fn method_help(&self, method: &str) -> Option<String>;
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError>;
-    async fn resolve_handle(&self, handle: &Handle, hub: &Plexus) -> Result<PlexusStream, PlexusError>;
+    fn set_hub(&self, hub: Weak<Plexus>);
+    async fn resolve_handle(&self, handle: &Handle) -> Result<PlexusStream, PlexusError>;
     fn into_rpc_methods(self) -> Methods;
     fn full_schema(&self) -> ActivationFullSchema;
 }
@@ -468,19 +485,20 @@ impl Plexus {
     /// Resolve a handle by dispatching to the appropriate activation
     ///
     /// Looks up the activation by `handle.source` and delegates to its `resolve_handle` method.
-    /// This allows activations to resolve their own handles while having access to the hub
-    /// for resolving foreign handles.
+    /// Activations that need hub access for resolving foreign handles should store the hub
+    /// reference via `set_hub` during construction.
     pub async fn resolve_handle(&self, handle: &Handle) -> Result<PlexusStream, PlexusError> {
         // Find activation by handle source
-        let activation = match self.activations.get(&handle.source) {
+        let activation = match self.activations.get(&handle.plugin) {
             Some(a) => a,
             None => {
-                return Err(PlexusError::ActivationNotFound(handle.source.clone()));
+                return Err(PlexusError::ActivationNotFound(handle.plugin.clone()));
             }
         };
 
-        // Delegate to activation's resolve_handle, passing self as hub
-        activation.resolve_handle(handle, self).await
+        // Delegate to activation's resolve_handle
+        // Activations use their stored hub reference (from set_hub) if they need hub access
+        activation.resolve_handle(handle).await
     }
 
     /// Convert the plexus into an RPC module for JSON-RPC server

@@ -198,6 +198,16 @@ pub enum ConeEvent {
         new_head: Position,
     },
 
+    /// Resolved message from a handle
+    #[serde(rename = "resolved_message")]
+    ResolvedMessage {
+        id: String,
+        role: String,
+        content: String,
+        model: Option<String>,
+        name: String,
+    },
+
     /// Error during operation
     #[serde(rename = "error")]
     Error { message: String },

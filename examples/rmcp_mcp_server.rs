@@ -93,6 +93,9 @@ fn plexus_to_mcp_error(e: PlexusError) -> McpError {
         }
         PlexusError::InvalidParams(reason) => McpError::invalid_params(reason, None),
         PlexusError::ExecutionError(error) => McpError::internal_error(error, None),
+        PlexusError::HandleNotSupported(activation) => {
+            McpError::invalid_params(format!("Handle resolution not supported: {}", activation), None)
+        }
     }
 }
 
@@ -321,8 +324,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "127.0.0.1:3000";
     tracing::info!("Building Plexus with all activations...");
 
-    // Build Plexus with all activations
-    let plexus = Arc::new(build_plexus().await);
+    // Build Plexus with all activations (already returns Arc<Plexus>)
+    let plexus = build_plexus().await;
     let methods = plexus.list_methods();
     tracing::info!("Plexus ready with {} methods", methods.len());
     for method in &methods {

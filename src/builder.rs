@@ -1,6 +1,9 @@
 //! Plexus builder - constructs a fully configured Plexus instance
 //!
 //! This module is used by both the main binary and examples.
+//!
+//! Uses `Arc::new_cyclic` to provide activations with a weak reference to the hub,
+//! enabling them to resolve foreign handles when walking arbor trees.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -33,7 +36,11 @@ pub fn init_data_dir() -> std::io::Result<(PathBuf, PathBuf, PathBuf)> {
 }
 
 /// Build the plexus with all activations registered
-pub async fn build_plexus() -> Plexus {
+///
+/// Returns `Arc<Plexus>` to enable hub reference injection via `Arc::new_cyclic`.
+/// Activations that need hub access (Cone, ClaudeCode) receive a weak reference
+/// to the hub during construction.
+pub async fn build_plexus() -> Arc<Plexus> {
     let (arbor_db, cone_db, claudecode_db) =
         init_data_dir().expect("Failed to initialize substrate data directory");
 
@@ -61,10 +68,25 @@ pub async fn build_plexus() -> Plexus {
             .expect("Failed to initialize ClaudeCode storage"),
     );
 
-    Plexus::new()
-        .register(Health::new())
-        .register(Bash::new())
-        .register(Arbor::with_storage(arbor_storage.clone()))
-        .register(Cone::new(cone_config, arbor_storage).await.unwrap())
-        .register(ClaudeCode::new(claudecode_storage))
+    // Create activations that need hub access
+    // These are created before Arc::new_cyclic so async init can complete
+    let cone = Cone::new(cone_config, arbor_storage.clone())
+        .await
+        .expect("Failed to initialize Cone");
+    let claudecode = ClaudeCode::new(claudecode_storage);
+
+    // Use Arc::new_cyclic to provide hub reference during construction
+    Arc::new_cyclic(|weak_plexus| {
+        // Inject hub reference into activations that need it
+        cone.inject_hub(weak_plexus.clone());
+        claudecode.inject_hub(weak_plexus.clone());
+
+        // Build the plexus with all activations
+        Plexus::new()
+            .register(Health::new())
+            .register(Bash::new())
+            .register(Arbor::with_storage(arbor_storage))
+            .register(cone)
+            .register(claudecode)
+    })
 }

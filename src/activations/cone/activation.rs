@@ -2,17 +2,20 @@ use super::methods::ConeIdentifier;
 use super::storage::{ConeStorage, ConeStorageConfig};
 use super::types::{ConeEvent, ChatUsage, MessageRole};
 use crate::activations::arbor::{Node, NodeId, NodeType};
+use crate::plexus::Plexus;
 use async_stream::stream;
 use cllient::{Message, ModelRegistry};
 use futures::Stream;
 use hub_macro::hub_methods;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Weak};
 
 /// Cone plugin - orchestrates LLM conversations with Arbor context
 #[derive(Clone)]
 pub struct Cone {
     storage: Arc<ConeStorage>,
     llm_registry: Arc<ModelRegistry>,
+    /// Hub reference for resolving foreign handles when walking arbor trees
+    hub: Arc<OnceLock<Weak<Plexus>>>,
 }
 
 impl Cone {
@@ -30,14 +33,82 @@ impl Cone {
         Ok(Self {
             storage: Arc::new(storage),
             llm_registry: Arc::new(llm_registry),
+            hub: Arc::new(OnceLock::new()),
         })
+    }
+
+    /// Inject hub reference for resolving foreign handles
+    ///
+    /// Called during Plexus construction via Arc::new_cyclic.
+    /// This allows Cone to resolve handles from other plugins when walking arbor trees.
+    pub fn inject_hub(&self, hub: Weak<Plexus>) {
+        let _ = self.hub.set(hub);
+    }
+
+    /// Get the hub reference
+    ///
+    /// Panics if called before inject_hub.
+    #[allow(dead_code)]
+    pub fn hub(&self) -> Arc<Plexus> {
+        self.hub
+            .get()
+            .expect("hub not initialized - inject_hub must be called first")
+            .upgrade()
+            .expect("hub has been dropped")
+    }
+
+    /// Resolve a cone handle to its message content
+    ///
+    /// Called by the macro-generated resolve_handle method.
+    /// Handle format: cone@1.0.0::chat:msg-{uuid}:{role}:{name}
+    pub async fn resolve_handle_impl(
+        &self,
+        handle: &crate::activations::arbor::Handle,
+    ) -> Result<crate::plexus::PlexusStream, crate::plexus::PlexusError> {
+        use crate::plexus::{PlexusError, Provenance, into_plexus_stream};
+        use async_stream::stream;
+
+        let storage = self.storage.clone();
+
+        // Extract message ID from meta[0]
+        let msg_id = handle.meta.first()
+            .ok_or_else(|| PlexusError::ExecutionError(
+                "Cone handle missing message ID in meta".to_string()
+            ))?
+            .clone();
+
+        // Extract role and name from meta if present
+        let role = handle.meta.get(1).cloned();
+        let name = handle.meta.get(2).cloned();
+
+        let result_stream = stream! {
+            match storage.resolve_message_handle(&msg_id).await {
+                Ok(message) => {
+                    yield ConeEvent::ResolvedMessage {
+                        id: message.id.to_string(),
+                        role: message.role.as_str().to_string(),
+                        content: message.content,
+                        model: message.model_id,
+                        name: name.unwrap_or_else(|| role.unwrap_or_else(|| "unknown".to_string())),
+                    };
+                }
+                Err(e) => {
+                    yield ConeEvent::Error {
+                        message: format!("Failed to resolve handle: {}", e.message),
+                    };
+                }
+            }
+        };
+
+        Ok(into_plexus_stream(result_stream, Provenance::root("cone")))
     }
 }
 
 #[hub_methods(
     namespace = "cone",
     version = "1.0.0",
-    description = "LLM cone with persistent conversation context"
+    description = "LLM cone with persistent conversation context",
+    resolve_handle
 )]
 impl Cone {
     /// Create a new cone (LLM agent with persistent conversation context)
@@ -514,12 +585,14 @@ async fn resolve_context_to_messages(
                 }
             }
             NodeType::External { handle } => {
-                // Resolve handle based on source
-                match handle.source.as_str() {
+                // Resolve handle based on plugin
+                match handle.plugin.as_str() {
                     "cone" => {
-                        // Resolve cone message handle
+                        // Resolve cone message handle - message UUID is in meta[0]
+                        let msg_id = handle.meta.first()
+                            .ok_or_else(|| "Cone handle missing message ID in meta".to_string())?;
                         let msg = storage
-                            .resolve_message_handle(&handle.identifier)
+                            .resolve_message_handle(msg_id)
                             .await
                             .map_err(|e| format!("Failed to resolve message handle: {}", e.message))?;
 
@@ -532,16 +605,17 @@ async fn resolve_context_to_messages(
                     }
                     "bash" => {
                         // TODO: Resolve bash output when bash plugin integration is added
+                        let cmd_id = handle.meta.first().map(|s| s.as_str()).unwrap_or("unknown");
                         messages.push(Message::user(&format!(
                             "[Tool output from bash: {}]",
-                            handle.identifier
+                            cmd_id
                         )));
                     }
                     _ => {
-                        // Unknown handle source - include as reference
+                        // Unknown handle plugin - include as reference using Display
                         messages.push(Message::user(&format!(
-                            "[External reference: {}:{}]",
-                            handle.source, handle.identifier
+                            "[External reference: {}]",
+                            handle
                         )));
                     }
                 }
