@@ -107,6 +107,18 @@ pub fn error_stream_with_guidance<T: ActivationGuidanceInfo + ?Sized>(
             let done_item = PlexusStreamItem::done(plexus_hash, provenance);
             return Box::pin(stream::iter(vec![error_item, done_item]));
         }
+
+        PlexusError::HandleNotSupported(_) => {
+            // No guidance for handle resolution errors - just return simple error stream
+            let error_item = PlexusStreamItem::error(
+                plexus_hash.clone(),
+                provenance.clone(),
+                error.to_string(),
+                false,
+            );
+            let done_item = PlexusStreamItem::done(plexus_hash, provenance);
+            return Box::pin(stream::iter(vec![error_item, done_item]));
+        }
     };
 
     // Check for custom guidance from activation (Contract 3)

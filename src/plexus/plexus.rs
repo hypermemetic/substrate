@@ -5,6 +5,7 @@ use super::{
     schema::Schema,
     types::{GuidanceSuggestion, PlexusStreamItem},
 };
+use crate::activations::arbor::Handle;
 use crate::plugin_system::types::ActivationStreamItem;
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
@@ -20,6 +21,7 @@ pub enum PlexusError {
     MethodNotFound { activation: String, method: String },
     InvalidParams(String),
     ExecutionError(String),
+    HandleNotSupported(String),
 }
 
 impl std::fmt::Display for PlexusError {
@@ -31,6 +33,9 @@ impl std::fmt::Display for PlexusError {
             }
             PlexusError::InvalidParams(msg) => write!(f, "Invalid params: {}", msg),
             PlexusError::ExecutionError(msg) => write!(f, "Execution error: {}", msg),
+            PlexusError::HandleNotSupported(activation) => {
+                write!(f, "Handle resolution not supported by activation: {}", activation)
+            }
         }
     }
 }
@@ -155,6 +160,16 @@ pub trait Activation: Send + Sync + Clone + 'static {
     /// Call a method by name with JSON params, returns a stream
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError>;
 
+    /// Resolve a handle created by this activation
+    ///
+    /// Default implementation returns HandleNotSupported error.
+    /// Activations that create handles should override this to resolve them.
+    ///
+    /// The `hub` parameter provides access to the Plexus for resolving foreign handles.
+    async fn resolve_handle(&self, _handle: &Handle, _hub: &Plexus) -> Result<PlexusStream, PlexusError> {
+        Err(PlexusError::HandleNotSupported(self.namespace().to_string()))
+    }
+
     /// Convert this activation into RPC methods for JSON-RPC server
     fn into_rpc_methods(self) -> Methods;
 
@@ -217,6 +232,10 @@ impl<A: Activation> ActivationObject for ActivationWrapper<A> {
         self.inner.call(method, params).await
     }
 
+    async fn resolve_handle(&self, handle: &Handle, hub: &Plexus) -> Result<PlexusStream, PlexusError> {
+        self.inner.resolve_handle(handle, hub).await
+    }
+
     fn into_rpc_methods(self) -> Methods {
         self.inner.into_rpc_methods()
     }
@@ -258,6 +277,7 @@ trait ActivationObject: Send + Sync + ActivationGuidanceInfo + 'static {
     fn description(&self) -> &str;
     fn method_help(&self, method: &str) -> Option<String>;
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError>;
+    async fn resolve_handle(&self, handle: &Handle, hub: &Plexus) -> Result<PlexusStream, PlexusError>;
     fn into_rpc_methods(self) -> Methods;
     fn full_schema(&self) -> ActivationFullSchema;
 }
@@ -443,6 +463,24 @@ impl Plexus {
                 ))
             }
         }
+    }
+
+    /// Resolve a handle by dispatching to the appropriate activation
+    ///
+    /// Looks up the activation by `handle.source` and delegates to its `resolve_handle` method.
+    /// This allows activations to resolve their own handles while having access to the hub
+    /// for resolving foreign handles.
+    pub async fn resolve_handle(&self, handle: &Handle) -> Result<PlexusStream, PlexusError> {
+        // Find activation by handle source
+        let activation = match self.activations.get(&handle.source) {
+            Some(a) => a,
+            None => {
+                return Err(PlexusError::ActivationNotFound(handle.source.clone()));
+            }
+        };
+
+        // Delegate to activation's resolve_handle, passing self as hub
+        activation.resolve_handle(handle, self).await
     }
 
     /// Convert the plexus into an RPC module for JSON-RPC server
