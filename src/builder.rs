@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use crate::activations::echo::Echo;
 use crate::activations::health::Health;
 use crate::plexus::Plexus;
 
@@ -15,5 +16,9 @@ use crate::plexus::Plexus;
 /// - plexus.list_activations: Enumerate registered activations
 /// - plexus.schema: Get full plexus schema
 pub fn build_plexus() -> Arc<Plexus> {
-    Arc::new(Plexus::new().register(Health::new()))
+    Arc::new(
+        Plexus::new()
+            .register(Health::new())
+            .register(Echo::new()),
+    )
 }

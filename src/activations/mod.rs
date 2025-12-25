@@ -7,5 +7,8 @@
 // pub mod claudecode;
 // pub mod cone;
 
-// Health is the reference implementation for the new architecture
+// Health is the reference implementation for the new architecture (manual impl)
 pub mod health;
+
+// Echo demonstrates hub-macro usage with the new architecture
+pub mod echo;
