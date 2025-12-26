@@ -3,7 +3,7 @@ members = ["."]
 
 [package]
 name = "substrate"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Backend infrastructure for LLM orchestration - plexus, activations, storage"
 default-run = "substrate"
@@ -50,16 +50,14 @@ http = "1.0"
 http-body-util = "0.1"
 
 # LLM client
-cllient = { path = "../cllient" }
 
 # Session types for method protocols
 dialectic = { version = "0.4.1", features = ["tokio"] }
 
-# Hub method macro
-hub-macro = { path = "../hub-macro" }
-
 # MCP server via rmcp
 rmcp = { version = "0.12", features = ["server", "transport-io", "transport-streamable-http-server"] }
+cllient = "0.1.2"
+hub-macro = "0.1.0"
 
 [dev-dependencies]
 hyper = "1"
