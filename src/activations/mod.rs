@@ -12,3 +12,6 @@ pub mod health;
 
 // Echo demonstrates hub-macro usage with the new architecture
 pub mod echo;
+
+// Solar demonstrates nested plugin hierarchy (plugins with children)
+pub mod solar;

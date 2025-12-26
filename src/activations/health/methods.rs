@@ -47,37 +47,8 @@ impl crate::plexus::MethodEnumSchema for HealthMethod {
     }
 
     fn schema_with_consts() -> serde_json::Value {
-        use schemars::JsonSchema;
-        let schema = Self::json_schema(&mut schemars::SchemaGenerator::default());
-        let mut value = serde_json::to_value(schema).expect("Schema should serialize");
-        let method_names = Self::method_names();
-
-        if let Some(obj) = value.as_object_mut() {
-            if let Some(one_of) = obj.get_mut("oneOf") {
-                if let Some(variants) = one_of.as_array_mut() {
-                    for (i, variant) in variants.iter_mut().enumerate() {
-                        if let Some(variant_obj) = variant.as_object_mut() {
-                            if let Some(props) = variant_obj.get_mut("properties") {
-                                if let Some(props_obj) = props.as_object_mut() {
-                                    if let Some(method_prop) = props_obj.get_mut("method") {
-                                        if let Some(method_obj) = method_prop.as_object_mut() {
-                                            method_obj.remove("type");
-                                            if let Some(name) = method_names.get(i) {
-                                                method_obj.insert(
-                                                    "const".to_string(),
-                                                    serde_json::Value::String(name.to_string()),
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        value
+        // schemars 1.1+ generates const values for adjacently tagged enums
+        serde_json::to_value(schemars::schema_for!(HealthMethod)).expect("Schema should serialize")
     }
 }
 

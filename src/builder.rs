@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::activations::echo::Echo;
 use crate::activations::health::Health;
+use crate::activations::solar::Solar;
 use crate::plexus::Plexus;
 
 /// Build the plexus with registered activations
@@ -19,6 +20,7 @@ pub fn build_plexus() -> Arc<Plexus> {
     Arc::new(
         Plexus::new()
             .register(Health::new())
-            .register(Echo::new()),
+            .register(Echo::new())
+            .register(Solar::new()),
     )
 }
