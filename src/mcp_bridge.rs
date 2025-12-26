@@ -14,7 +14,7 @@ use rmcp::{
 };
 use serde_json::json;
 
-use crate::plexus::{Plexus, PlexusError, ActivationFullSchema};
+use crate::plexus::{Plexus, PlexusError, PluginSchema};
 use crate::plexus::types::PlexusStreamItem;
 
 // =============================================================================
@@ -25,7 +25,7 @@ use crate::plexus::types::PlexusStreamItem;
 ///
 /// MCP requires all tool inputSchema to have "type": "object" at root.
 /// schemars may produce schemas without this (e.g., for unit types).
-fn schemas_to_rmcp_tools(schemas: Vec<ActivationFullSchema>) -> Vec<Tool> {
+fn schemas_to_rmcp_tools(schemas: Vec<PluginSchema>) -> Vec<Tool> {
     schemas
         .into_iter()
         .flat_map(|activation| {
@@ -116,7 +116,7 @@ impl ServerHandler for PlexusMcpBridge {
         _request: Option<PaginatedRequestParam>,
         _ctx: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
-        let schemas = self.plexus.list_full_schemas();
+        let schemas = self.plexus.list_plugin_schemas();
         let tools = schemas_to_rmcp_tools(schemas);
 
         tracing::debug!("Listing {} tools", tools.len());

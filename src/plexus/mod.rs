@@ -3,13 +3,11 @@
 
 pub mod context;
 pub mod errors;
-pub mod method;
 pub mod method_enum;
 pub mod middleware;
 pub mod path;
 pub mod plexus;
 pub mod schema;
-pub mod session_schema;
 pub mod streaming;
 pub mod types;
 
@@ -19,11 +17,11 @@ pub use errors::{GuidedError, GuidedErrorData, TryRequest};
 #[deprecated(note = "Middleware removed - guidance provided via PlexusStreamEvent::Guidance")]
 pub use middleware::{ActivationRegistry, GuidedErrorMiddleware};
 pub use path::Provenance;
-pub use plexus::{Activation, ActivationFullSchema, ActivationInfo, MethodSchemaInfo, Plexus, PlexusError};
+pub use plexus::{Activation, ActivationInfo, Plexus, PlexusError};
+#[allow(deprecated)]
+pub use plexus::ActivationFullSchema;
 pub use crate::types::Handle;
-pub use schema::{Schema, SchemaProperty, SchemaType};
-pub use method::{ActivationMethodsSchema, Method, MethodCollection, MethodSchema};
-pub use session_schema::{ListSchema, ProtocolSchema, SessionSchema};
+pub use schema::{MethodSchema, PluginSchema, Schema, SchemaProperty, SchemaType};
 pub use types::{PlexusStreamItem, StreamMetadata};
 pub use method_enum::MethodEnumSchema;
 pub use streaming::{PlexusStream, wrap_stream, wrap_stream_with_done, error_stream, done_stream, progress_stream};

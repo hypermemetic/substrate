@@ -69,22 +69,24 @@ mod tests {
     }
 
     #[test]
-    fn test_full_schema_with_return_types() {
+    fn test_plugin_schema_with_return_types() {
+        use crate::plexus::Activation;
         let bash = Bash::new();
-        let schema = bash.full_schema();
+        let schema = bash.plugin_schema();
 
         assert_eq!(schema.namespace, "bash");
         assert_eq!(schema.version, "1.0.0");
         assert_eq!(schema.methods.len(), 1);
+        assert!(schema.is_leaf(), "bash should be a leaf plugin");
 
         let execute = &schema.methods[0];
         assert_eq!(execute.name, "execute");
         assert!(execute.params.is_some(), "should have params schema");
         assert!(execute.returns.is_some(), "should have returns schema");
 
-        // Print the full schema
+        // Print the plugin schema
         let json = serde_json::to_string_pretty(&schema).unwrap();
-        println!("Bash full_schema():\n{}", json);
+        println!("Bash plugin_schema():\n{}", json);
 
         // Verify returns includes BashEvent variants
         let returns_json = serde_json::to_string(&execute.returns).unwrap();

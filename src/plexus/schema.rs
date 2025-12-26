@@ -7,8 +7,130 @@
 /// (uuid::Uuid instead of String) and doc comments, schemars generates complete
 /// schemas with format annotations, descriptions, and required arrays.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+// ============================================================================
+// Plugin Schema (Recursive)
+// ============================================================================
+
+/// A plugin's complete schema, supporting recursive nesting for hubs.
+///
+/// This is the core type for the recursive plugin schema system:
+/// - Leaf plugins have `children = None`
+/// - Hub plugins have `children = Some([...])`
+///
+/// Category-theoretically: `Plugin ≅ μX. Methods × (1 + List(X))`
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PluginSchema {
+    /// The plugin's namespace (e.g., "echo", "plexus")
+    pub namespace: String,
+
+    /// The plugin's version (e.g., "1.0.0")
+    pub version: String,
+
+    /// Human-readable description of the plugin
+    pub description: String,
+
+    /// Methods exposed by this plugin
+    pub methods: Vec<MethodSchema>,
+
+    /// Child plugins (None = leaf plugin, Some = hub plugin)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<PluginSchema>>,
+}
+
+/// Schema for a single method exposed by a plugin
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct MethodSchema {
+    /// Method name (e.g., "echo", "check")
+    pub name: String,
+
+    /// Human-readable description of what this method does
+    pub description: String,
+
+    /// JSON Schema for the method's parameters (None if no params)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<schemars::Schema>,
+
+    /// JSON Schema for the method's return type (None if not specified)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub returns: Option<schemars::Schema>,
+}
+
+impl PluginSchema {
+    /// Create a new leaf plugin schema (no children)
+    pub fn leaf(
+        namespace: impl Into<String>,
+        version: impl Into<String>,
+        description: impl Into<String>,
+        methods: Vec<MethodSchema>,
+    ) -> Self {
+        Self {
+            namespace: namespace.into(),
+            version: version.into(),
+            description: description.into(),
+            methods,
+            children: None,
+        }
+    }
+
+    /// Create a new hub plugin schema (with children)
+    pub fn hub(
+        namespace: impl Into<String>,
+        version: impl Into<String>,
+        description: impl Into<String>,
+        methods: Vec<MethodSchema>,
+        children: Vec<PluginSchema>,
+    ) -> Self {
+        Self {
+            namespace: namespace.into(),
+            version: version.into(),
+            description: description.into(),
+            methods,
+            children: Some(children),
+        }
+    }
+
+    /// Check if this is a hub (has children)
+    pub fn is_hub(&self) -> bool {
+        self.children.is_some()
+    }
+
+    /// Check if this is a leaf (no children)
+    pub fn is_leaf(&self) -> bool {
+        self.children.is_none()
+    }
+}
+
+impl MethodSchema {
+    /// Create a new method schema with just name and description
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            params: None,
+            returns: None,
+        }
+    }
+
+    /// Add parameter schema
+    pub fn with_params(mut self, params: schemars::Schema) -> Self {
+        self.params = Some(params);
+        self
+    }
+
+    /// Add return type schema
+    pub fn with_returns(mut self, returns: schemars::Schema) -> Self {
+        self.returns = Some(returns);
+        self
+    }
+}
+
+// ============================================================================
+// JSON Schema Types
+// ============================================================================
 
 /// A complete JSON Schema with metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]

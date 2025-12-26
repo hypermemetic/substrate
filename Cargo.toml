@@ -56,7 +56,7 @@ cllient = { path = "../../../../cllient" }
 dialectic = { version = "0.4.1", features = ["tokio"] }
 
 # Hub method macro
-hub-macro = { path = "../../../../hub-macro" }
+hub-macro = { path = "../../../../hypermemetic/hub-macro" }
 
 # MCP server via rmcp
 rmcp = { version = "0.12", features = ["server", "transport-io", "transport-streamable-http-server"] }
