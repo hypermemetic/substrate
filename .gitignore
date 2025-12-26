@@ -27,7 +27,7 @@ cabal.project.local~
 .HTF/
 .ghc.environment.*
 
-.env
+.env*
 
 # SQLite databases
 *.db
