@@ -247,29 +247,37 @@ impl ServerHandler for PlexusMcpBridge {
             Ok(CallToolResult::error(vec![Content::text(error_content)]))
         } else {
             // Convert buffered data to content
-            let content = if buffered_data.is_empty() {
-                vec![Content::text("(no output)")]
+            let text_content = if buffered_data.is_empty() {
+                "(no output)".to_string()
             } else if buffered_data.len() == 1 {
                 // Single value - return as text if string, otherwise JSON
                 match &buffered_data[0] {
-                    serde_json::Value::String(s) => vec![Content::text(s.clone())],
-                    other => vec![Content::text(serde_json::to_string_pretty(other).unwrap_or_default())],
+                    serde_json::Value::String(s) => s.clone(),
+                    other => serde_json::to_string_pretty(other).unwrap_or_default(),
                 }
             } else {
                 // Multiple values - join strings or return as JSON array
                 let all_strings = buffered_data.iter().all(|v| v.is_string());
                 if all_strings {
-                    let joined: String = buffered_data
+                    buffered_data
                         .iter()
                         .filter_map(|v| v.as_str())
                         .collect::<Vec<_>>()
-                        .join("");
-                    vec![Content::text(joined)]
+                        .join("")
                 } else {
-                    vec![Content::text(serde_json::to_string_pretty(&buffered_data).unwrap_or_default())]
+                    serde_json::to_string_pretty(&buffered_data).unwrap_or_default()
                 }
             };
-            Ok(CallToolResult::success(content))
+
+            // Estimate tokens (~4 chars per token for JSON/text)
+            let approx_tokens = (text_content.len() + 3) / 4;
+            let content_with_tokens = format!(
+                "{}\n\n[~{} tokens]",
+                text_content,
+                approx_tokens
+            );
+
+            Ok(CallToolResult::success(vec![Content::text(content_with_tokens)]))
         }
     }
 }

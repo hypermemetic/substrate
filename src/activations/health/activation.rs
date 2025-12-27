@@ -108,19 +108,29 @@ impl Activation for Health {
     }
 
     fn methods(&self) -> Vec<&str> {
-        vec!["check"]
+        vec!["check", "schema"]
     }
 
     fn method_help(&self, method: &str) -> Option<String> {
-        HealthMethod::description(method).map(|s| s.to_string())
+        match method {
+            "schema" => Some("Get this plugin's schema".to_string()),
+            _ => HealthMethod::description(method).map(|s| s.to_string()),
+        }
     }
 
     async fn call(&self, method: &str, _params: Value) -> Result<PlexusStream, PlexusError> {
         match method {
             "check" => {
                 let stream = self.check_stream();
-                // CALLER WRAPS - this is the key architectural change
                 Ok(wrap_stream(stream, "health.status", vec!["health".into()]))
+            }
+            "schema" => {
+                let schema = self.plugin_schema();
+                Ok(wrap_stream(
+                    futures::stream::once(async move { schema }),
+                    "health.schema",
+                    vec!["health".into()]
+                ))
             }
             _ => Err(PlexusError::MethodNotFound {
                 activation: "health".to_string(),
