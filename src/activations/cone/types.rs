@@ -1,8 +1,4 @@
-use crate::{
-    plexus::{Provenance, types::PlexusStreamItem},
-    plugin_system::types::ActivationStreamItem,
-    activations::arbor::{NodeId, TreeId},
-};
+use crate::activations::arbor::{NodeId, TreeId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -224,21 +220,6 @@ pub struct ChatUsage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
-}
-
-impl ActivationStreamItem for ConeEvent {
-    fn content_type() -> &'static str {
-        "cone.event"
-    }
-
-    fn into_plexus_item(self, provenance: Provenance, plexus_hash: &str) -> PlexusStreamItem {
-        PlexusStreamItem::data(
-            plexus_hash.to_string(),
-            provenance,
-            Self::content_type().to_string(),
-            serde_json::to_value(self).unwrap(),
-        )
-    }
 }
 
 /// Error type for cone operations

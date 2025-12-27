@@ -4,6 +4,10 @@
 
 use std::sync::Arc;
 
+use crate::activations::arbor::{Arbor, ArborConfig};
+use crate::activations::bash::Bash;
+use crate::activations::claudecode::{ClaudeCode, ClaudeCodeStorage, ClaudeCodeStorageConfig};
+use crate::activations::cone::{Cone, ConeStorageConfig};
 use crate::activations::echo::Echo;
 use crate::activations::health::Health;
 use crate::activations::solar::Solar;
@@ -19,11 +23,38 @@ use crate::plexus::Plexus;
 ///
 /// Hub activations (with nested children) are registered with `register_hub`
 /// to enable direct nested routing like `plexus.solar.mercury.info`.
-pub fn build_plexus() -> Arc<Plexus> {
+///
+/// This function is async because Arbor, Cone, and ClaudeCode require
+/// async database initialization.
+pub async fn build_plexus() -> Arc<Plexus> {
+    // Initialize Arbor first (other activations depend on its storage)
+    let arbor = Arbor::new(ArborConfig::default())
+        .await
+        .expect("Failed to initialize Arbor");
+    let arbor_storage = arbor.storage();
+
+    // Initialize Cone with shared Arbor storage
+    let cone = Cone::new(ConeStorageConfig::default(), arbor_storage.clone())
+        .await
+        .expect("Failed to initialize Cone");
+
+    // Initialize ClaudeCode with shared Arbor storage
+    let claudecode_storage = ClaudeCodeStorage::new(
+        ClaudeCodeStorageConfig::default(),
+        arbor_storage,
+    )
+    .await
+    .expect("Failed to initialize ClaudeCode storage");
+    let claudecode = ClaudeCode::new(Arc::new(claudecode_storage));
+
     Arc::new(
         Plexus::new()
             .register(Health::new())
             .register(Echo::new())
+            .register(Bash::new())
+            .register(arbor)
+            .register(cone)
+            .register(claudecode)
             .register_hub(Solar::new()),
     )
 }

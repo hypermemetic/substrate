@@ -21,7 +21,7 @@ pub use plexus::{Activation, ActivationInfo, ChildRouter, Plexus, PlexusError, r
 #[allow(deprecated)]
 pub use plexus::ActivationFullSchema;
 pub use crate::types::Handle;
-pub use schema::{ChildSummary, MethodSchema, PluginSchema, Schema, SchemaProperty, SchemaType};
+pub use schema::{ChildSummary, MethodSchema, PluginSchema, Schema, SchemaProperty, SchemaResult, SchemaType};
 pub use types::{PlexusStreamItem, StreamMetadata};
 pub use method_enum::MethodEnumSchema;
 pub use streaming::{PlexusStream, wrap_stream, wrap_stream_with_done, error_stream, done_stream, progress_stream};

@@ -127,7 +127,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::trace!("  └─ trace :: full observability unlocked");
 
     // Build plexus (returns Arc<Plexus>)
-    let plexus = build_plexus();
+    let plexus = build_plexus().await;
     let activations = plexus.list_activations_info();
     let methods = plexus.list_methods();
     let plexus_hash = plexus.compute_hash();
@@ -155,7 +155,7 @@ async fn main() -> anyhow::Result<()> {
         let ws_handle: ServerHandle = ws_server.start(module);
 
         // Build MCP interface with a fresh Plexus (since module consumed the first one)
-        let mcp_plexus = build_plexus();
+        let mcp_plexus = build_plexus().await;
         let mcp_bridge = PlexusMcpBridge::new(mcp_plexus);
 
         // Create StreamableHttpService for MCP

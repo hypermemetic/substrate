@@ -63,9 +63,9 @@ impl Cone {
     /// Handle format: cone@1.0.0::chat:msg-{uuid}:{role}:{name}
     pub async fn resolve_handle_impl(
         &self,
-        handle: &crate::activations::arbor::Handle,
+        handle: &crate::types::Handle,
     ) -> Result<crate::plexus::PlexusStream, crate::plexus::PlexusError> {
-        use crate::plexus::{PlexusError, Provenance, into_plexus_stream};
+        use crate::plexus::{PlexusError, wrap_stream};
         use async_stream::stream;
 
         let storage = self.storage.clone();
@@ -100,7 +100,7 @@ impl Cone {
             }
         };
 
-        Ok(into_plexus_stream(result_stream, Provenance::root("cone")))
+        Ok(wrap_stream(result_stream, "cone.resolve_handle", vec!["cone".into()]))
     }
 }
 

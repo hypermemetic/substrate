@@ -1,12 +1,3 @@
-// Activations pruned for caller-wraps streaming architecture refactor.
-// These will be migrated one at a time to use wrap_stream pattern.
-// See docs/architecture/16680179837700061695_caller-wraps-streaming.md
-
-// pub mod arbor;
-// pub mod bash;
-// pub mod claudecode;
-// pub mod cone;
-
 // Health is the reference implementation for the new architecture (manual impl)
 pub mod health;
 
@@ -15,3 +6,15 @@ pub mod echo;
 
 // Solar demonstrates nested plugin hierarchy (plugins with children)
 pub mod solar;
+
+// Arbor manages conversation trees
+pub mod arbor;
+
+// Bash executes shell commands
+pub mod bash;
+
+// Cone orchestrates LLM conversations with Arbor context
+pub mod cone;
+
+// ClaudeCode manages Claude Code sessions with Arbor-backed history
+pub mod claudecode;

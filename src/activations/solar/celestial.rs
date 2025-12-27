@@ -233,7 +233,7 @@ impl Activation for CelestialBodyActivation {
     fn method_help(&self, method: &str) -> Option<String> {
         match method {
             "info" => Some(format!("Get information about {}", self.body.name)),
-            "schema" => Some("Get this plugin's schema".to_string()),
+            "schema" => Some("Get plugin or method schema. Pass {\"method\": \"name\"} for a specific method.".to_string()),
             _ => None,
         }
     }
@@ -245,15 +245,55 @@ impl Activation for CelestialBodyActivation {
                 Ok(wrap_stream(stream, "celestial.info", vec![self.namespace.clone()]))
             }
             "schema" => {
-                let schema = self.plugin_schema();
+                use crate::plexus::SchemaResult;
+
+                // Check if a specific method was requested
+                let method_name: Option<String> = params.get("method")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let plugin_schema = self.plugin_schema();
                 let ns = self.namespace.clone();
+
+                let result = if let Some(ref name) = method_name {
+                    // Find the specific method
+                    plugin_schema.methods.iter()
+                        .find(|m| m.name == *name)
+                        .map(|m| SchemaResult::Method(m.clone()))
+                        .ok_or_else(|| PlexusError::MethodNotFound {
+                            activation: ns.clone(),
+                            method: name.clone(),
+                        })?
+                } else {
+                    // Return full plugin schema
+                    SchemaResult::Plugin(plugin_schema)
+                };
+
                 Ok(wrap_stream(
-                    futures::stream::once(async move { schema }),
+                    futures::stream::once(async move { result }),
                     "celestial.schema",
                     vec![ns]
                 ))
             }
             _ => {
+                // Check for {method}.schema pattern (e.g., "info.schema")
+                // Only if the prefix is an actual local method (not a child)
+                if let Some(method_name) = method.strip_suffix(".schema") {
+                    use crate::plexus::SchemaResult;
+
+                    let plugin_schema = self.plugin_schema();
+                    if let Some(m) = plugin_schema.methods.iter().find(|m| m.name == method_name) {
+                        let ns = self.namespace.clone();
+                        let result = SchemaResult::Method(m.clone());
+                        return Ok(wrap_stream(
+                            futures::stream::once(async move { result }),
+                            "celestial.method_schema",
+                            vec![ns]
+                        ));
+                    }
+                    // Not a local method - fall through to child routing
+                }
+
                 // Try routing to child
                 crate::plexus::route_to_child(self, method, params).await
             }

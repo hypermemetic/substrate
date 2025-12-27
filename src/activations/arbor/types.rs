@@ -1,7 +1,3 @@
-use crate::{
-    plexus::{Provenance, types::PlexusStreamItem},
-    plugin_system::types::ActivationStreamItem,
-};
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
@@ -581,26 +577,6 @@ pub enum ArborEvent {
     TreeRender { tree_id: TreeId, render: String },
 }
 
-impl ActivationStreamItem for ArborEvent {
-    fn content_type() -> &'static str {
-        "arbor.event"
-    }
-
-    fn into_plexus_item(self, provenance: Provenance, plexus_hash: &str) -> PlexusStreamItem {
-        PlexusStreamItem::data(
-            plexus_hash.to_string(),
-            provenance,
-            Self::content_type().to_string(),
-            serde_json::to_value(self).unwrap(),
-        )
-    }
-
-    fn is_terminal(&self) -> bool {
-        // All Arbor events are terminal (single response per operation)
-        true
-    }
-}
-
 // ============================================================================
 // Error Types
 // ============================================================================
@@ -609,17 +585,6 @@ impl ActivationStreamItem for ArborEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArborError {
     pub message: String,
-}
-
-impl ActivationStreamItem for ArborError {
-    fn into_plexus_item(self, provenance: Provenance, plexus_hash: &str) -> PlexusStreamItem {
-        PlexusStreamItem::error(
-            plexus_hash.to_string(),
-            provenance,
-            self.message,
-            false,
-        )
-    }
 }
 
 impl std::fmt::Display for ArborError {

@@ -1,5 +1,4 @@
 use crate::activations::arbor::{NodeId, TreeId};
-use hub_macro::StreamEvent;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -189,73 +188,58 @@ pub struct ChatUsage {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Result of creating a session
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, StreamEvent)]
-#[stream_event(content_type = "claudecode.created")]
-#[serde(tag = "type")]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum CreateResult {
     #[serde(rename = "created")]
-    #[terminal]
     Ok {
         id: ClaudeCodeId,
         head: Position,
     },
     #[serde(rename = "error")]
-    #[terminal]
     Err { message: String },
 }
 
 /// Result of getting a session
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, StreamEvent)]
-#[stream_event(content_type = "claudecode.get")]
-#[serde(tag = "type")]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum GetResult {
     #[serde(rename = "ok")]
-    #[terminal]
     Ok { config: ClaudeCodeConfig },
     #[serde(rename = "error")]
-    #[terminal]
     Err { message: String },
 }
 
 /// Result of listing sessions
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, StreamEvent)]
-#[stream_event(content_type = "claudecode.list")]
-#[serde(tag = "type")]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum ListResult {
     #[serde(rename = "ok")]
-    #[terminal]
     Ok { sessions: Vec<ClaudeCodeInfo> },
     #[serde(rename = "error")]
-    #[terminal]
     Err { message: String },
 }
 
 /// Result of deleting a session
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, StreamEvent)]
-#[stream_event(content_type = "claudecode.deleted")]
-#[serde(tag = "type")]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum DeleteResult {
     #[serde(rename = "deleted")]
-    #[terminal]
     Ok { id: ClaudeCodeId },
     #[serde(rename = "error")]
-    #[terminal]
     Err { message: String },
 }
 
 /// Result of forking a session
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, StreamEvent)]
-#[stream_event(content_type = "claudecode.forked")]
-#[serde(tag = "type")]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum ForkResult {
     #[serde(rename = "forked")]
-    #[terminal]
     Ok {
         id: ClaudeCodeId,
         head: Position,
     },
     #[serde(rename = "error")]
-    #[terminal]
     Err { message: String },
 }
 
@@ -264,9 +248,8 @@ pub enum ForkResult {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Events emitted during chat streaming
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, StreamEvent)]
-#[stream_event(content_type = "claudecode.chat")]
-#[serde(tag = "type")]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChatEvent {
     /// Chat started - user message stored, streaming begins
     #[serde(rename = "start")]
@@ -301,7 +284,6 @@ pub enum ChatEvent {
 
     /// Chat complete - response stored, head updated
     #[serde(rename = "complete")]
-    #[terminal]
     Complete {
         new_head: Position,
         claude_session_id: String,
@@ -319,7 +301,6 @@ pub enum ChatEvent {
 
     /// Error during chat
     #[serde(rename = "error")]
-    #[terminal]
     Err { message: String },
 }
 

@@ -31,8 +31,12 @@ pub struct PluginSchema {
     /// The plugin's version (e.g., "1.0.0")
     pub version: String,
 
-    /// Human-readable description of the plugin
+    /// Short description of the plugin (max 15 words)
     pub description: String,
+
+    /// Detailed description of the plugin (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub long_description: Option<String>,
 
     /// Content hash computed from methods + children hashes (for cache invalidation)
     /// This hash changes when any method or child plugin changes
@@ -44,6 +48,16 @@ pub struct PluginSchema {
     /// Child plugin summaries (None = leaf plugin, Some = hub plugin)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<ChildSummary>>,
+}
+
+/// Result of a schema query - either full plugin or single method
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum SchemaResult {
+    /// Full plugin schema (when no method specified)
+    Plugin(PluginSchema),
+    /// Single method schema (when method specified)
+    Method(MethodSchema),
 }
 
 /// Schema for a single method exposed by a plugin
@@ -91,6 +105,52 @@ impl PluginSchema {
         format!("{:016x}", hasher.finish())
     }
 
+    /// Validate no name collisions exist within a plugin
+    ///
+    /// Checks for:
+    /// - Duplicate method names
+    /// - Duplicate child names (for hubs)
+    /// - Method/child name collisions (for hubs)
+    ///
+    /// Panics if a collision is detected (system error).
+    fn validate_no_collisions(
+        namespace: &str,
+        methods: &[MethodSchema],
+        children: Option<&[ChildSummary]>,
+    ) {
+        use std::collections::HashSet;
+
+        let mut seen: HashSet<&str> = HashSet::new();
+
+        // Check method names
+        for m in methods {
+            if !seen.insert(&m.name) {
+                panic!(
+                    "Name collision in plugin '{}': duplicate method '{}'",
+                    namespace, m.name
+                );
+            }
+        }
+
+        // Check child names (and collisions with methods)
+        if let Some(kids) = children {
+            for c in kids {
+                if !seen.insert(&c.namespace) {
+                    // Could be duplicate child or collision with method
+                    let collision_type = if methods.iter().any(|m| m.name == c.namespace) {
+                        "method/child collision"
+                    } else {
+                        "duplicate child"
+                    };
+                    panic!(
+                        "Name collision in plugin '{}': {} for '{}'",
+                        namespace, collision_type, c.namespace
+                    );
+                }
+            }
+        }
+    }
+
     /// Create a new leaf plugin schema (no children)
     pub fn leaf(
         namespace: impl Into<String>,
@@ -98,11 +158,36 @@ impl PluginSchema {
         description: impl Into<String>,
         methods: Vec<MethodSchema>,
     ) -> Self {
+        let namespace = namespace.into();
+        Self::validate_no_collisions(&namespace, &methods, None);
         let hash = Self::compute_hash(&methods, None);
         Self {
-            namespace: namespace.into(),
+            namespace,
             version: version.into(),
             description: description.into(),
+            long_description: None,
+            hash,
+            methods,
+            children: None,
+        }
+    }
+
+    /// Create a new leaf plugin schema with long description
+    pub fn leaf_with_long_description(
+        namespace: impl Into<String>,
+        version: impl Into<String>,
+        description: impl Into<String>,
+        long_description: impl Into<String>,
+        methods: Vec<MethodSchema>,
+    ) -> Self {
+        let namespace = namespace.into();
+        Self::validate_no_collisions(&namespace, &methods, None);
+        let hash = Self::compute_hash(&methods, None);
+        Self {
+            namespace,
+            version: version.into(),
+            description: description.into(),
+            long_description: Some(long_description.into()),
             hash,
             methods,
             children: None,
@@ -117,11 +202,37 @@ impl PluginSchema {
         methods: Vec<MethodSchema>,
         children: Vec<ChildSummary>,
     ) -> Self {
+        let namespace = namespace.into();
+        Self::validate_no_collisions(&namespace, &methods, Some(&children));
         let hash = Self::compute_hash(&methods, Some(&children));
         Self {
-            namespace: namespace.into(),
+            namespace,
             version: version.into(),
             description: description.into(),
+            long_description: None,
+            hash,
+            methods,
+            children: Some(children),
+        }
+    }
+
+    /// Create a new hub plugin schema with long description
+    pub fn hub_with_long_description(
+        namespace: impl Into<String>,
+        version: impl Into<String>,
+        description: impl Into<String>,
+        long_description: impl Into<String>,
+        methods: Vec<MethodSchema>,
+        children: Vec<ChildSummary>,
+    ) -> Self {
+        let namespace = namespace.into();
+        Self::validate_no_collisions(&namespace, &methods, Some(&children));
+        let hash = Self::compute_hash(&methods, Some(&children));
+        Self {
+            namespace,
+            version: version.into(),
+            description: description.into(),
+            long_description: Some(long_description.into()),
             hash,
             methods,
             children: Some(children),

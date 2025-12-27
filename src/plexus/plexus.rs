@@ -78,7 +78,10 @@ pub trait Activation: Send + Sync + 'static {
 
     fn namespace(&self) -> &str;
     fn version(&self) -> &str;
+    /// Short description (max 15 words)
     fn description(&self) -> &str { "No description available" }
+    /// Long description (optional, for detailed documentation)
+    fn long_description(&self) -> Option<&str> { None }
     fn methods(&self) -> Vec<&str>;
     fn method_help(&self, _method: &str) -> Option<String> { None }
 
@@ -94,20 +97,32 @@ pub trait Activation: Send + Sync + 'static {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
-        PluginSchema::leaf(
-            self.namespace(),
-            self.version(),
-            self.description(),
-            self.methods().iter().map(|name| {
-                let desc = self.method_help(name).unwrap_or_default();
-                // Compute a simple hash for methods not using hub-macro
-                let mut hasher = DefaultHasher::new();
-                name.hash(&mut hasher);
-                desc.hash(&mut hasher);
-                let hash = format!("{:016x}", hasher.finish());
-                MethodSchema::new(name.to_string(), desc, hash)
-            }).collect(),
-        )
+        let methods: Vec<MethodSchema> = self.methods().iter().map(|name| {
+            let desc = self.method_help(name).unwrap_or_default();
+            // Compute a simple hash for methods not using hub-macro
+            let mut hasher = DefaultHasher::new();
+            name.hash(&mut hasher);
+            desc.hash(&mut hasher);
+            let hash = format!("{:016x}", hasher.finish());
+            MethodSchema::new(name.to_string(), desc, hash)
+        }).collect();
+
+        if let Some(long_desc) = self.long_description() {
+            PluginSchema::leaf_with_long_description(
+                self.namespace(),
+                self.version(),
+                self.description(),
+                long_desc,
+                methods,
+            )
+        } else {
+            PluginSchema::leaf(
+                self.namespace(),
+                self.version(),
+                self.description(),
+                methods,
+            )
+        }
     }
 }
 
@@ -189,6 +204,7 @@ trait ActivationObject: Send + Sync + 'static {
     fn namespace(&self) -> &str;
     fn version(&self) -> &str;
     fn description(&self) -> &str;
+    fn long_description(&self) -> Option<&str>;
     fn methods(&self) -> Vec<&str>;
     fn method_help(&self, method: &str) -> Option<String>;
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError>;
@@ -206,6 +222,7 @@ impl<A: Activation> ActivationObject for ActivationWrapper<A> {
     fn namespace(&self) -> &str { self.inner.namespace() }
     fn version(&self) -> &str { self.inner.version() }
     fn description(&self) -> &str { self.inner.description() }
+    fn long_description(&self) -> Option<&str> { self.inner.long_description() }
     fn methods(&self) -> Vec<&str> { self.inner.methods() }
     fn method_help(&self, method: &str) -> Option<String> { self.inner.method_help(method) }
 
