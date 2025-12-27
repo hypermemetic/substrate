@@ -9,7 +9,7 @@
 
 use super::celestial::{build_solar_system, CelestialBody, CelestialBodyActivation};
 use super::types::{BodyType, SolarEvent};
-use crate::plexus::{Activation, ChildRouter, PluginSchema};
+use crate::plexus::{Activation, ChildRouter, ChildSummary};
 use async_stream::stream;
 use async_trait::async_trait;
 use futures::Stream;
@@ -116,14 +116,10 @@ impl Solar {
         }
     }
 
-    /// Get child plugin schemas (planets as children of solar system)
-    ///
-    /// This is the key coalgebra method - it unfolds the solar system
-    /// into nested PluginSchema structures.
-    pub fn plugin_children(&self) -> Vec<PluginSchema> {
-        // Each planet becomes a child plugin
+    /// Get child plugin summaries (planets as children of solar system)
+    pub fn plugin_children(&self) -> Vec<ChildSummary> {
         self.system.children.iter()
-            .map(|planet| planet.to_plugin_schema())
+            .map(|planet| planet.to_child_summary())
             .collect()
     }
 }
@@ -165,11 +161,10 @@ mod tests {
         let children = schema.children.as_ref().expect("solar should have children");
         assert_eq!(children.len(), 8, "solar should have 8 planets");
 
-        // Check that Jupiter is a hub (has moons)
+        // Children are summaries - check namespace and description
         let jupiter = children.iter().find(|c| c.namespace == "jupiter").unwrap();
-        assert!(jupiter.is_hub(), "jupiter should be a hub");
-        let moons = jupiter.children.as_ref().unwrap();
-        assert_eq!(moons.len(), 4, "jupiter should have 4 galilean moons");
+        assert!(jupiter.description.contains("planet"));
+        assert!(!jupiter.hash.is_empty());
     }
 
     #[test]
@@ -181,19 +176,10 @@ mod tests {
         assert!(schema.is_hub());
         let children = schema.children.as_ref().unwrap();
 
-        // Solar should be one of the children
+        // Solar should be one of the children (as a summary)
         let solar = children.iter().find(|c| c.namespace == "solar").unwrap();
-        assert!(solar.is_hub(), "solar should be a hub within plexus");
-
-        // Solar's children should be the planets
-        let planets = solar.children.as_ref().unwrap();
-        assert_eq!(planets.len(), 8);
-
-        // Verify 3-level nesting: plexus → solar → earth → luna
-        let earth = planets.iter().find(|c| c.namespace == "earth").unwrap();
-        assert!(earth.is_hub());
-        let earth_moons = earth.children.as_ref().unwrap();
-        assert_eq!(earth_moons[0].namespace, "luna");
+        assert!(solar.description.contains("Solar system"));
+        assert!(!solar.hash.is_empty());
     }
 
     #[test]

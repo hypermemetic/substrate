@@ -12,16 +12,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // ============================================================================
-// Plugin Schema (Recursive)
+// Plugin Schema
 // ============================================================================
 
-/// A plugin's complete schema, supporting recursive nesting for hubs.
+/// A plugin's schema with methods and child summaries.
 ///
-/// This is the core type for the recursive plugin schema system:
+/// Children are represented as summaries (namespace, description, hash) rather
+/// than full recursive schemas. This enables lazy traversal - clients can fetch
+/// child schemas individually via `{namespace}.schema`.
+///
 /// - Leaf plugins have `children = None`
-/// - Hub plugins have `children = Some([...])`
-///
-/// Category-theoretically: `Plugin ≅ μX. Methods × (1 + List(X))`
+/// - Hub plugins have `children = Some([ChildSummary, ...])`
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PluginSchema {
     /// The plugin's namespace (e.g., "echo", "plexus")
@@ -40,9 +41,9 @@ pub struct PluginSchema {
     /// Methods exposed by this plugin
     pub methods: Vec<MethodSchema>,
 
-    /// Child plugins (None = leaf plugin, Some = hub plugin)
+    /// Child plugin summaries (None = leaf plugin, Some = hub plugin)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub children: Option<Vec<PluginSchema>>,
+    pub children: Option<Vec<ChildSummary>>,
 }
 
 /// Schema for a single method exposed by a plugin
@@ -69,7 +70,7 @@ pub struct MethodSchema {
 
 impl PluginSchema {
     /// Compute hash from methods and children
-    fn compute_hash(methods: &[MethodSchema], children: Option<&[PluginSchema]>) -> String {
+    fn compute_hash(methods: &[MethodSchema], children: Option<&[ChildSummary]>) -> String {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
@@ -80,7 +81,7 @@ impl PluginSchema {
             m.hash.hash(&mut hasher);
         }
 
-        // Hash all children hashes (recursive structure)
+        // Hash all children hashes
         if let Some(kids) = children {
             for c in kids {
                 c.hash.hash(&mut hasher);
@@ -108,13 +109,13 @@ impl PluginSchema {
         }
     }
 
-    /// Create a new hub plugin schema (with children)
+    /// Create a new hub plugin schema (with child summaries)
     pub fn hub(
         namespace: impl Into<String>,
         version: impl Into<String>,
         description: impl Into<String>,
         methods: Vec<MethodSchema>,
-        children: Vec<PluginSchema>,
+        children: Vec<ChildSummary>,
     ) -> Self {
         let hash = Self::compute_hash(&methods, Some(&children));
         Self {
@@ -136,58 +137,9 @@ impl PluginSchema {
     pub fn is_leaf(&self) -> bool {
         self.children.is_none()
     }
-
-    /// Convert to shallow schema (children as summaries, not full schemas)
-    ///
-    /// Returns a version of this schema where children include only
-    /// namespace, description, and hash - no methods or nested children.
-    /// Use this when you want to expose a plugin's own schema without recursively
-    /// including all child schemas.
-    pub fn shallow(&self) -> ShallowPluginSchema {
-        ShallowPluginSchema {
-            namespace: self.namespace.clone(),
-            version: self.version.clone(),
-            description: self.description.clone(),
-            hash: self.hash.clone(),
-            methods: self.methods.clone(),
-            children: self.children.as_ref().map(|kids| {
-                kids.iter().map(|c| ChildSummary {
-                    namespace: c.namespace.clone(),
-                    description: c.description.clone(),
-                    hash: c.hash.clone(),
-                }).collect()
-            }),
-        }
-    }
 }
 
-/// A shallow plugin schema with children as summaries only
-///
-/// Use this when returning a single plugin's schema without recursively
-/// including all child schemas. Clients can fetch child schemas individually.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct ShallowPluginSchema {
-    /// The plugin's namespace
-    pub namespace: String,
-
-    /// The plugin's version
-    pub version: String,
-
-    /// Human-readable description
-    pub description: String,
-
-    /// Content hash for cache invalidation
-    pub hash: String,
-
-    /// Methods exposed by this plugin
-    pub methods: Vec<MethodSchema>,
-
-    /// Child plugin summaries (namespace, description, hash - no methods or nested children)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub children: Option<Vec<ChildSummary>>,
-}
-
-/// Summary of a child plugin (for shallow schema)
+/// Summary of a child plugin
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ChildSummary {
     /// The child's namespace

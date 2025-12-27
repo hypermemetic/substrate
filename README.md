@@ -86,7 +86,7 @@ plexus_call("solar.earth.schema")
 plexus_call("solar.earth.luna.schema")
 ```
 
-Schemas are **shallow** - children are listed as summaries (namespace, description, hash), not full recursive schemas. This enables lazy traversal.
+Children are listed as summaries (`ChildSummary`: namespace, description, hash), not full recursive schemas. This enables lazy traversal - fetch child schemas individually via `{namespace}.schema`.
 
 ## Plugin Patterns
 
@@ -202,7 +202,7 @@ impl Activation for CelestialBodyActivation {
             "info" => { /* return info stream */ }
             "schema" => {
                 // Must manually handle schema for dynamic plugins
-                let schema = self.plugin_schema().shallow();
+                let schema = self.plugin_schema();
                 Ok(wrap_stream(futures::stream::once(async { schema }), ...))
             }
             _ => route_to_child(self, method, params).await
@@ -285,7 +285,7 @@ let mut stream = plexus.call("solar.earth.luna.info", json!({})).await?;
 src/
 ├── plexus/
 │   ├── plexus.rs       # Plexus struct, Activation trait, routing
-│   ├── schema.rs       # PluginSchema, MethodSchema, ShallowPluginSchema
+│   ├── schema.rs       # PluginSchema, MethodSchema, ChildSummary
 │   ├── streaming.rs    # PlexusStream, wrap_stream helpers
 │   └── types.rs        # PlexusStreamItem
 ├── activations/

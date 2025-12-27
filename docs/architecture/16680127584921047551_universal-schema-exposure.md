@@ -1,142 +1,85 @@
 # Universal Schema Exposure
 
-## Problem
+**Status: IMPLEMENTED ✓**
 
-Currently only `plexus` exposes a `schema` method. Child plugins do not:
+## Summary
+
+Every plugin now exposes a `schema` method, enabling full recursive schema traversal.
+
+## Verification
 
 ```bash
-plexus_call("plexus.schema", {})  # ✓ works
-plexus_call("echo.schema", {})    # ✗ "Method not found"
-plexus_call("solar.schema", {})   # ✗ "Method not found"
+plexus.schema           ✓  # root with children: [echo, health, solar]
+echo.schema             ✓  # leaf with methods: [echo, once]
+solar.schema            ✓  # hub with children: [mercury...neptune]
+solar.earth.schema      ✓  # planet with child: [luna]
+solar.earth.luna.schema ✓  # moon (leaf)
 ```
 
-This creates a **partial category** where:
-- Methods compose fully: `solar.earth.luna.info` works
-- Schemas do not: can only see one level at a time
+## What Each Schema Returns
 
-## Solution
+| Field | Type | Description |
+|-------|------|-------------|
+| `namespace` | string | Plugin namespace |
+| `version` | string | Plugin version |
+| `description` | string | Human-readable description |
+| `hash` | string | Content hash for cache invalidation |
+| `methods` | array | Method schemas with params/returns |
+| `children` | array? | Child summaries (null for leaves) |
 
-Every plugin should expose a `schema` method automatically via `hub-macro`.
+## Example Response
 
-## Implementation
-
-### 1. Modify `hub-macro` to Generate `schema` Method
-
-In the macro expansion, add a `schema` method to every activation:
-
-```rust
-// Auto-generated for every activation
-async fn schema(&self) -> ShallowPluginSchema {
-    ShallowPluginSchema {
-        namespace: self.namespace().to_string(),
-        version: self.version().to_string(),
-        description: self.description().to_string(),
-        hash: self.plugin_hash().to_string(),
-        methods: self.method_schemas(),
-        children: self.child_summaries(),
-    }
+```json
+// solar.earth.schema
+{
+  "namespace": "earth",
+  "version": "1.0.0",
+  "description": "Earth - planet",
+  "hash": "776129dcff369203",
+  "methods": [
+    {"name": "info", "description": "Get information about Earth", "hash": "..."}
+  ],
+  "children": [
+    {"namespace": "luna", "description": "Luna - moon of Earth", "hash": "fce77fb61aa8c9d2"}
+  ]
 }
 ```
 
-### 2. Register in RPC Dispatch
-
-The macro should register `{namespace}_schema` in the RPC match:
-
-```rust
-// In generated RPC handler
-match method_name {
-    // ... existing methods ...
-
-    // Auto-generated schema endpoint
-    "{namespace}_schema" => {
-        let schema = self.schema().await;
-        wrap_stream(once(schema), "schema", provenance)
-    }
-}
-```
-
-### 3. Ensure ChildRouter Forwards Schema Calls
-
-The existing `ChildRouter` mechanism should already handle this, but verify that:
-
-```rust
-// When routing "solar.earth.schema":
-// 1. plexus routes to solar
-// 2. solar routes to earth
-// 3. earth handles "schema" locally
-```
-
-## Files to Modify
-
-```
-hub-macro/src/lib.rs
-├── Add schema() method generation
-├── Add "{ns}_schema" to RPC dispatch
-└── Include in method_schemas() output (so schema appears in parent's schema)
-```
-
-## Expected Result
-
-After implementation:
-
-```bash
-# Root
-plexus_call("plexus.schema", {})
-# → {namespace: "plexus", methods: [...], children: [{namespace: "echo", ...}, ...]}
-
-# First level
-plexus_call("echo.schema", {})
-# → {namespace: "echo", methods: [{name: "echo"}, {name: "once"}], children: null}
-
-plexus_call("solar.schema", {})
-# → {namespace: "solar", methods: [...], children: [{namespace: "mercury", ...}, ...]}
-
-# Nested
-plexus_call("solar.earth.schema", {})
-# → {namespace: "earth", methods: [...], children: [{namespace: "luna", ...}]}
-
-plexus_call("solar.earth.luna.schema", {})
-# → {namespace: "luna", methods: [{name: "info"}], children: null}
-```
-
-## Category Theoretic Impact
+## Category Theoretic Status
 
 With universal schema exposure:
 
-| Before | After |
-|--------|-------|
-| Partial category | Free category |
-| Schema morphisms partial | Schema morphisms total |
-| Can't traverse full tree | Full tree traversable |
-| Synapse broken with shallow | Synapse can recurse on-demand |
+| Property | Status |
+|----------|--------|
+| Objects (schemas) | ✓ All fetchable |
+| Morphisms (child refs) | ✓ All resolvable |
+| Identity | ✓ `schema.namespace == self` |
+| Composition | ✓ `parent.children[i]` → `child.schema` |
 
-The schema graph becomes a proper category where:
-- **Objects**: Plugin schemas (identified by hash)
-- **Morphisms**: Child references (namespace + hash)
-- **Identity**: `schema.namespace == self`
-- **Composition**: `parent.children[i].schema` chains
+**Determination: FREE CATEGORY ✓**
 
-## Synapse Implications
+## Synapse Integration
 
-With universal schema, synapse can:
+Synapse can now:
 
-1. Fetch root: `plexus.schema`
-2. Display methods + child summaries
-3. On navigation to child: fetch `{child}.schema`
-4. Recurse as needed
+1. Fetch `plexus.schema` for root
+2. Build CLI for current level (methods + child commands)
+3. On child navigation, fetch `{child}.schema`
+4. Recurse lazily as user navigates
 
-No need for full recursive fetch upfront - lazy evaluation via morphism composition.
+This matches the coalgebraic design: unfold on demand.
 
-## Alternative Considered
+## Related Documents
 
-**`plexus.full_schema`** - returns entire recursive tree
+- [Category Verification Report](16680127584921047551_category-verification-report.md) - Protocol for verifying category properties
+- [Nested Plugin Routing](16679960320421152511_nested-plugin-routing.md) - How `plexus_call` routes to nested plugins
+- [Schema Type-Driven Generation](../../../synapse/docs/architecture/16680892147769332735_schema-type-driven-generation.md) - How schemars generates schemas from types
 
-Rejected because:
-- Expensive for large trees
-- Doesn't scale with depth
-- Violates lazy evaluation principle
-- Per-plugin schema is more composable
+## Implementation Notes
 
-## Priority
+The `hub-macro` now:
+1. Generates a `schema` method for every activation
+2. Registers `{namespace}_schema` in RPC dispatch
+3. `ChildRouter` forwards `.schema` calls to children
 
-High - this unblocks synapse CLI development with the new shallow schema format.
+No changes needed to synapse types - `ShallowPluginSchema` already matches this format.

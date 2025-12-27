@@ -5,7 +5,7 @@
 //! to reveal their properties and children.
 
 use crate::plexus::{
-    Activation, ChildRouter, MethodSchema, MethodEnumSchema, PlexusError, PlexusStream,
+    Activation, ChildRouter, ChildSummary, MethodSchema, MethodEnumSchema, PlexusError, PlexusStream,
     PluginSchema, wrap_stream,
 };
 use async_stream::stream;
@@ -98,10 +98,28 @@ impl CelestialBody {
             .sum()
     }
 
-    /// Generate the PluginSchema for this celestial body (coalgebra)
-    ///
-    /// This is the F-coalgebra structure map: CelestialBody → F(CelestialBody)
-    /// It reveals one layer of structure, recursively producing child schemas.
+    /// Get description for this body
+    fn description(&self) -> String {
+        match self.body_type {
+            BodyType::Star => format!("{} - the central star", self.name),
+            BodyType::Planet => format!("{} - planet", self.name),
+            BodyType::DwarfPlanet => format!("{} - dwarf planet", self.name),
+            BodyType::Moon => format!("{} - moon of {}", self.name,
+                self.parent.as_deref().unwrap_or("unknown")),
+        }
+    }
+
+    /// Convert to a child summary (for parent's schema)
+    pub fn to_child_summary(&self) -> ChildSummary {
+        let schema = self.to_plugin_schema();
+        ChildSummary {
+            namespace: schema.namespace,
+            description: schema.description,
+            hash: schema.hash,
+        }
+    }
+
+    /// Generate the PluginSchema for this celestial body
     pub fn to_plugin_schema(&self) -> PluginSchema {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -119,22 +137,16 @@ impl CelestialBody {
 
         let namespace = self.name.to_lowercase().replace(' ', "_");
         let version = "1.0.0";
-        let description = match self.body_type {
-            BodyType::Star => format!("{} - the central star", self.name),
-            BodyType::Planet => format!("{} - planet", self.name),
-            BodyType::DwarfPlanet => format!("{} - dwarf planet", self.name),
-            BodyType::Moon => format!("{} - moon of {}", self.name,
-                self.parent.as_deref().unwrap_or("unknown")),
-        };
+        let description = self.description();
 
         if self.has_children() {
-            // Hub: recursively generate child schemas (anamorphism)
-            let child_schemas: Vec<PluginSchema> = self.children
+            // Hub: children as summaries
+            let child_summaries: Vec<ChildSummary> = self.children
                 .iter()
-                .map(|c| c.to_plugin_schema())
+                .map(|c| c.to_child_summary())
                 .collect();
 
-            PluginSchema::hub(namespace, version, description, methods, child_schemas)
+            PluginSchema::hub(namespace, version, description, methods, child_summaries)
         } else {
             // Leaf: no children
             PluginSchema::leaf(namespace, version, description, methods)
@@ -221,7 +233,7 @@ impl Activation for CelestialBodyActivation {
     fn method_help(&self, method: &str) -> Option<String> {
         match method {
             "info" => Some(format!("Get information about {}", self.body.name)),
-            "schema" => Some("Get this plugin's schema (shallow - children as summaries only)".to_string()),
+            "schema" => Some("Get this plugin's schema".to_string()),
             _ => None,
         }
     }
@@ -230,11 +242,10 @@ impl Activation for CelestialBodyActivation {
         match method {
             "info" => {
                 let stream = self.info_stream();
-                // Use static content type to avoid lifetime issues
                 Ok(wrap_stream(stream, "celestial.info", vec![self.namespace.clone()]))
             }
             "schema" => {
-                let schema = self.plugin_schema().shallow();
+                let schema = self.plugin_schema();
                 let ns = self.namespace.clone();
                 Ok(wrap_stream(
                     futures::stream::once(async move { schema }),
@@ -374,17 +385,15 @@ mod tests {
 
         assert!(schema.is_hub());
         let children = schema.children.as_ref().unwrap();
-        assert_eq!(children.len(), 8); // 8 planets
+        assert_eq!(children.len(), 8); // 8 planets as summaries
 
-        // Mercury should be a leaf (no moons)
+        // Mercury is in the list
         let mercury = children.iter().find(|c| c.namespace == "mercury").unwrap();
-        assert!(mercury.is_leaf());
+        assert!(mercury.description.contains("planet"));
 
-        // Earth should be a hub (has Luna)
+        // Earth is in the list
         let earth = children.iter().find(|c| c.namespace == "earth").unwrap();
-        assert!(earth.is_hub());
-        let earth_children = earth.children.as_ref().unwrap();
-        assert_eq!(earth_children.len(), 1);
-        assert_eq!(earth_children[0].namespace, "luna");
+        assert!(earth.description.contains("planet"));
+        assert!(!earth.hash.is_empty());
     }
 }
