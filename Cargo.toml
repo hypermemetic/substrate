@@ -58,7 +58,7 @@ dialectic = { version = "0.4.1", features = ["tokio"] }
 # MCP server via rmcp
 rmcp = { version = "0.12", features = ["server", "transport-io", "transport-streamable-http-server"] }
 cllient = "0.1.2"
-hub-macro = "0.1.0"
+hub-macro = { path = "../hub-macro" }
 
 [dev-dependencies]
 hyper = "1"

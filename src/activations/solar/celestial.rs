@@ -4,9 +4,19 @@
 //! This demonstrates the coalgebraic structure: bodies are observed
 //! to reveal their properties and children.
 
-use crate::plexus::{MethodSchema, PluginSchema};
+use crate::plexus::{
+    Activation, ChildRouter, MethodSchema, MethodEnumSchema, PlexusError, PlexusStream,
+    PluginSchema, wrap_stream,
+};
+use async_stream::stream;
+use async_trait::async_trait;
+use futures::Stream;
+use jsonrpsee::core::server::Methods;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use super::types::BodyType;
+use super::types::{BodyType, SolarEvent};
 
 /// A celestial body in the solar system
 #[derive(Debug, Clone)]
@@ -131,6 +141,153 @@ impl CelestialBody {
         }
     }
 }
+
+// ============================================================================
+// CelestialBodyActivation - makes CelestialBody callable
+// ============================================================================
+
+/// Method enum for celestial body - just "info"
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "method", rename_all = "snake_case")]
+pub enum CelestialBodyMethod {
+    Info,
+}
+
+impl MethodEnumSchema for CelestialBodyMethod {
+    fn method_names() -> &'static [&'static str] {
+        &["info"]
+    }
+
+    fn schema_with_consts() -> Value {
+        serde_json::to_value(schemars::schema_for!(CelestialBodyMethod))
+            .expect("Schema should serialize")
+    }
+}
+
+/// Activation wrapper for CelestialBody
+///
+/// This makes a celestial body callable as a plugin.
+/// It implements both Activation (for method dispatch) and
+/// ChildRouter (for nested routing to moons).
+#[derive(Clone)]
+pub struct CelestialBodyActivation {
+    body: CelestialBody,
+    namespace: String,
+}
+
+impl CelestialBodyActivation {
+    pub fn new(body: CelestialBody) -> Self {
+        let namespace = body.name.to_lowercase().replace(' ', "_");
+        Self { body, namespace }
+    }
+
+    fn info_stream(&self) -> impl Stream<Item = SolarEvent> + Send + 'static {
+        let body = self.body.clone();
+        stream! {
+            yield SolarEvent::Body {
+                name: body.name,
+                body_type: body.body_type,
+                mass_kg: body.mass_kg,
+                radius_km: body.radius_km,
+                orbital_period_days: body.orbital_period_days,
+                parent: body.parent,
+            };
+        }
+    }
+}
+
+#[async_trait]
+impl Activation for CelestialBodyActivation {
+    type Methods = CelestialBodyMethod;
+
+    fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
+
+    fn description(&self) -> &str {
+        // Can't return dynamic string without lifetime issues
+        // The schema has the full description
+        "Celestial body"
+    }
+
+    fn methods(&self) -> Vec<&str> {
+        vec!["info"]
+    }
+
+    fn method_help(&self, method: &str) -> Option<String> {
+        match method {
+            "info" => Some(format!("Get information about {}", self.body.name)),
+            _ => None,
+        }
+    }
+
+    async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {
+        match method {
+            "info" => {
+                let stream = self.info_stream();
+                // Use static content type to avoid lifetime issues
+                Ok(wrap_stream(stream, "celestial.info", vec![self.namespace.clone()]))
+            }
+            _ => {
+                // Try routing to child
+                crate::plexus::route_to_child(self, method, params).await
+            }
+        }
+    }
+
+    fn into_rpc_methods(self) -> Methods {
+        // Celestial bodies don't register their own RPC methods
+        // They're called through the parent (Solar) routing
+        Methods::new()
+    }
+
+    fn plugin_schema(&self) -> PluginSchema {
+        self.body.to_plugin_schema()
+    }
+}
+
+#[async_trait]
+impl ChildRouter for CelestialBodyActivation {
+    fn router_namespace(&self) -> &str {
+        &self.namespace
+    }
+
+    async fn router_call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {
+        // First try local methods
+        if method == "info" {
+            let stream = self.info_stream();
+            return Ok(wrap_stream(stream, "celestial.info", vec![self.namespace.clone()]));
+        }
+
+        // Then try routing to children
+        if let Some((child_name, rest)) = method.split_once('.') {
+            if let Some(child) = self.get_child(child_name).await {
+                return child.router_call(rest, params).await;
+            }
+            return Err(PlexusError::ActivationNotFound(child_name.to_string()));
+        }
+
+        Err(PlexusError::MethodNotFound {
+            activation: self.namespace.clone(),
+            method: method.to_string(),
+        })
+    }
+
+    async fn get_child(&self, name: &str) -> Option<Box<dyn ChildRouter>> {
+        let normalized = name.to_lowercase();
+        self.body.children.iter()
+            .find(|c| c.name.to_lowercase() == normalized)
+            .map(|c| Box::new(CelestialBodyActivation::new(c.clone())) as Box<dyn ChildRouter>)
+    }
+}
+
+// ============================================================================
+// Solar System Data
+// ============================================================================
 
 /// Build the real solar system with accurate data
 pub fn build_solar_system() -> CelestialBody {

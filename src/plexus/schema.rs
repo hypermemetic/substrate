@@ -136,6 +136,68 @@ impl PluginSchema {
     pub fn is_leaf(&self) -> bool {
         self.children.is_none()
     }
+
+    /// Convert to shallow schema (children as summaries, not full schemas)
+    ///
+    /// Returns a version of this schema where children include only
+    /// namespace, description, and hash - no methods or nested children.
+    /// Use this when you want to expose a plugin's own schema without recursively
+    /// including all child schemas.
+    pub fn shallow(&self) -> ShallowPluginSchema {
+        ShallowPluginSchema {
+            namespace: self.namespace.clone(),
+            version: self.version.clone(),
+            description: self.description.clone(),
+            hash: self.hash.clone(),
+            methods: self.methods.clone(),
+            children: self.children.as_ref().map(|kids| {
+                kids.iter().map(|c| ChildSummary {
+                    namespace: c.namespace.clone(),
+                    description: c.description.clone(),
+                    hash: c.hash.clone(),
+                }).collect()
+            }),
+        }
+    }
+}
+
+/// A shallow plugin schema with children as summaries only
+///
+/// Use this when returning a single plugin's schema without recursively
+/// including all child schemas. Clients can fetch child schemas individually.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ShallowPluginSchema {
+    /// The plugin's namespace
+    pub namespace: String,
+
+    /// The plugin's version
+    pub version: String,
+
+    /// Human-readable description
+    pub description: String,
+
+    /// Content hash for cache invalidation
+    pub hash: String,
+
+    /// Methods exposed by this plugin
+    pub methods: Vec<MethodSchema>,
+
+    /// Child plugin summaries (namespace, description, hash - no methods or nested children)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<ChildSummary>>,
+}
+
+/// Summary of a child plugin (for shallow schema)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ChildSummary {
+    /// The child's namespace
+    pub namespace: String,
+
+    /// Human-readable description
+    pub description: String,
+
+    /// Content hash for cache invalidation
+    pub hash: String,
 }
 
 impl MethodSchema {

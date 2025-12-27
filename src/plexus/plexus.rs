@@ -6,7 +6,7 @@
 use super::{
     context::PlexusContext,
     method_enum::MethodEnumSchema,
-    schema::{MethodSchema, PluginSchema, Schema},
+    schema::{MethodSchema, PluginSchema, Schema, ShallowPluginSchema},
     streaming::PlexusStream,
 };
 use crate::types::Handle;
@@ -112,6 +112,75 @@ pub trait Activation: Send + Sync + 'static {
 }
 
 // ============================================================================
+// Child Routing for Hub Plugins
+// ============================================================================
+
+/// Trait for plugins that can route to child plugins
+///
+/// Hub plugins implement this to support nested method routing.
+/// When a method like "mercury.info" is called on a solar plugin,
+/// this trait enables routing to the mercury child.
+///
+/// This trait is separate from Activation to avoid associated type issues
+/// with dynamic dispatch.
+#[async_trait]
+pub trait ChildRouter: Send + Sync {
+    /// Get the namespace of this router (for error messages)
+    fn router_namespace(&self) -> &str;
+
+    /// Call a method on this router
+    async fn router_call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError>;
+
+    /// Get a child plugin instance by name for nested routing
+    async fn get_child(&self, name: &str) -> Option<Box<dyn ChildRouter>>;
+}
+
+/// Route a method call to a child plugin
+///
+/// This is called from generated code when a hub plugin receives
+/// a method that doesn't match its local methods. If the method
+/// contains a dot (e.g., "mercury.info"), it routes to the child.
+pub async fn route_to_child<T: ChildRouter + ?Sized>(
+    parent: &T,
+    method: &str,
+    params: Value,
+) -> Result<PlexusStream, PlexusError> {
+    // Try to split on first dot for nested routing
+    if let Some((child_name, rest)) = method.split_once('.') {
+        if let Some(child) = parent.get_child(child_name).await {
+            return child.router_call(rest, params).await;
+        }
+        return Err(PlexusError::ActivationNotFound(child_name.to_string()));
+    }
+
+    // No dot - method simply not found
+    Err(PlexusError::MethodNotFound {
+        activation: parent.router_namespace().to_string(),
+        method: method.to_string(),
+    })
+}
+
+/// Wrapper to implement ChildRouter for Arc<dyn ChildRouter>
+///
+/// This allows Plexus to return its stored Arc<dyn ChildRouter> from get_child()
+struct ArcChildRouter(Arc<dyn ChildRouter>);
+
+#[async_trait]
+impl ChildRouter for ArcChildRouter {
+    fn router_namespace(&self) -> &str {
+        self.0.router_namespace()
+    }
+
+    async fn router_call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {
+        self.0.router_call(method, params).await
+    }
+
+    async fn get_child(&self, name: &str) -> Option<Box<dyn ChildRouter>> {
+        self.0.get_child(name).await
+    }
+}
+
+// ============================================================================
 // Internal Type-Erased Activation
 // ============================================================================
 
@@ -167,12 +236,12 @@ pub enum HashEvent {
     Hash { value: String },
 }
 
-/// Event for schema() RPC method - returns recursive plugin schema
+/// Event for schema() RPC method - returns shallow plugin schema
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum SchemaEvent {
-    /// The complete recursive schema with all plugins
-    Schema(PluginSchema),
+    /// This plugin's schema (children listed by namespace only)
+    Schema(ShallowPluginSchema),
 }
 
 // ============================================================================
@@ -181,6 +250,8 @@ pub enum SchemaEvent {
 
 struct PlexusInner {
     activations: HashMap<String, Arc<dyn ActivationObject>>,
+    /// Child routers for direct nested routing (e.g., plexus.solar.mercury.info)
+    child_routers: HashMap<String, Arc<dyn ChildRouter>>,
     pending_rpc: std::sync::Mutex<Vec<Box<dyn FnOnce() -> Methods + Send>>>,
 }
 
@@ -203,6 +274,7 @@ impl Plexus {
         Self {
             inner: Arc::new(PlexusInner {
                 activations: HashMap::new(),
+                child_routers: HashMap::new(),
                 pending_rpc: std::sync::Mutex::new(Vec::new()),
             }),
         }
@@ -217,6 +289,25 @@ impl Plexus {
             .expect("Cannot register: Plexus has multiple references");
 
         inner.activations.insert(namespace, Arc::new(ActivationWrapper { inner: activation }));
+        inner.pending_rpc.lock().unwrap()
+            .push(Box::new(move || activation_for_rpc.into_rpc_methods()));
+        self
+    }
+
+    /// Register a hub activation that supports nested routing
+    ///
+    /// Hub activations implement `ChildRouter`, enabling direct nested method calls
+    /// like `plexus.solar.mercury.info` at the RPC layer (no plexus.call indirection).
+    pub fn register_hub<A: Activation + ChildRouter + Clone + 'static>(mut self, activation: A) -> Self {
+        let namespace = activation.namespace().to_string();
+        let activation_for_rpc = activation.clone();
+        let activation_for_router = activation.clone();
+
+        let inner = Arc::get_mut(&mut self.inner)
+            .expect("Cannot register: Plexus has multiple references");
+
+        inner.activations.insert(namespace.clone(), Arc::new(ActivationWrapper { inner: activation }));
+        inner.child_routers.insert(namespace, Arc::new(activation_for_router));
         inner.pending_rpc.lock().unwrap()
             .push(Box::new(move || activation_for_rpc.into_rpc_methods()));
         self
@@ -382,15 +473,15 @@ impl Plexus {
         description = "Route a call to a registered activation",
         params(
             method = "The method to call (format: namespace.method)",
-            params = "Parameters to pass to the method"
+            params = "Parameters to pass to the method (optional, defaults to {})"
         )
     )]
     async fn call(
         &self,
         method: String,
-        params: Value,
+        params: Option<Value>,
     ) -> Result<PlexusStream, PlexusError> {
-        self.route(&method, params).await
+        self.route(&method, params.unwrap_or_default()).await
     }
 
     /// Get plexus configuration hash (from the recursive schema)
@@ -404,13 +495,39 @@ impl Plexus {
         stream! { yield HashEvent::Hash { value: schema.hash }; }
     }
 
-    /// Get full plexus schema (recursive, includes all children)
-    #[hub_macro::hub_method(description = "Get full plexus schema")]
+    /// Get plexus schema (shallow - children listed by namespace only)
+    #[hub_macro::hub_method(description = "Get plexus schema (children as namespaces only)")]
     async fn schema(&self) -> impl Stream<Item = SchemaEvent> + Send + 'static {
-        let schema = Activation::plugin_schema(self);
+        let schema = Activation::plugin_schema(self).shallow();
         stream! {
             yield SchemaEvent::Schema(schema);
         }
+    }
+}
+
+/// ChildRouter implementation for Plexus
+///
+/// This enables nested routing through registered activations.
+/// e.g., plexus.call("solar.mercury.info") routes to solar → mercury → info
+#[async_trait]
+impl ChildRouter for Plexus {
+    fn router_namespace(&self) -> &str {
+        "plexus"
+    }
+
+    async fn router_call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {
+        // Plexus routes via its registered activations
+        // Method format: "activation.method" or "activation.child.method"
+        self.route(method, params).await
+    }
+
+    async fn get_child(&self, name: &str) -> Option<Box<dyn ChildRouter>> {
+        // Look up registered hub activations that implement ChildRouter
+        self.inner.child_routers.get(name)
+            .map(|router| {
+                // Clone the Arc and wrap in Box for the trait object
+                Box::new(ArcChildRouter(router.clone())) as Box<dyn ChildRouter>
+            })
     }
 }
 
@@ -474,5 +591,43 @@ mod tests {
         assert_eq!(schema.namespace, "plexus");
         assert!(schema.methods.iter().any(|m| m.name == "call"));
         assert!(schema.children.is_some());
+    }
+
+    /// Test direct nested routing via plexus.call("solar.mercury.info")
+    ///
+    /// This tests the full path: Plexus → Solar → Mercury without using
+    /// the plexus.call RPC wrapper - just the Activation::call trait method.
+    #[tokio::test]
+    async fn plexus_direct_nested_routing() {
+        use crate::activations::solar::Solar;
+
+        // Register Solar as a hub (enables ChildRouter lookup)
+        let plexus = Plexus::new().register_hub(Solar::new());
+
+        // Call directly via Activation trait - this should route:
+        // plexus.call("solar.mercury.info") →
+        //   doesn't match local methods →
+        //   route_to_child("solar.mercury.info") →
+        //   get_child("solar") returns Solar →
+        //   solar.router_call("mercury.info") →
+        //   solar.call("mercury.info") →
+        //   route_to_child("mercury.info") →
+        //   get_child("mercury") returns CelestialBodyActivation →
+        //   mercury.router_call("info") →
+        //   returns Mercury info
+        let result = Activation::call(&plexus, "solar.mercury.info", serde_json::json!({})).await;
+        assert!(result.is_ok(), "plexus.solar.mercury.info should work: {:?}", result.err());
+    }
+
+    /// Test 3-level nested routing: plexus → solar → jupiter → io
+    #[tokio::test]
+    async fn plexus_deep_nested_routing() {
+        use crate::activations::solar::Solar;
+
+        let plexus = Plexus::new().register_hub(Solar::new());
+
+        // Call plexus.solar.jupiter.io.info
+        let result = Activation::call(&plexus, "solar.jupiter.io.info", serde_json::json!({})).await;
+        assert!(result.is_ok(), "plexus.solar.jupiter.io.info should work: {:?}", result.err());
     }
 }

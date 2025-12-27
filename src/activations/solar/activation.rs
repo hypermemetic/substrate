@@ -7,10 +7,11 @@
 //!
 //! Each level implements the F-coalgebra structure map via `plugin_schema()`.
 
-use super::celestial::{build_solar_system, CelestialBody};
+use super::celestial::{build_solar_system, CelestialBody, CelestialBodyActivation};
 use super::types::{BodyType, SolarEvent};
-use crate::plexus::PluginSchema;
+use crate::plexus::{Activation, ChildRouter, PluginSchema};
 use async_stream::stream;
+use async_trait::async_trait;
 use futures::Stream;
 
 /// Solar system activation - demonstrates nested plugin children
@@ -127,6 +128,29 @@ impl Solar {
     }
 }
 
+/// ChildRouter implementation for nested method routing
+///
+/// This enables calls like `solar.mercury.info` to route through
+/// Solar → Mercury → info method.
+#[async_trait]
+impl ChildRouter for Solar {
+    fn router_namespace(&self) -> &str {
+        "solar"
+    }
+
+    async fn router_call(&self, method: &str, params: serde_json::Value) -> Result<crate::plexus::PlexusStream, crate::plexus::PlexusError> {
+        // Delegate to Activation::call which handles local methods + nested routing
+        Activation::call(self, method, params).await
+    }
+
+    async fn get_child(&self, name: &str) -> Option<Box<dyn ChildRouter>> {
+        let normalized = name.to_lowercase();
+        self.system.children.iter()
+            .find(|c| c.name.to_lowercase() == normalized)
+            .map(|c| Box::new(CelestialBodyActivation::new(c.clone())) as Box<dyn ChildRouter>)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,5 +214,39 @@ mod tests {
         let schema = solar.plugin_schema();
         let json = serde_json::to_string_pretty(&schema).unwrap();
         println!("Solar system schema:\n{}", json);
+    }
+
+    #[tokio::test]
+    async fn test_nested_routing_mercury() {
+        let solar = Solar::new();
+        let result = Activation::call(&solar, "mercury.info", serde_json::json!({})).await;
+        assert!(result.is_ok(), "mercury.info should be callable: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_nested_routing_jupiter_io() {
+        let solar = Solar::new();
+
+        // Call solar.call("jupiter.io.info", {}) - should route jupiter → io
+        let result = Activation::call(&solar, "jupiter.io.info", serde_json::json!({})).await;
+        assert!(result.is_ok(), "jupiter.io.info should be callable");
+    }
+
+    #[tokio::test]
+    async fn test_nested_routing_earth_luna() {
+        let solar = Solar::new();
+
+        // Call solar.call("earth.luna.info", {}) - should route earth → luna
+        let result = Activation::call(&solar, "earth.luna.info", serde_json::json!({})).await;
+        assert!(result.is_ok(), "earth.luna.info should be callable");
+    }
+
+    #[tokio::test]
+    async fn test_nested_routing_invalid_child() {
+        let solar = Solar::new();
+
+        // Call with invalid child
+        let result = Activation::call(&solar, "pluto.info", serde_json::json!({})).await;
+        assert!(result.is_err(), "pluto.info should fail - not a planet");
     }
 }

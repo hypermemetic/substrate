@@ -17,11 +17,11 @@ pub use errors::{GuidedError, GuidedErrorData, TryRequest};
 #[deprecated(note = "Middleware removed - guidance provided via PlexusStreamEvent::Guidance")]
 pub use middleware::{ActivationRegistry, GuidedErrorMiddleware};
 pub use path::Provenance;
-pub use plexus::{Activation, ActivationInfo, Plexus, PlexusError};
+pub use plexus::{Activation, ActivationInfo, ChildRouter, Plexus, PlexusError, route_to_child};
 #[allow(deprecated)]
 pub use plexus::ActivationFullSchema;
 pub use crate::types::Handle;
-pub use schema::{MethodSchema, PluginSchema, Schema, SchemaProperty, SchemaType};
+pub use schema::{ChildSummary, MethodSchema, PluginSchema, Schema, SchemaProperty, SchemaType, ShallowPluginSchema};
 pub use types::{PlexusStreamItem, StreamMetadata};
 pub use method_enum::MethodEnumSchema;
 pub use streaming::{PlexusStream, wrap_stream, wrap_stream_with_done, error_stream, done_stream, progress_stream};

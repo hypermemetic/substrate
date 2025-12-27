@@ -16,11 +16,14 @@ use crate::plexus::Plexus;
 /// - plexus.hash: Get configuration hash for cache invalidation
 /// - plexus.list_activations: Enumerate registered activations
 /// - plexus.schema: Get full plexus schema
+///
+/// Hub activations (with nested children) are registered with `register_hub`
+/// to enable direct nested routing like `plexus.solar.mercury.info`.
 pub fn build_plexus() -> Arc<Plexus> {
     Arc::new(
         Plexus::new()
             .register(Health::new())
             .register(Echo::new())
-            .register(Solar::new()),
+            .register_hub(Solar::new()),
     )
 }

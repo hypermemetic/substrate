@@ -13,6 +13,7 @@
 use super::types::EchoEvent;
 use async_stream::stream;
 use futures::Stream;
+use std::time::Duration;
 
 /// Echo activation - echoes messages back
 #[derive(Clone)]
@@ -57,6 +58,9 @@ impl Echo {
         let count = if count == 0 { 1 } else { count };
         stream! {
             for i in 0..count {
+                if i > 0 {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
                 yield EchoEvent::Echo {
                     message: message.clone(),
                     count: i + 1,
