@@ -28,6 +28,7 @@ cabal.project.local~
 .ghc.environment.*
 
 .env*
+.cargo/
 
 # SQLite databases
 *.db

@@ -215,12 +215,13 @@ impl Activation for CelestialBodyActivation {
     }
 
     fn methods(&self) -> Vec<&str> {
-        vec!["info"]
+        vec!["info", "schema"]
     }
 
     fn method_help(&self, method: &str) -> Option<String> {
         match method {
             "info" => Some(format!("Get information about {}", self.body.name)),
+            "schema" => Some("Get this plugin's schema (shallow - children as summaries only)".to_string()),
             _ => None,
         }
     }
@@ -231,6 +232,15 @@ impl Activation for CelestialBodyActivation {
                 let stream = self.info_stream();
                 // Use static content type to avoid lifetime issues
                 Ok(wrap_stream(stream, "celestial.info", vec![self.namespace.clone()]))
+            }
+            "schema" => {
+                let schema = self.plugin_schema().shallow();
+                let ns = self.namespace.clone();
+                Ok(wrap_stream(
+                    futures::stream::once(async move { schema }),
+                    "celestial.schema",
+                    vec![ns]
+                ))
             }
             _ => {
                 // Try routing to child
@@ -257,24 +267,8 @@ impl ChildRouter for CelestialBodyActivation {
     }
 
     async fn router_call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {
-        // First try local methods
-        if method == "info" {
-            let stream = self.info_stream();
-            return Ok(wrap_stream(stream, "celestial.info", vec![self.namespace.clone()]));
-        }
-
-        // Then try routing to children
-        if let Some((child_name, rest)) = method.split_once('.') {
-            if let Some(child) = self.get_child(child_name).await {
-                return child.router_call(rest, params).await;
-            }
-            return Err(PlexusError::ActivationNotFound(child_name.to_string()));
-        }
-
-        Err(PlexusError::MethodNotFound {
-            activation: self.namespace.clone(),
-            method: method.to_string(),
-        })
+        // Delegate to Activation::call which handles local methods + nested routing
+        Activation::call(self, method, params).await
     }
 
     async fn get_child(&self, name: &str) -> Option<Box<dyn ChildRouter>> {
