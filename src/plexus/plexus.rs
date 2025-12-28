@@ -646,4 +646,99 @@ mod tests {
         let result = Activation::call(&plexus, "solar.jupiter.io.info", serde_json::json!({})).await;
         assert!(result.is_ok(), "plexus.solar.jupiter.io.info should work: {:?}", result.err());
     }
+
+    // ========================================================================
+    // INVARIANT: Handle routing - resolves to correct plugin
+    // ========================================================================
+
+    #[tokio::test]
+    async fn invariant_resolve_handle_unknown_plugin() {
+        use crate::activations::health::Health;
+        use crate::types::Handle;
+
+        let plexus = Plexus::new().register(Health::new());
+
+        // Handle for an unregistered plugin
+        let handle = Handle::new("unknown_plugin", "1.0.0", "some_method");
+
+        let result = plexus.do_resolve_handle(&handle).await;
+
+        match result {
+            Err(PlexusError::ActivationNotFound(name)) => {
+                assert_eq!(name, "unknown_plugin");
+            }
+            Err(other) => panic!("Expected ActivationNotFound, got {:?}", other),
+            Ok(_) => panic!("Expected error for unknown plugin"),
+        }
+    }
+
+    #[tokio::test]
+    async fn invariant_resolve_handle_unsupported() {
+        use crate::activations::health::Health;
+        use crate::types::Handle;
+
+        let plexus = Plexus::new().register(Health::new());
+
+        // Handle for health plugin (which doesn't support handle resolution)
+        let handle = Handle::new("health", "1.0.0", "check");
+
+        let result = plexus.do_resolve_handle(&handle).await;
+
+        match result {
+            Err(PlexusError::HandleNotSupported(name)) => {
+                assert_eq!(name, "health");
+            }
+            Err(other) => panic!("Expected HandleNotSupported, got {:?}", other),
+            Ok(_) => panic!("Expected error for unsupported handle"),
+        }
+    }
+
+    #[tokio::test]
+    async fn invariant_resolve_handle_routes_by_plugin_name() {
+        use crate::activations::health::Health;
+        use crate::activations::bash::Bash;
+        use crate::types::Handle;
+
+        let plexus = Plexus::new()
+            .register(Health::new())
+            .register(Bash::new());
+
+        // Health handle → health plugin
+        let health_handle = Handle::new("health", "1.0.0", "check");
+        match plexus.do_resolve_handle(&health_handle).await {
+            Err(PlexusError::HandleNotSupported(name)) => assert_eq!(name, "health"),
+            Err(other) => panic!("health handle should route to health plugin, got {:?}", other),
+            Ok(_) => panic!("health handle should return HandleNotSupported"),
+        }
+
+        // Bash handle → bash plugin
+        let bash_handle = Handle::new("bash", "1.0.0", "execute");
+        match plexus.do_resolve_handle(&bash_handle).await {
+            Err(PlexusError::HandleNotSupported(name)) => assert_eq!(name, "bash"),
+            Err(other) => panic!("bash handle should route to bash plugin, got {:?}", other),
+            Ok(_) => panic!("bash handle should return HandleNotSupported"),
+        }
+
+        // Unknown handle → ActivationNotFound
+        let unknown_handle = Handle::new("nonexistent", "1.0.0", "method");
+        match plexus.do_resolve_handle(&unknown_handle).await {
+            Err(PlexusError::ActivationNotFound(name)) => assert_eq!(name, "nonexistent"),
+            Err(other) => panic!("unknown handle should return ActivationNotFound, got {:?}", other),
+            Ok(_) => panic!("unknown handle should return ActivationNotFound"),
+        }
+    }
+
+    #[test]
+    fn invariant_handle_plugin_determines_routing() {
+        use crate::types::Handle;
+
+        // Same meta, different plugins → different routing targets
+        let cone_handle = Handle::new("cone", "1.0.0", "chat")
+            .with_meta(vec!["msg-123".into(), "user".into()]);
+        let claudecode_handle = Handle::new("claudecode", "1.0.0", "chat")
+            .with_meta(vec!["msg-123".into(), "user".into()]);
+
+        assert_ne!(cone_handle.plugin, claudecode_handle.plugin);
+        // These would route to different plugins even with identical meta
+    }
 }

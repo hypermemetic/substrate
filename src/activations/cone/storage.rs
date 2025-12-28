@@ -548,3 +548,121 @@ fn current_timestamp() -> i64 {
         .unwrap()
         .as_secs() as i64
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================================================
+    // INVARIANT: Handle meta format consistency
+    //
+    // This is the critical invariant that was violated before the fix.
+    // The meta parts created by message_to_handle, when joined with ':',
+    // must match the format expected by resolve_message_handle.
+    // ========================================================================
+
+    #[test]
+    fn invariant_handle_meta_format_matches_resolver() {
+        // Create a mock message
+        let message = Message {
+            id: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            cone_id: Uuid::new_v4(),
+            role: MessageRole::User,
+            content: "test content".to_string(),
+            created_at: 0,
+            model_id: None,
+            input_tokens: None,
+            output_tokens: None,
+        };
+
+        // Create handle the way cone::chat does
+        let handle = ConeStorage::message_to_handle(&message, "test-cone");
+
+        // Join meta the way resolve_handle_impl does (after the fix)
+        let identifier = handle.meta.join(":");
+
+        // Verify the format matches what resolve_message_handle expects:
+        // "msg-{uuid}:{role}:{name}"
+        let parts: Vec<&str> = identifier.splitn(3, ':').collect();
+
+        assert_eq!(parts.len(), 3, "identifier should have 3 parts: {}", identifier);
+        assert!(parts[0].starts_with("msg-"), "first part should start with 'msg-': {}", parts[0]);
+
+        // The message ID should be extractable
+        let msg_part = parts[0];
+        let message_id_str = &msg_part[4..]; // Strip "msg-" prefix
+        let parsed_id = Uuid::parse_str(message_id_str);
+        assert!(parsed_id.is_ok(), "should be able to parse UUID from meta[0]");
+        assert_eq!(parsed_id.unwrap(), message.id);
+
+        // Role should be preserved
+        assert_eq!(parts[1], "user");
+
+        // Name should be preserved
+        assert_eq!(parts[2], "test-cone");
+    }
+
+    #[test]
+    fn invariant_handle_meta_roles() {
+        // Test all roles produce valid meta format
+        for (role, expected_str) in [
+            (MessageRole::User, "user"),
+            (MessageRole::Assistant, "assistant"),
+            (MessageRole::System, "system"),
+        ] {
+            let message = Message {
+                id: Uuid::new_v4(),
+                cone_id: Uuid::new_v4(),
+                role,
+                content: "test".to_string(),
+                created_at: 0,
+                model_id: None,
+                input_tokens: None,
+                output_tokens: None,
+            };
+
+            let handle = ConeStorage::message_to_handle(&message, "cone");
+            assert_eq!(handle.meta[1], expected_str);
+        }
+    }
+
+    #[test]
+    fn invariant_handle_plugin_method_fixed() {
+        // Handles from message_to_handle always use "cone" plugin and "chat" method
+        let message = Message {
+            id: Uuid::new_v4(),
+            cone_id: Uuid::new_v4(),
+            role: MessageRole::User,
+            content: "test".to_string(),
+            created_at: 0,
+            model_id: None,
+            input_tokens: None,
+            output_tokens: None,
+        };
+
+        let handle = ConeStorage::message_to_handle(&message, "any-name");
+
+        assert_eq!(handle.plugin, "cone");
+        assert_eq!(handle.version, "1.0.0");
+        assert_eq!(handle.method, "chat");
+    }
+
+    #[test]
+    fn invariant_handle_meta_has_three_parts() {
+        // All cone chat handles have exactly 3 meta parts
+        let message = Message {
+            id: Uuid::new_v4(),
+            cone_id: Uuid::new_v4(),
+            role: MessageRole::Assistant,
+            content: "response".to_string(),
+            created_at: 0,
+            model_id: Some("gpt-4".to_string()),
+            input_tokens: Some(10),
+            output_tokens: Some(20),
+        };
+
+        let handle = ConeStorage::message_to_handle(&message, "my-cone");
+
+        assert_eq!(handle.meta.len(), 3, "cone chat handle must have exactly 3 meta parts");
+    }
+}

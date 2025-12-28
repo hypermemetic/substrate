@@ -126,4 +126,189 @@ mod tests {
         assert_eq!(handle.method, "execute");
         assert!(handle.meta.is_empty());
     }
+
+    // ========================================================================
+    // INVARIANT: Handle roundtrip - parse(display(h)) == h
+    // ========================================================================
+
+    #[test]
+    fn invariant_handle_roundtrip_with_meta() {
+        let original = Handle::new("cone", "1.0.0", "chat")
+            .with_meta(vec!["msg-550e8400".into(), "user".into(), "bob".into()]);
+
+        let serialized = original.to_string();
+        let parsed: Handle = serialized.parse().unwrap();
+
+        assert_eq!(original, parsed, "roundtrip must preserve handle exactly");
+    }
+
+    #[test]
+    fn invariant_handle_roundtrip_no_meta() {
+        let original = Handle::new("bash", "1.0.0", "execute");
+
+        let serialized = original.to_string();
+        let parsed: Handle = serialized.parse().unwrap();
+
+        assert_eq!(original, parsed, "roundtrip must preserve handle with empty meta");
+    }
+
+    #[test]
+    fn invariant_handle_roundtrip_single_meta() {
+        let original = Handle::new("arbor", "2.0.0", "tree_get")
+            .push_meta("tree-123");
+
+        let serialized = original.to_string();
+        let parsed: Handle = serialized.parse().unwrap();
+
+        assert_eq!(original, parsed);
+    }
+
+    // ========================================================================
+    // INVARIANT: Handle equality - same components = equal handles
+    // ========================================================================
+
+    #[test]
+    fn invariant_handle_equality_reflexive() {
+        let h = Handle::new("cone", "1.0.0", "chat").push_meta("msg-1");
+        assert_eq!(h, h.clone());
+    }
+
+    #[test]
+    fn invariant_handle_equality_symmetric() {
+        let h1 = Handle::new("cone", "1.0.0", "chat").push_meta("msg-1");
+        let h2 = Handle::new("cone", "1.0.0", "chat").push_meta("msg-1");
+        assert_eq!(h1, h2);
+        assert_eq!(h2, h1);
+    }
+
+    #[test]
+    fn invariant_handle_inequality_different_plugin() {
+        let h1 = Handle::new("cone", "1.0.0", "chat");
+        let h2 = Handle::new("bash", "1.0.0", "chat");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn invariant_handle_inequality_different_version() {
+        let h1 = Handle::new("cone", "1.0.0", "chat");
+        let h2 = Handle::new("cone", "2.0.0", "chat");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn invariant_handle_inequality_different_method() {
+        let h1 = Handle::new("cone", "1.0.0", "chat");
+        let h2 = Handle::new("cone", "1.0.0", "create");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn invariant_handle_inequality_different_meta() {
+        let h1 = Handle::new("cone", "1.0.0", "chat").push_meta("msg-1");
+        let h2 = Handle::new("cone", "1.0.0", "chat").push_meta("msg-2");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn invariant_handle_inequality_meta_vs_no_meta() {
+        let h1 = Handle::new("cone", "1.0.0", "chat");
+        let h2 = Handle::new("cone", "1.0.0", "chat").push_meta("msg-1");
+        assert_ne!(h1, h2);
+    }
+
+    // ========================================================================
+    // INVARIANT: Parse error cases - invalid formats fail cleanly
+    // ========================================================================
+
+    #[test]
+    fn invariant_parse_error_missing_at() {
+        let result: Result<Handle, _> = "cone1.0.0::chat".parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("missing '@'"));
+    }
+
+    #[test]
+    fn invariant_parse_error_missing_double_colon() {
+        let result: Result<Handle, _> = "cone@1.0.0:chat".parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("missing '::'"));
+    }
+
+    #[test]
+    fn invariant_parse_error_empty_string() {
+        let result: Result<Handle, _> = "".parse();
+        assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // INVARIANT: Meta field handling - order preserved, content exact
+    // ========================================================================
+
+    #[test]
+    fn invariant_meta_order_preserved() {
+        let handle = Handle::new("cone", "1.0.0", "chat")
+            .push_meta("first")
+            .push_meta("second")
+            .push_meta("third");
+
+        assert_eq!(handle.meta[0], "first");
+        assert_eq!(handle.meta[1], "second");
+        assert_eq!(handle.meta[2], "third");
+    }
+
+    #[test]
+    fn invariant_meta_empty_string_allowed() {
+        let handle = Handle::new("test", "1.0.0", "method")
+            .push_meta("")
+            .push_meta("nonempty");
+
+        let serialized = handle.to_string();
+        let parsed: Handle = serialized.parse().unwrap();
+
+        assert_eq!(parsed.meta.len(), 2);
+        assert_eq!(parsed.meta[0], "");
+        assert_eq!(parsed.meta[1], "nonempty");
+    }
+
+    #[test]
+    fn invariant_meta_with_meta_replaces() {
+        let handle = Handle::new("test", "1.0.0", "method")
+            .push_meta("will-be-replaced")
+            .with_meta(vec!["new1".into(), "new2".into()]);
+
+        assert_eq!(handle.meta, vec!["new1", "new2"]);
+    }
+
+    // ========================================================================
+    // INVARIANT: JSON serialization roundtrip
+    // ========================================================================
+
+    #[test]
+    fn invariant_json_roundtrip() {
+        let original = Handle::new("cone", "1.0.0", "chat")
+            .with_meta(vec!["msg-123".into(), "user".into()]);
+
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: Handle = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(original, parsed);
+    }
+
+    #[test]
+    fn invariant_json_empty_meta_omitted() {
+        let handle = Handle::new("bash", "1.0.0", "execute");
+        let json = serde_json::to_string(&handle).unwrap();
+
+        // Empty meta should be skipped in serialization
+        assert!(!json.contains("meta"), "empty meta should be omitted: {}", json);
+    }
+
+    #[test]
+    fn invariant_json_deserialize_missing_meta() {
+        // JSON without meta field should deserialize to empty meta
+        let json = r#"{"plugin":"bash","version":"1.0.0","method":"execute"}"#;
+        let handle: Handle = serde_json::from_str(json).unwrap();
+
+        assert!(handle.meta.is_empty());
+    }
 }

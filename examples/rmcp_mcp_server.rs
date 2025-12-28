@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Building Plexus with all activations...");
 
     // Build Plexus with all activations (already returns Arc<Plexus>)
-    let plexus = build_plexus();
+    let plexus = build_plexus().await;
     let methods = plexus.list_methods();
     tracing::info!("Plexus ready with {} methods", methods.len());
     for method in &methods {
