@@ -70,26 +70,27 @@ impl Cone {
 
         let storage = self.storage.clone();
 
-        // Extract message ID from meta[0]
-        let msg_id = handle.meta.first()
-            .ok_or_else(|| PlexusError::ExecutionError(
+        // Join meta parts into colon-separated identifier
+        // Format: "msg-{uuid}:{role}:{name}"
+        if handle.meta.is_empty() {
+            return Err(PlexusError::ExecutionError(
                 "Cone handle missing message ID in meta".to_string()
-            ))?
-            .clone();
+            ));
+        }
+        let identifier = handle.meta.join(":");
 
-        // Extract role and name from meta if present
-        let role = handle.meta.get(1).cloned();
+        // Extract name from meta if present (for response)
         let name = handle.meta.get(2).cloned();
 
         let result_stream = stream! {
-            match storage.resolve_message_handle(&msg_id).await {
+            match storage.resolve_message_handle(&identifier).await {
                 Ok(message) => {
                     yield ConeEvent::ResolvedMessage {
                         id: message.id.to_string(),
                         role: message.role.as_str().to_string(),
                         content: message.content,
                         model: message.model_id,
-                        name: name.unwrap_or_else(|| role.unwrap_or_else(|| "unknown".to_string())),
+                        name: name.unwrap_or_else(|| message.role.as_str().to_string()),
                     };
                 }
                 Err(e) => {
