@@ -15,6 +15,24 @@ impl Bash {
             executor: BashExecutor::new(),
         }
     }
+
+    /// Register default templates with the mustache plugin
+    ///
+    /// Call this during initialization to register Bash's default templates
+    /// for rendering command output.
+    pub async fn register_default_templates(
+        &self,
+        mustache: &crate::activations::mustache::Mustache,
+    ) -> Result<(), String> {
+        let plugin_id = Self::PLUGIN_ID;
+
+        mustache.register_templates(plugin_id, &[
+            // Execute method - command output
+            ("execute", "default", "{{#stdout}}{{stdout}}{{/stdout}}{{#stderr}}\n[stderr] {{stderr}}{{/stderr}}{{#exit_code}}\n[exit: {{exit_code}}]{{/exit_code}}"),
+            ("execute", "compact", "{{stdout}}"),
+            ("execute", "verbose", "$ {{command}}\n{{stdout}}{{#stderr}}\n--- stderr ---\n{{stderr}}{{/stderr}}\n[exit code: {{exit_code}}]"),
+        ]).await
+    }
 }
 
 impl Default for Bash {

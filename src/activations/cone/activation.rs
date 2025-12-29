@@ -45,6 +45,30 @@ impl Cone {
         let _ = self.hub.set(hub);
     }
 
+    /// Register default templates with the mustache plugin
+    ///
+    /// Call this during initialization to register Cone's default templates
+    /// for rendering resolved messages and events.
+    pub async fn register_default_templates(
+        &self,
+        mustache: &crate::activations::mustache::Mustache,
+    ) -> Result<(), String> {
+        let plugin_id = Self::PLUGIN_ID;
+
+        mustache.register_templates(plugin_id, &[
+            // Chat method - resolved message template
+            ("chat", "default", "[{{role}}] {{#name}}({{name}}) {{/name}}{{content}}"),
+            ("chat", "markdown", "**{{role}}**{{#name}} ({{name}}){{/name}}\n\n{{content}}"),
+            ("chat", "json", r#"{"role":"{{role}}","content":"{{content}}","name":"{{name}}"}"#),
+
+            // Create method - cone created event
+            ("create", "default", "Cone created: {{cone_id}} (head: {{head.tree_id}}/{{head.node_id}})"),
+
+            // List method - cone list event
+            ("list", "default", "{{#cones}}{{name}} ({{id}}) - {{model_id}}\n{{/cones}}"),
+        ]).await
+    }
+
     /// Get the hub reference
     ///
     /// Panics if called before inject_hub.
