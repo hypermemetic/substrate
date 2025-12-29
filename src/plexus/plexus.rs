@@ -843,4 +843,66 @@ mod tests {
         assert_ne!(cone_handle.plugin, claudecode_handle.plugin);
         // These would route to different plugins even with identical meta
     }
+
+    // ========================================================================
+    // Plugin Registry Tests
+    // ========================================================================
+
+    #[test]
+    fn plugin_registry_basic_operations() {
+        let mut registry = PluginRegistry::new();
+        let id = uuid::Uuid::new_v4();
+
+        // Register a plugin
+        registry.register(id, "test_plugin".to_string(), "test".to_string());
+
+        // Lookup by ID
+        assert_eq!(registry.lookup(id), Some("test_plugin"));
+
+        // Lookup by path
+        assert_eq!(registry.lookup_by_path("test_plugin"), Some(id));
+
+        // Get entry
+        let entry = registry.get(id).expect("should have entry");
+        assert_eq!(entry.path, "test_plugin");
+        assert_eq!(entry.plugin_type, "test");
+    }
+
+    #[test]
+    fn plugin_registry_populated_on_register() {
+        use crate::activations::health::Health;
+
+        let plexus = Plexus::new().register(Health::new());
+
+        let registry = plexus.registry();
+        assert!(!registry.is_empty(), "registry should not be empty after registration");
+
+        // Health plugin should be registered
+        let health_id = registry.lookup_by_path("health");
+        assert!(health_id.is_some(), "health should be registered by path");
+
+        // Should be able to look up path by ID
+        let health_uuid = health_id.unwrap();
+        assert_eq!(registry.lookup(health_uuid), Some("health"));
+    }
+
+    #[test]
+    fn plugin_registry_deterministic_uuid() {
+        use crate::activations::health::Health;
+
+        // Same plugin registered twice should produce same UUID
+        let health1 = Health::new();
+        let health2 = Health::new();
+
+        assert_eq!(health1.plugin_id(), health2.plugin_id(),
+            "same plugin type should have deterministic UUID");
+
+        // UUID should be based on namespace+version
+        let expected = uuid::Uuid::new_v5(
+            &uuid::Uuid::NAMESPACE_OID,
+            b"health@1.0.0"
+        );
+        assert_eq!(health1.plugin_id(), expected,
+            "plugin_id should be deterministic from namespace@version");
+    }
 }
