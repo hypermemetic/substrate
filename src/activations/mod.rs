@@ -18,3 +18,6 @@ pub mod cone;
 
 // ClaudeCode manages Claude Code sessions with Arbor-backed history
 pub mod claudecode;
+
+// Mustache provides template rendering for handle values
+pub mod mustache;
