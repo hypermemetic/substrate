@@ -8,4 +8,4 @@ pub mod types;
 // Re-export commonly used items
 pub use builder::build_plexus;
 pub use mcp_bridge::PlexusMcpBridge;
-pub use types::Handle;
+pub use types::{Envelope, Handle, Origin};

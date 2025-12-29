@@ -499,10 +499,24 @@ impl Plexus {
         activation.call(method_name, params).await
     }
 
-    /// Resolve a handle
+    /// Resolve a handle using the plugin registry
+    ///
+    /// Looks up the plugin by its UUID, falling back to legacy name lookup
+    /// during the migration period.
     pub async fn do_resolve_handle(&self, handle: &Handle) -> Result<PlexusStream, PlexusError> {
-        let activation = self.inner.activations.get(&handle.plugin)
-            .ok_or_else(|| PlexusError::ActivationNotFound(handle.plugin.clone()))?;
+        // First try lookup by plugin_id in registry
+        let registry = self.inner.registry.read().unwrap();
+        let plugin_path = registry.lookup(handle.plugin_id)
+            .map(|s| s.to_string())
+            // Fall back to legacy name lookup
+            .or_else(|| handle.plugin_name.clone());
+        drop(registry);
+
+        let path = plugin_path
+            .ok_or_else(|| PlexusError::ActivationNotFound(handle.plugin_id.to_string()))?;
+
+        let activation = self.inner.activations.get(&path)
+            .ok_or_else(|| PlexusError::ActivationNotFound(path.clone()))?;
         activation.resolve_handle(handle).await
     }
 
@@ -760,14 +774,14 @@ mod tests {
 
         let plexus = Plexus::new().register(Health::new());
 
-        // Handle for an unregistered plugin
-        let handle = Handle::new("unknown_plugin", "1.0.0", "some_method");
+        // Handle for an unregistered plugin (using from_name for legacy format)
+        let handle = Handle::from_name("unknown_plugin", "1.0.0", "some_method");
 
         let result = plexus.do_resolve_handle(&handle).await;
 
         match result {
-            Err(PlexusError::ActivationNotFound(name)) => {
-                assert_eq!(name, "unknown_plugin");
+            Err(PlexusError::ActivationNotFound(_)) => {
+                // Expected - plugin not found
             }
             Err(other) => panic!("Expected ActivationNotFound, got {:?}", other),
             Ok(_) => panic!("Expected error for unknown plugin"),
@@ -782,7 +796,8 @@ mod tests {
         let plexus = Plexus::new().register(Health::new());
 
         // Handle for health plugin (which doesn't support handle resolution)
-        let handle = Handle::new("health", "1.0.0", "check");
+        // Use from_name to get a handle with legacy name for resolution
+        let handle = Handle::from_name("health", "1.0.0", "check");
 
         let result = plexus.do_resolve_handle(&handle).await;
 
@@ -796,7 +811,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invariant_resolve_handle_routes_by_plugin_name() {
+    async fn invariant_resolve_handle_routes_by_plugin_id() {
         use crate::activations::health::Health;
         use crate::activations::bash::Bash;
         use crate::types::Handle;
@@ -805,8 +820,8 @@ mod tests {
             .register(Health::new())
             .register(Bash::new());
 
-        // Health handle → health plugin
-        let health_handle = Handle::new("health", "1.0.0", "check");
+        // Health handle → health plugin (using from_name for legacy support)
+        let health_handle = Handle::from_name("health", "1.0.0", "check");
         match plexus.do_resolve_handle(&health_handle).await {
             Err(PlexusError::HandleNotSupported(name)) => assert_eq!(name, "health"),
             Err(other) => panic!("health handle should route to health plugin, got {:?}", other),
@@ -814,34 +829,34 @@ mod tests {
         }
 
         // Bash handle → bash plugin
-        let bash_handle = Handle::new("bash", "1.0.0", "execute");
+        let bash_handle = Handle::from_name("bash", "1.0.0", "execute");
         match plexus.do_resolve_handle(&bash_handle).await {
             Err(PlexusError::HandleNotSupported(name)) => assert_eq!(name, "bash"),
             Err(other) => panic!("bash handle should route to bash plugin, got {:?}", other),
             Ok(_) => panic!("bash handle should return HandleNotSupported"),
         }
 
-        // Unknown handle → ActivationNotFound
-        let unknown_handle = Handle::new("nonexistent", "1.0.0", "method");
+        // Unknown handle → ActivationNotFound (no registration, no legacy name match)
+        let unknown_handle = Handle::from_name("nonexistent", "1.0.0", "method");
         match plexus.do_resolve_handle(&unknown_handle).await {
-            Err(PlexusError::ActivationNotFound(name)) => assert_eq!(name, "nonexistent"),
+            Err(PlexusError::ActivationNotFound(_)) => { /* expected */ },
             Err(other) => panic!("unknown handle should return ActivationNotFound, got {:?}", other),
             Ok(_) => panic!("unknown handle should return ActivationNotFound"),
         }
     }
 
     #[test]
-    fn invariant_handle_plugin_determines_routing() {
+    fn invariant_handle_plugin_id_determines_routing() {
         use crate::types::Handle;
 
-        // Same meta, different plugins → different routing targets
-        let cone_handle = Handle::new("cone", "1.0.0", "chat")
+        // Same meta, different plugins → different routing targets (by plugin_id)
+        let cone_handle = Handle::from_name("cone", "1.0.0", "chat")
             .with_meta(vec!["msg-123".into(), "user".into()]);
-        let claudecode_handle = Handle::new("claudecode", "1.0.0", "chat")
+        let claudecode_handle = Handle::from_name("claudecode", "1.0.0", "chat")
             .with_meta(vec!["msg-123".into(), "user".into()]);
 
-        assert_ne!(cone_handle.plugin, claudecode_handle.plugin);
-        // These would route to different plugins even with identical meta
+        // Different plugin_ids ensure different routing
+        assert_ne!(cone_handle.plugin_id, claudecode_handle.plugin_id);
     }
 
     // ========================================================================
