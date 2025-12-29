@@ -34,7 +34,7 @@ schemars = { version = "1.1", features = ["derive", "uuid1"] }
 axum = { version = "0.7" }
 tower = "0.4"
 sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
-uuid = { version = "1.6", features = ["v4", "serde"] }
+uuid = { version = "1.6", features = ["v4", "v5", "serde"] }
 rand = "0.8"
 hostname = "0.3"
 regex = "1.10"

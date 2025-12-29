@@ -84,6 +84,11 @@ pub trait Activation: Send + Sync + 'static {
     fn long_description(&self) -> Option<&str> { None }
     fn methods(&self) -> Vec<&str>;
     fn method_help(&self, _method: &str) -> Option<String> { None }
+    /// Stable plugin instance ID for handle routing
+    /// By default generates a deterministic UUID from namespace+version
+    fn plugin_id(&self) -> uuid::Uuid {
+        uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, format!("{}@{}", self.namespace(), self.version()).as_bytes())
+    }
 
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError>;
     async fn resolve_handle(&self, _handle: &Handle) -> Result<PlexusStream, PlexusError> {
@@ -207,6 +212,7 @@ trait ActivationObject: Send + Sync + 'static {
     fn long_description(&self) -> Option<&str>;
     fn methods(&self) -> Vec<&str>;
     fn method_help(&self, method: &str) -> Option<String>;
+    fn plugin_id(&self) -> uuid::Uuid;
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError>;
     async fn resolve_handle(&self, handle: &Handle) -> Result<PlexusStream, PlexusError>;
     fn plugin_schema(&self) -> PluginSchema;
@@ -225,6 +231,7 @@ impl<A: Activation> ActivationObject for ActivationWrapper<A> {
     fn long_description(&self) -> Option<&str> { self.inner.long_description() }
     fn methods(&self) -> Vec<&str> { self.inner.methods() }
     fn method_help(&self, method: &str) -> Option<String> { self.inner.method_help(method) }
+    fn plugin_id(&self) -> uuid::Uuid { self.inner.plugin_id() }
 
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {
         self.inner.call(method, params).await
@@ -262,6 +269,77 @@ pub enum SchemaEvent {
 }
 
 // ============================================================================
+// Plugin Registry
+// ============================================================================
+
+/// Entry in the plugin registry
+#[derive(Debug, Clone)]
+pub struct PluginEntry {
+    /// Stable plugin instance ID
+    pub id: uuid::Uuid,
+    /// Current path/namespace for this plugin
+    pub path: String,
+    /// Plugin type (e.g., "cone", "bash", "arbor")
+    pub plugin_type: String,
+}
+
+/// Registry mapping plugin UUIDs to their current paths
+///
+/// This enables handle routing without path dependency - handles reference
+/// plugins by their stable UUID, and the registry maps to the current path.
+#[derive(Default)]
+pub struct PluginRegistry {
+    /// Lookup by plugin UUID
+    by_id: HashMap<uuid::Uuid, PluginEntry>,
+    /// Lookup by current path (for reverse lookup)
+    by_path: HashMap<String, uuid::Uuid>,
+}
+
+impl PluginRegistry {
+    /// Create a new empty registry
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Look up a plugin's path by its UUID
+    pub fn lookup(&self, id: uuid::Uuid) -> Option<&str> {
+        self.by_id.get(&id).map(|e| e.path.as_str())
+    }
+
+    /// Look up a plugin's UUID by its path
+    pub fn lookup_by_path(&self, path: &str) -> Option<uuid::Uuid> {
+        self.by_path.get(path).copied()
+    }
+
+    /// Get a plugin entry by its UUID
+    pub fn get(&self, id: uuid::Uuid) -> Option<&PluginEntry> {
+        self.by_id.get(&id)
+    }
+
+    /// Register a plugin
+    pub fn register(&mut self, id: uuid::Uuid, path: String, plugin_type: String) {
+        let entry = PluginEntry { id, path: path.clone(), plugin_type };
+        self.by_id.insert(id, entry);
+        self.by_path.insert(path, id);
+    }
+
+    /// List all registered plugins
+    pub fn list(&self) -> impl Iterator<Item = &PluginEntry> {
+        self.by_id.values()
+    }
+
+    /// Get the number of registered plugins
+    pub fn len(&self) -> usize {
+        self.by_id.len()
+    }
+
+    /// Check if the registry is empty
+    pub fn is_empty(&self) -> bool {
+        self.by_id.is_empty()
+    }
+}
+
+// ============================================================================
 // Plexus
 // ============================================================================
 
@@ -269,6 +347,8 @@ struct PlexusInner {
     activations: HashMap<String, Arc<dyn ActivationObject>>,
     /// Child routers for direct nested routing (e.g., plexus.solar.mercury.info)
     child_routers: HashMap<String, Arc<dyn ChildRouter>>,
+    /// Plugin registry mapping UUIDs to paths
+    registry: std::sync::RwLock<PluginRegistry>,
     pending_rpc: std::sync::Mutex<Vec<Box<dyn FnOnce() -> Methods + Send>>>,
 }
 
@@ -292,18 +372,32 @@ impl Plexus {
             inner: Arc::new(PlexusInner {
                 activations: HashMap::new(),
                 child_routers: HashMap::new(),
+                registry: std::sync::RwLock::new(PluginRegistry::new()),
                 pending_rpc: std::sync::Mutex::new(Vec::new()),
             }),
         }
     }
 
+    /// Get access to the plugin registry
+    pub fn registry(&self) -> std::sync::RwLockReadGuard<'_, PluginRegistry> {
+        self.inner.registry.read().unwrap()
+    }
+
     /// Register an activation
     pub fn register<A: Activation + Clone>(mut self, activation: A) -> Self {
         let namespace = activation.namespace().to_string();
+        let plugin_id = activation.plugin_id();
         let activation_for_rpc = activation.clone();
 
         let inner = Arc::get_mut(&mut self.inner)
             .expect("Cannot register: Plexus has multiple references");
+
+        // Register in the plugin registry
+        inner.registry.write().unwrap().register(
+            plugin_id,
+            namespace.clone(),
+            namespace.clone(), // Use namespace as plugin_type for now
+        );
 
         inner.activations.insert(namespace, Arc::new(ActivationWrapper { inner: activation }));
         inner.pending_rpc.lock().unwrap()
@@ -317,11 +411,19 @@ impl Plexus {
     /// like `plexus.solar.mercury.info` at the RPC layer (no plexus.call indirection).
     pub fn register_hub<A: Activation + ChildRouter + Clone + 'static>(mut self, activation: A) -> Self {
         let namespace = activation.namespace().to_string();
+        let plugin_id = activation.plugin_id();
         let activation_for_rpc = activation.clone();
         let activation_for_router = activation.clone();
 
         let inner = Arc::get_mut(&mut self.inner)
             .expect("Cannot register: Plexus has multiple references");
+
+        // Register in the plugin registry
+        inner.registry.write().unwrap().register(
+            plugin_id,
+            namespace.clone(),
+            namespace.clone(), // Use namespace as plugin_type for now
+        );
 
         inner.activations.insert(namespace.clone(), Arc::new(ActivationWrapper { inner: activation }));
         inner.child_routers.insert(namespace, Arc::new(activation_for_router));
