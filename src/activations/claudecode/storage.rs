@@ -1,8 +1,10 @@
+use super::activation::ClaudeCode;
 use super::types::{
     ClaudeCodeConfig, ClaudeCodeError, ClaudeCodeId, ClaudeCodeInfo,
     Message, MessageId, MessageRole, Model, Position,
 };
-use crate::activations::arbor::{ArborStorage, Handle, NodeId, TreeId};
+use crate::activations::arbor::{ArborStorage, NodeId, TreeId};
+use crate::types::Handle;
 use serde_json::Value;
 use sqlx::{sqlite::{SqliteConnectOptions, SqlitePool}, ConnectOptions, Row};
 use std::path::PathBuf;
@@ -531,12 +533,12 @@ impl ClaudeCodeStorage {
 
     /// Create a handle for a message
     ///
-    /// New format: `claudecode@1.0.0::chat:msg-{id}:{role}:{name}`
+    /// Format: `{plugin_id}@1.0.0::chat:msg-{id}:{role}:{name}`
     /// meta[0] = message ID (with msg- prefix for resolve_message_handle compatibility)
     /// meta[1] = role
     /// meta[2] = name
     pub fn message_to_handle(message: &Message, name: &str) -> Handle {
-        Handle::from_name("claudecode", "1.0.0", "chat")
+        Handle::new(ClaudeCode::PLUGIN_ID, "1.0.0", "chat")
             .with_meta(vec![
                 format!("msg-{}", message.id),
                 message.role.as_str().to_string(),

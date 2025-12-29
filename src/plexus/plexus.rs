@@ -85,9 +85,11 @@ pub trait Activation: Send + Sync + 'static {
     fn methods(&self) -> Vec<&str>;
     fn method_help(&self, _method: &str) -> Option<String> { None }
     /// Stable plugin instance ID for handle routing
-    /// By default generates a deterministic UUID from namespace+version
+    /// By default generates a deterministic UUID from namespace+major_version
+    /// Using major version only ensures handles survive minor/patch upgrades (semver)
     fn plugin_id(&self) -> uuid::Uuid {
-        uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, format!("{}@{}", self.namespace(), self.version()).as_bytes())
+        let major_version = self.version().split('.').next().unwrap_or("0");
+        uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, format!("{}@{}", self.namespace(), major_version).as_bytes())
     }
 
     async fn call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError>;
@@ -542,18 +544,11 @@ impl Plexus {
 
     /// Resolve a handle using the plugin registry
     ///
-    /// Looks up the plugin by its UUID, falling back to legacy name lookup
-    /// during the migration period.
+    /// Looks up the plugin by its UUID in the registry.
     pub async fn do_resolve_handle(&self, handle: &Handle) -> Result<PlexusStream, PlexusError> {
-        // First try lookup by plugin_id in registry
-        let registry = self.inner.registry.read().unwrap();
-        let plugin_path = registry.lookup(handle.plugin_id)
+        let path = self.inner.registry.read().unwrap()
+            .lookup(handle.plugin_id)
             .map(|s| s.to_string())
-            // Fall back to legacy name lookup
-            .or_else(|| handle.plugin_name.clone());
-        drop(registry);
-
-        let path = plugin_path
             .ok_or_else(|| PlexusError::ActivationNotFound(handle.plugin_id.to_string()))?;
 
         let activation = self.inner.activations.get(&path)
@@ -831,11 +826,13 @@ mod tests {
     async fn invariant_resolve_handle_unknown_plugin() {
         use crate::activations::health::Health;
         use crate::types::Handle;
+        use uuid::Uuid;
 
         let plexus = Plexus::new().register(Health::new());
 
-        // Handle for an unregistered plugin (using from_name for legacy format)
-        let handle = Handle::from_name("unknown_plugin", "1.0.0", "some_method");
+        // Handle for an unregistered plugin (random UUID)
+        let unknown_plugin_id = Uuid::new_v4();
+        let handle = Handle::new(unknown_plugin_id, "1.0.0", "some_method");
 
         let result = plexus.do_resolve_handle(&handle).await;
 
@@ -856,8 +853,7 @@ mod tests {
         let plexus = Plexus::new().register(Health::new());
 
         // Handle for health plugin (which doesn't support handle resolution)
-        // Use from_name to get a handle with legacy name for resolution
-        let handle = Handle::from_name("health", "1.0.0", "check");
+        let handle = Handle::new(Health::PLUGIN_ID, "1.0.0", "check");
 
         let result = plexus.do_resolve_handle(&handle).await;
 
@@ -875,13 +871,14 @@ mod tests {
         use crate::activations::health::Health;
         use crate::activations::bash::Bash;
         use crate::types::Handle;
+        use uuid::Uuid;
 
         let plexus = Plexus::new()
             .register(Health::new())
             .register(Bash::new());
 
-        // Health handle → health plugin (using from_name for legacy support)
-        let health_handle = Handle::from_name("health", "1.0.0", "check");
+        // Health handle → health plugin
+        let health_handle = Handle::new(Health::PLUGIN_ID, "1.0.0", "check");
         match plexus.do_resolve_handle(&health_handle).await {
             Err(PlexusError::HandleNotSupported(name)) => assert_eq!(name, "health"),
             Err(other) => panic!("health handle should route to health plugin, got {:?}", other),
@@ -889,15 +886,15 @@ mod tests {
         }
 
         // Bash handle → bash plugin
-        let bash_handle = Handle::from_name("bash", "1.0.0", "execute");
+        let bash_handle = Handle::new(Bash::PLUGIN_ID, "1.0.0", "execute");
         match plexus.do_resolve_handle(&bash_handle).await {
             Err(PlexusError::HandleNotSupported(name)) => assert_eq!(name, "bash"),
             Err(other) => panic!("bash handle should route to bash plugin, got {:?}", other),
             Ok(_) => panic!("bash handle should return HandleNotSupported"),
         }
 
-        // Unknown handle → ActivationNotFound (no registration, no legacy name match)
-        let unknown_handle = Handle::from_name("nonexistent", "1.0.0", "method");
+        // Unknown handle → ActivationNotFound (random UUID not registered)
+        let unknown_handle = Handle::new(Uuid::new_v4(), "1.0.0", "method");
         match plexus.do_resolve_handle(&unknown_handle).await {
             Err(PlexusError::ActivationNotFound(_)) => { /* expected */ },
             Err(other) => panic!("unknown handle should return ActivationNotFound, got {:?}", other),
@@ -907,12 +904,14 @@ mod tests {
 
     #[test]
     fn invariant_handle_plugin_id_determines_routing() {
+        use crate::activations::cone::Cone;
+        use crate::activations::claudecode::ClaudeCode;
         use crate::types::Handle;
 
         // Same meta, different plugins → different routing targets (by plugin_id)
-        let cone_handle = Handle::from_name("cone", "1.0.0", "chat")
+        let cone_handle = Handle::new(Cone::PLUGIN_ID, "1.0.0", "chat")
             .with_meta(vec!["msg-123".into(), "user".into()]);
-        let claudecode_handle = Handle::from_name("claudecode", "1.0.0", "chat")
+        let claudecode_handle = Handle::new(ClaudeCode::PLUGIN_ID, "1.0.0", "chat")
             .with_meta(vec!["msg-123".into(), "user".into()]);
 
         // Different plugin_ids ensure different routing
@@ -972,12 +971,12 @@ mod tests {
         assert_eq!(health1.plugin_id(), health2.plugin_id(),
             "same plugin type should have deterministic UUID");
 
-        // UUID should be based on namespace+version
+        // UUID should be based on namespace+major_version (semver compatibility)
         let expected = uuid::Uuid::new_v5(
             &uuid::Uuid::NAMESPACE_OID,
-            b"health@1.0.0"
+            b"health@1"
         );
         assert_eq!(health1.plugin_id(), expected,
-            "plugin_id should be deterministic from namespace@version");
+            "plugin_id should be deterministic from namespace@major_version");
     }
 }

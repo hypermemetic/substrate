@@ -21,3 +21,6 @@ pub mod claudecode;
 
 // Mustache provides template rendering for handle values
 pub mod mustache;
+
+// Changelog tracks plexus hash changes and enforces documentation
+pub mod changelog;

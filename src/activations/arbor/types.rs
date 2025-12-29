@@ -108,7 +108,6 @@ pub type NodeId = ArborId;
 // - version: String (semantic version)
 // - method: String (creation method)
 // - meta: Vec<String> (metadata parts)
-// - plugin_name: Option<String> (legacy backwards compat)
 
 /// Node type discriminator
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]

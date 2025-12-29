@@ -6,10 +6,12 @@ use std::sync::Arc;
 
 use crate::activations::arbor::{Arbor, ArborConfig};
 use crate::activations::bash::Bash;
+use crate::activations::changelog::{Changelog, ChangelogStorageConfig};
 use crate::activations::claudecode::{ClaudeCode, ClaudeCodeStorage, ClaudeCodeStorageConfig};
 use crate::activations::cone::{Cone, ConeStorageConfig};
 use crate::activations::echo::Echo;
 use crate::activations::health::Health;
+use crate::activations::mustache::{Mustache, MustacheStorageConfig};
 use crate::activations::solar::Solar;
 use crate::plexus::Plexus;
 
@@ -47,7 +49,17 @@ pub async fn build_plexus() -> Arc<Plexus> {
     .expect("Failed to initialize ClaudeCode storage");
     let claudecode = ClaudeCode::new(Arc::new(claudecode_storage));
 
-    Arc::new(
+    // Initialize Mustache for template rendering
+    let mustache = Mustache::new(MustacheStorageConfig::default())
+        .await
+        .expect("Failed to initialize Mustache");
+
+    // Initialize Changelog for tracking plexus changes
+    let changelog = Changelog::new(ChangelogStorageConfig::default())
+        .await
+        .expect("Failed to initialize Changelog");
+
+    let plexus = Arc::new(
         Plexus::new()
             .register(Health::new())
             .register(Echo::new())
@@ -55,6 +67,27 @@ pub async fn build_plexus() -> Arc<Plexus> {
             .register(arbor)
             .register(cone)
             .register(claudecode)
+            .register(mustache)
+            .register(changelog.clone())
             .register_hub(Solar::new()),
-    )
+    );
+
+    // Run changelog startup check
+    let plexus_hash = plexus.compute_hash();
+    match changelog.startup_check(&plexus_hash).await {
+        Ok((hash_changed, is_documented, message)) => {
+            if hash_changed && !is_documented {
+                tracing::error!("{}", message);
+            } else if hash_changed {
+                tracing::info!("{}", message);
+            } else {
+                tracing::debug!("{}", message);
+            }
+        }
+        Err(e) => {
+            tracing::error!("Changelog startup check failed: {}", e);
+        }
+    }
+
+    plexus
 }

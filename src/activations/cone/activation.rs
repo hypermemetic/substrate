@@ -2,6 +2,7 @@ use super::methods::ConeIdentifier;
 use super::storage::{ConeStorage, ConeStorageConfig};
 use super::types::{ConeEvent, ChatUsage, MessageRole};
 use crate::activations::arbor::{Node, NodeId, NodeType};
+use crate::activations::bash::Bash;
 use crate::plexus::Plexus;
 use async_stream::stream;
 use cllient::{Message, ModelRegistry};
@@ -610,40 +611,35 @@ async fn resolve_context_to_messages(
                 }
             }
             NodeType::External { handle } => {
-                // Resolve handle based on plugin (use plugin_name for backwards compat)
-                let plugin = handle.plugin_name.as_deref().unwrap_or("unknown");
-                match plugin {
-                    "cone" => {
-                        // Resolve cone message handle - message UUID is in meta[0]
-                        let msg_id = handle.meta.first()
-                            .ok_or_else(|| "Cone handle missing message ID in meta".to_string())?;
-                        let msg = storage
-                            .resolve_message_handle(msg_id)
-                            .await
-                            .map_err(|e| format!("Failed to resolve message handle: {}", e.message))?;
+                // Resolve handle based on plugin_id
+                if handle.plugin_id == Cone::PLUGIN_ID {
+                    // Resolve cone message handle - message UUID is in meta[0]
+                    let msg_id = handle.meta.first()
+                        .ok_or_else(|| "Cone handle missing message ID in meta".to_string())?;
+                    let msg = storage
+                        .resolve_message_handle(msg_id)
+                        .await
+                        .map_err(|e| format!("Failed to resolve message handle: {}", e.message))?;
 
-                        let cllient_msg = match msg.role {
-                            MessageRole::User => Message::user(&msg.content),
-                            MessageRole::Assistant => Message::assistant(&msg.content),
-                            MessageRole::System => Message::system(&msg.content),
-                        };
-                        messages.push(cllient_msg);
-                    }
-                    "bash" => {
-                        // TODO: Resolve bash output when bash plugin integration is added
-                        let cmd_id = handle.meta.first().map(|s| s.as_str()).unwrap_or("unknown");
-                        messages.push(Message::user(&format!(
-                            "[Tool output from bash: {}]",
-                            cmd_id
-                        )));
-                    }
-                    _ => {
-                        // Unknown handle plugin - include as reference using Display
-                        messages.push(Message::user(&format!(
-                            "[External reference: {}]",
-                            handle
-                        )));
-                    }
+                    let cllient_msg = match msg.role {
+                        MessageRole::User => Message::user(&msg.content),
+                        MessageRole::Assistant => Message::assistant(&msg.content),
+                        MessageRole::System => Message::system(&msg.content),
+                    };
+                    messages.push(cllient_msg);
+                } else if handle.plugin_id == Bash::PLUGIN_ID {
+                    // TODO: Resolve bash output when bash plugin integration is added
+                    let cmd_id = handle.meta.first().map(|s| s.as_str()).unwrap_or("unknown");
+                    messages.push(Message::user(&format!(
+                        "[Tool output from bash: {}]",
+                        cmd_id
+                    )));
+                } else {
+                    // Unknown handle plugin - include as reference using Display
+                    messages.push(Message::user(&format!(
+                        "[External reference: {}]",
+                        handle
+                    )));
                 }
             }
         }

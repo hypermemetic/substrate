@@ -29,6 +29,14 @@ pub struct Health {
 }
 
 impl Health {
+    /// Namespace for the health plugin
+    pub const NAMESPACE: &'static str = "health";
+    /// Version of the health plugin
+    pub const VERSION: &'static str = "1.0.0";
+    /// Stable plugin instance ID for handle routing (same formula as hub_methods macro)
+    /// Generated from "health@1" (namespace + major version)
+    pub const PLUGIN_ID: uuid::Uuid = uuid::uuid!("dc560257-b7c5-575b-b893-b448c87ca797");
+
     pub fn new() -> Self {
         Self {
             start_time: Instant::now(),
@@ -101,6 +109,10 @@ impl Activation for Health {
 
     fn version(&self) -> &str {
         "1.0.0"
+    }
+
+    fn plugin_id(&self) -> uuid::Uuid {
+        Self::PLUGIN_ID
     }
 
     fn description(&self) -> &str {

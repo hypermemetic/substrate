@@ -31,11 +31,6 @@ pub struct Handle {
     /// For messages: typically [message_uuid, role, optional_extra...]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub meta: Vec<String>,
-
-    /// Legacy plugin name for backwards compatibility
-    /// Used during migration period for name-based resolution
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plugin_name: Option<String>,
 }
 
 impl Handle {
@@ -46,22 +41,6 @@ impl Handle {
             version: version.into(),
             method: method.into(),
             meta: Vec::new(),
-            plugin_name: None,
-        }
-    }
-
-    /// Create a handle from a plugin name (for backwards compatibility)
-    /// The plugin_id is generated deterministically from name@version
-    pub fn from_name(name: impl Into<String>, version: impl Into<String>, method: impl Into<String>) -> Self {
-        let name = name.into();
-        let version = version.into();
-        let plugin_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, format!("{}@{}", name, version).as_bytes());
-        Self {
-            plugin_id,
-            version,
-            method: method.into(),
-            meta: Vec::new(),
-            plugin_name: Some(name),
         }
     }
 
@@ -74,12 +53,6 @@ impl Handle {
     /// Add a single metadata item
     pub fn push_meta(mut self, item: impl Into<String>) -> Self {
         self.meta.push(item.into());
-        self
-    }
-
-    /// Set the legacy plugin name
-    pub fn with_plugin_name(mut self, name: impl Into<String>) -> Self {
-        self.plugin_name = Some(name.into());
         self
     }
 
@@ -108,11 +81,14 @@ impl FromStr for Handle {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // Parse: {plugin_id}@{version}::{method}:meta[0]:meta[1]:...
-        // Also supports legacy format: {plugin_name}@{version}::...
 
-        // Split on @ to get plugin identifier and rest
-        let (plugin_part, rest) = s.split_once('@')
+        // Split on @ to get plugin_id and rest
+        let (plugin_id_str, rest) = s.split_once('@')
             .ok_or_else(|| format!("Invalid handle format, missing '@': {}", s))?;
+
+        // Parse plugin_id as UUID
+        let plugin_id = plugin_id_str.parse::<Uuid>()
+            .map_err(|e| format!("Invalid plugin_id UUID '{}': {}", plugin_id_str, e))?;
 
         // Split on :: to get version and method+meta
         let (version, method_and_meta) = rest.split_once("::")
@@ -125,21 +101,11 @@ impl FromStr for Handle {
 
         let meta: Vec<String> = parts.map(|s| s.to_string()).collect();
 
-        // Try to parse as UUID first, fall back to name-based
-        let (plugin_id, plugin_name) = if let Ok(uuid) = plugin_part.parse::<Uuid>() {
-            (uuid, None)
-        } else {
-            // Legacy name-based format - generate deterministic UUID
-            let uuid = Uuid::new_v5(&Uuid::NAMESPACE_OID, format!("{}@{}", plugin_part, version).as_bytes());
-            (uuid, Some(plugin_part.to_string()))
-        };
-
         Ok(Handle {
             plugin_id,
             version: version.to_string(),
             method: method.to_string(),
             meta,
-            plugin_name,
         })
     }
 }
@@ -231,7 +197,7 @@ mod tests {
     use super::*;
 
     // ========================================================================
-    // Handle tests - updated for UUID-based handles
+    // Handle tests
     // ========================================================================
 
     #[test]
@@ -244,34 +210,12 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_parse_uuid() {
+    fn test_handle_parse() {
         let handle: Handle = "550e8400-e29b-41d4-a716-446655440000@1.0.0::chat:msg-123:user".parse().unwrap();
         assert_eq!(handle.plugin_id, Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap());
         assert_eq!(handle.version, "1.0.0");
         assert_eq!(handle.method, "chat");
         assert_eq!(handle.meta, vec!["msg-123", "user"]);
-        assert!(handle.plugin_name.is_none());
-    }
-
-    #[test]
-    fn test_handle_parse_legacy_name() {
-        // Legacy format with plugin name instead of UUID
-        let handle: Handle = "cone@1.0.0::chat:msg-123".parse().unwrap();
-
-        // Should generate deterministic UUID
-        let expected_uuid = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"cone@1.0.0");
-        assert_eq!(handle.plugin_id, expected_uuid);
-        assert_eq!(handle.plugin_name, Some("cone".to_string()));
-        assert_eq!(handle.method, "chat");
-    }
-
-    #[test]
-    fn test_handle_from_name() {
-        let handle = Handle::from_name("cone", "1.0.0", "chat");
-
-        let expected_uuid = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"cone@1.0.0");
-        assert_eq!(handle.plugin_id, expected_uuid);
-        assert_eq!(handle.plugin_name, Some("cone".to_string()));
     }
 
     #[test]
@@ -284,7 +228,7 @@ mod tests {
     }
 
     // ========================================================================
-    // INVARIANT: Handle roundtrip - parse(display(h)) == h (for UUID handles)
+    // INVARIANT: Handle roundtrip - parse(display(h)) == h
     // ========================================================================
 
     #[test]
@@ -296,10 +240,7 @@ mod tests {
         let serialized = original.to_string();
         let parsed: Handle = serialized.parse().unwrap();
 
-        assert_eq!(original.plugin_id, parsed.plugin_id);
-        assert_eq!(original.version, parsed.version);
-        assert_eq!(original.method, parsed.method);
-        assert_eq!(original.meta, parsed.meta);
+        assert_eq!(original, parsed);
     }
 
     #[test]
@@ -310,8 +251,7 @@ mod tests {
         let serialized = original.to_string();
         let parsed: Handle = serialized.parse().unwrap();
 
-        assert_eq!(original.plugin_id, parsed.plugin_id);
-        assert_eq!(original.method, parsed.method);
+        assert_eq!(original, parsed);
     }
 
     // ========================================================================
@@ -373,6 +313,13 @@ mod tests {
         let result: Result<Handle, _> = "550e8400-e29b-41d4-a716-446655440000@1.0.0:chat".parse();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("missing '::'"));
+    }
+
+    #[test]
+    fn invariant_parse_error_invalid_uuid() {
+        let result: Result<Handle, _> = "not-a-uuid@1.0.0::chat".parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid plugin_id UUID"));
     }
 
     // ========================================================================
@@ -461,5 +408,116 @@ mod tests {
 
         let data = envelope.into_inner();
         assert_eq!(data, vec![1, 2, 3]);
+    }
+
+    // ========================================================================
+    // INVARIANT: Plugin ID generation formula
+    // ========================================================================
+    //
+    // Plugin IDs are generated deterministically using UUID v5:
+    //   Uuid::new_v5(&Uuid::NAMESPACE_OID, "{namespace}@{major_version}".as_bytes())
+    //
+    // Using only major version ensures handles survive minor/patch upgrades (semver).
+    // This formula MUST NOT CHANGE - it would break handle routing for all
+    // existing handles stored in arbor trees.
+    //
+    // These tests verify known plugin IDs to catch any accidental changes.
+
+    /// Canonical plugin ID generation formula - must match hub_methods macro
+    fn generate_plugin_id(namespace: &str, version: &str) -> Uuid {
+        let major_version = version.split('.').next().unwrap_or("0");
+        let name = format!("{}@{}", namespace, major_version);
+        Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes())
+    }
+
+    #[test]
+    fn invariant_plugin_id_formula_health() {
+        // Health plugin: "health@1" (major version only)
+        let expected = Uuid::parse_str("dc560257-b7c5-575b-b893-b448c87ca797").unwrap();
+        let actual = generate_plugin_id("health", "1.0.0");
+        assert_eq!(actual, expected, "health@1 plugin ID changed!");
+    }
+
+    #[test]
+    fn invariant_plugin_id_formula_cone() {
+        // Cone plugin: "cone@1" (major version only)
+        let expected = Uuid::parse_str("11429815-0a5e-5fcc-baf2-842ab3666e77").unwrap();
+        let actual = generate_plugin_id("cone", "1.0.0");
+        assert_eq!(actual, expected, "cone@1 plugin ID changed!");
+    }
+
+    #[test]
+    fn invariant_plugin_id_formula_bash() {
+        // Bash plugin: "bash@1" (major version only)
+        let expected = Uuid::parse_str("c425933b-2db7-5bb1-a608-9dd88143fce3").unwrap();
+        let actual = generate_plugin_id("bash", "1.0.0");
+        assert_eq!(actual, expected, "bash@1 plugin ID changed!");
+    }
+
+    #[test]
+    fn invariant_plugin_id_formula_arbor() {
+        // Arbor plugin: "arbor@1" (major version only)
+        let expected = Uuid::parse_str("58fd2bc4-b477-509b-9568-c5aee56f1bc0").unwrap();
+        let actual = generate_plugin_id("arbor", "1.0.0");
+        assert_eq!(actual, expected, "arbor@1 plugin ID changed!");
+    }
+
+    #[test]
+    fn invariant_plugin_id_formula_claudecode() {
+        // ClaudeCode plugin: "claudecode@1" (major version only)
+        let expected = Uuid::parse_str("51b330e5-ed88-5fe2-8b58-0c57f2b02ab3").unwrap();
+        let actual = generate_plugin_id("claudecode", "1.0.0");
+        assert_eq!(actual, expected, "claudecode@1 plugin ID changed!");
+    }
+
+    #[test]
+    fn invariant_plugin_id_deterministic() {
+        // Same input always produces same output
+        let id1 = generate_plugin_id("test", "1.0.0");
+        let id2 = generate_plugin_id("test", "1.0.0");
+        assert_eq!(id1, id2, "Plugin ID generation must be deterministic");
+    }
+
+    #[test]
+    fn invariant_plugin_id_same_major_version() {
+        // Same major version produces same ID (semver compatibility)
+        let v100 = generate_plugin_id("test", "1.0.0");
+        let v110 = generate_plugin_id("test", "1.1.0");
+        let v199 = generate_plugin_id("test", "1.99.99");
+        assert_eq!(v100, v110, "Minor version changes must not affect plugin ID");
+        assert_eq!(v100, v199, "Patch version changes must not affect plugin ID");
+    }
+
+    #[test]
+    fn invariant_plugin_id_different_major_versions() {
+        // Different major versions produce different IDs
+        let v1 = generate_plugin_id("test", "1.0.0");
+        let v2 = generate_plugin_id("test", "2.0.0");
+        assert_ne!(v1, v2, "Different major versions must produce different IDs");
+    }
+
+    #[test]
+    fn invariant_plugin_id_different_namespaces() {
+        // Different namespaces produce different IDs
+        let a = generate_plugin_id("alpha", "1.0.0");
+        let b = generate_plugin_id("beta", "1.0.0");
+        assert_ne!(a, b, "Different namespaces must produce different IDs");
+    }
+
+    #[test]
+    fn invariant_plugin_id_uses_namespace_oid() {
+        // Verify we use NAMESPACE_OID specifically (not NAMESPACE_URL, etc.)
+        let name = "test@1";
+        let with_oid = Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes());
+        let with_url = Uuid::new_v5(&Uuid::NAMESPACE_URL, name.as_bytes());
+        let with_dns = Uuid::new_v5(&Uuid::NAMESPACE_DNS, name.as_bytes());
+
+        // All should be different
+        assert_ne!(with_oid, with_url);
+        assert_ne!(with_oid, with_dns);
+
+        // Our formula uses OID
+        let actual = generate_plugin_id("test", "1.0.0");
+        assert_eq!(actual, with_oid, "Must use NAMESPACE_OID");
     }
 }

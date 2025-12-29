@@ -1,6 +1,8 @@
+use super::activation::Cone;
 use super::methods::ConeIdentifier;
 use super::types::{ConeConfig, ConeError, ConeId, ConeInfo, Message, MessageId, MessageRole, Position};
-use crate::activations::arbor::{Handle, ArborStorage, NodeId, TreeId};
+use crate::activations::arbor::{ArborStorage, NodeId, TreeId};
+use crate::types::Handle;
 use serde_json::Value;
 use sqlx::{sqlite::{SqliteConnectOptions, SqlitePool}, ConnectOptions, Row};
 use std::path::PathBuf;
@@ -485,12 +487,12 @@ impl ConeStorage {
 
     /// Create a handle for a message
     ///
-    /// New format: `cone@1.0.0::chat:msg-{id}:{role}:{name}`
+    /// Format: `{plugin_id}@1.0.0::chat:msg-{id}:{role}:{name}`
     /// meta[0] = message ID (with msg- prefix for resolve_message_handle compatibility)
     /// meta[1] = role
     /// meta[2] = name
     pub fn message_to_handle(message: &Message, name: &str) -> Handle {
-        Handle::from_name("cone", "1.0.0", "chat")
+        Handle::new(Cone::PLUGIN_ID, "1.0.0", "chat")
             .with_meta(vec![
                 format!("msg-{}", message.id),
                 message.role.as_str().to_string(),
@@ -642,8 +644,8 @@ mod tests {
 
         let handle = ConeStorage::message_to_handle(&message, "any-name");
 
-        // plugin_name should be "cone" (from_name sets this for backwards compat)
-        assert_eq!(handle.plugin_name, Some("cone".to_string()));
+        // plugin_id should match Cone's PLUGIN_ID
+        assert_eq!(handle.plugin_id, super::Cone::PLUGIN_ID);
         assert_eq!(handle.version, "1.0.0");
         assert_eq!(handle.method, "chat");
     }
