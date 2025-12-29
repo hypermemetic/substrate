@@ -391,7 +391,7 @@ impl ArborStorage {
                     NodeType::Text { content }
                 }
                 "external" => {
-                    let plugin: String = row.get("handle_plugin");
+                    let plugin_name: String = row.get("handle_plugin");
                     let version: String = row.get("handle_version");
                     let method: String = row.get("handle_method");
                     let meta_json: Option<String> = row.get("handle_meta");
@@ -400,12 +400,8 @@ impl ArborStorage {
                         .unwrap_or_default();
 
                     NodeType::External {
-                        handle: Handle {
-                            plugin,
-                            version,
-                            method,
-                            meta,
-                        },
+                        handle: Handle::from_name(&plugin_name, &version, &method)
+                            .with_meta(meta),
                     }
                 }
                 _ => return Err(format!("Unknown node type: {}", node_type_str).into()),
@@ -851,7 +847,8 @@ impl ArborStorage {
         .bind(node_id.to_string())
         .bind(tree_id.to_string())
         .bind(parent.map(|p| p.to_string()))
-        .bind(&handle.plugin)
+        // Store plugin_name for backwards compat, or use plugin_id as string if no name
+        .bind(handle.plugin_name.as_deref().unwrap_or(&handle.plugin_id.to_string()))
         .bind(&handle.version)
         .bind(&handle.method)
         .bind(&meta_json)
@@ -891,7 +888,8 @@ impl ArborStorage {
         .bind(tree_id.to_string())
         .bind(parent.map(|p| p.to_string()))
         .bind(now) // scheduled_deletion_at = now (will be cleaned up by cleanup_scheduled_trees)
-        .bind(&handle.plugin)
+        // Store plugin_name for backwards compat, or use plugin_id as string if no name
+        .bind(handle.plugin_name.as_deref().unwrap_or(&handle.plugin_id.to_string()))
         .bind(&handle.version)
         .bind(&handle.method)
         .bind(&meta_json)

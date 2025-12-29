@@ -586,8 +586,9 @@ async fn resolve_context_to_messages(
                 }
             }
             NodeType::External { handle } => {
-                // Resolve handle based on plugin
-                match handle.plugin.as_str() {
+                // Resolve handle based on plugin (use plugin_name for backwards compat)
+                let plugin = handle.plugin_name.as_deref().unwrap_or("unknown");
+                match plugin {
                     "cone" => {
                         // Resolve cone message handle - message UUID is in meta[0]
                         let msg_id = handle.meta.first()

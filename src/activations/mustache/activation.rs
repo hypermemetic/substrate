@@ -38,6 +38,45 @@ impl Mustache {
     pub fn storage(&self) -> &MustacheStorage {
         &self.storage
     }
+
+    /// Register a template directly (non-streaming, for initialization)
+    ///
+    /// Use this method during plugin initialization to register default templates.
+    /// Unlike the RPC `register_template` method, this doesn't return a stream.
+    pub async fn register_template_direct(
+        &self,
+        plugin_id: Uuid,
+        method: &str,
+        name: &str,
+        template: &str,
+    ) -> Result<(), String> {
+        // Validate the template compiles
+        if let Err(e) = mustache::compile_str(template) {
+            return Err(format!("Invalid template: {}", e));
+        }
+
+        self.storage
+            .set_template(&plugin_id, method, name, template)
+            .await
+            .map_err(|e| format!("Failed to register template: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Register multiple templates for a plugin
+    ///
+    /// Convenience method for registering multiple templates at once.
+    /// Takes a slice of (method, name, template) tuples.
+    pub async fn register_templates(
+        &self,
+        plugin_id: Uuid,
+        templates: &[(&str, &str, &str)],
+    ) -> Result<(), String> {
+        for (method, name, template) in templates {
+            self.register_template_direct(plugin_id, method, name, template).await?;
+        }
+        Ok(())
+    }
 }
 
 impl Clone for Mustache {

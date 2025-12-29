@@ -536,7 +536,7 @@ impl ClaudeCodeStorage {
     /// meta[1] = role
     /// meta[2] = name
     pub fn message_to_handle(message: &Message, name: &str) -> Handle {
-        Handle::new("claudecode", "1.0.0", "chat")
+        Handle::from_name("claudecode", "1.0.0", "chat")
             .with_meta(vec![
                 format!("msg-{}", message.id),
                 message.role.as_str().to_string(),

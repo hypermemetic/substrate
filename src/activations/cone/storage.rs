@@ -490,7 +490,7 @@ impl ConeStorage {
     /// meta[1] = role
     /// meta[2] = name
     pub fn message_to_handle(message: &Message, name: &str) -> Handle {
-        Handle::new("cone", "1.0.0", "chat")
+        Handle::from_name("cone", "1.0.0", "chat")
             .with_meta(vec![
                 format!("msg-{}", message.id),
                 message.role.as_str().to_string(),
@@ -642,7 +642,8 @@ mod tests {
 
         let handle = ConeStorage::message_to_handle(&message, "any-name");
 
-        assert_eq!(handle.plugin, "cone");
+        // plugin_name should be "cone" (from_name sets this for backwards compat)
+        assert_eq!(handle.plugin_name, Some("cone".to_string()));
         assert_eq!(handle.version, "1.0.0");
         assert_eq!(handle.method, "chat");
     }
