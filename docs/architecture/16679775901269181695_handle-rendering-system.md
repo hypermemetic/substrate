@@ -417,3 +417,289 @@ Existing handles use plugin name. Migration path:
 - Only the plugin that owns a template can modify it (or admin)
 - Template rendering is sandboxed (mustache is logic-less)
 - Handle resolution validates plugin_id exists in registry
+
+---
+
+## Implementation Notes
+
+### What Was Implemented
+
+The implementation covers all five phases:
+
+1. **Plugin ID System** (`hub-macro/src/codegen/activation.rs`, `src/plexus/plexus.rs:291`)
+   - Deterministic UUID v5 from `namespace@version` when not explicitly provided
+   - `PLUGIN_ID` constant generated in each plugin
+   - `PluginRegistry` populated during `register()` and `register_hub()`
+
+2. **Handle/Envelope Types** (`src/types.rs`)
+   - `Handle { plugin_id, version, method, meta, plugin_name }`
+   - `Origin { plugin_id, method }` for provenance
+   - `Envelope<T> { origin, data }` for wrapped values
+
+3. **Mustache Plugin** (`src/activations/mustache/`)
+   - SQLite storage with (plugin_id, method, name) key
+   - Streaming RPC methods + direct `register_template_direct()` for init
+
+4. **Default Templates** (`src/activations/cone/activation.rs:52`, `src/activations/bash/activation.rs:19`)
+   - `register_default_templates(&self, mustache)` pattern
+
+5. **Registry Integration** (`src/plexus/plexus.rs:569`)
+   - `registry_snapshot()`, `lookup_plugin()`, `lookup_plugin_by_path()`
+
+---
+
+## Shortcuts and Technical Debt
+
+### 1. Dual Handle Identity (plugin_id + plugin_name)
+
+**Shortcut**: We kept `plugin_name: Option<String>` for backwards compatibility.
+
+```rust
+// Current: redundant identity
+pub struct Handle {
+    pub plugin_id: Uuid,              // The "real" identity
+    pub plugin_name: Option<String>,  // Legacy fallback
+    ...
+}
+```
+
+**Issue**: Creates ambiguity about which field is authoritative. Resolution falls back to name-based lookup if UUID not found.
+
+**Fix**: After migration, remove `plugin_name` and use registry exclusively. The database should migrate `handle_plugin` column to store UUIDs.
+
+### 2. Arbor Still Stores Plugin Names
+
+**Shortcut**: Database column `handle_plugin` stores string names, not UUIDs.
+
+```rust
+// src/activations/arbor/storage.rs:851
+.bind(handle.plugin_name.as_deref().unwrap_or(&handle.plugin_id.to_string()))
+```
+
+**Issue**: Reconstructing Handle from DB requires name→UUID conversion.
+
+**Fix**: Add `handle_plugin_id` column to arbor nodes table, migrate existing data.
+
+### 3. Template Registration Not Automated
+
+**Shortcut**: Plugins must explicitly call `register_default_templates()`.
+
+**Issue**: Easy to forget, templates not registered until called.
+
+**Fix**: Add `default_templates()` method to `Activation` trait:
+
+```rust
+trait Activation {
+    fn default_templates(&self) -> &[(&str, &str, &str)] { &[] }
+}
+```
+
+Then Plexus auto-registers during `register()`.
+
+### 4. No Envelope in Stream Events
+
+**Shortcut**: Methods return `Stream<Event>`, not `Stream<Envelope<Event>>`.
+
+**Issue**: Provenance is lost unless handles explicitly carry it.
+
+**Fix**: Consider:
+```rust
+// Option A: Envelope per event
+async fn chat(&self, ...) -> impl Stream<Item = Envelope<ConeEvent>>
+
+// Option B: Origin in stream metadata (current approach via wrap_stream)
+wrap_stream(stream, "cone.chat", vec!["cone".into()])
+```
+
+Current `wrap_stream` passes origin info, but it's metadata not typed.
+
+### 5. Mustache Plugin Not Auto-Registered
+
+**Shortcut**: `build_plexus()` doesn't include Mustache by default.
+
+**Issue**: Template features unavailable unless explicitly added.
+
+**Fix**: Add to default plugins or make optional with feature flag.
+
+### 6. No Schema Integration
+
+**Shortcut**: Templates render JSON values, but schemas not consulted.
+
+**Issue**: Templates might reference fields that don't exist, no validation.
+
+**Possible improvement**: Validate templates against method return schema:
+```rust
+mustache.register_template_validated(
+    plugin_id, method, name, template, schema
+)
+```
+
+---
+
+## Code Deduplication Patterns
+
+### 1. Template Registration Trait
+
+Current duplication:
+```rust
+// Cone
+pub async fn register_default_templates(&self, mustache: &Mustache) -> Result<(), String> {
+    mustache.register_templates(Self::PLUGIN_ID, &[...]).await
+}
+
+// Bash (identical pattern)
+pub async fn register_default_templates(&self, mustache: &Mustache) -> Result<(), String> {
+    mustache.register_templates(Self::PLUGIN_ID, &[...]).await
+}
+```
+
+**Pattern**: Extract to trait or macro:
+
+```rust
+pub trait HasTemplates: Activation {
+    fn templates() -> &'static [(&'static str, &'static str, &'static str)];
+
+    async fn register_templates(&self, mustache: &Mustache) -> Result<(), String> {
+        mustache.register_templates(Self::PLUGIN_ID, Self::templates()).await
+    }
+}
+
+// Usage
+impl HasTemplates for Cone {
+    fn templates() -> &'static [(&'static str, &'static str, &'static str)] {
+        &[
+            ("chat", "default", "[{{role}}] {{content}}"),
+            ("chat", "markdown", "**{{role}}**\n\n{{content}}"),
+        ]
+    }
+}
+```
+
+### 2. Handle Construction
+
+Current duplication in storage modules:
+```rust
+// cone/storage.rs
+Handle::from_name("cone", "1.0.0", "chat").with_meta(vec![...])
+
+// claudecode/storage.rs
+Handle::from_name("claudecode", "1.0.0", "chat").with_meta(vec![...])
+```
+
+**Pattern**: Associated function on plugin:
+
+```rust
+impl Cone {
+    pub fn handle(method: &str, meta: Vec<String>) -> Handle {
+        Handle::new(Self::PLUGIN_ID, Self::VERSION, method).with_meta(meta)
+    }
+}
+
+// Usage
+Cone::handle("chat", vec![msg_id, role, name])
+```
+
+### 3. Plugin Resolution Fallback
+
+Current pattern repeated:
+```rust
+let plugin = handle.plugin_name.as_deref().unwrap_or("unknown");
+match plugin { ... }
+```
+
+**Pattern**: Method on Handle:
+
+```rust
+impl Handle {
+    pub fn plugin_name_or_id(&self) -> String {
+        self.plugin_name.clone().unwrap_or_else(|| self.plugin_id.to_string())
+    }
+}
+```
+
+### 4. Registry Lookup + Activation Fetch
+
+Current pattern:
+```rust
+let registry = self.inner.registry.read().unwrap();
+let plugin_path = registry.lookup(handle.plugin_id)
+    .map(|s| s.to_string())
+    .or_else(|| handle.plugin_name.clone());
+drop(registry);
+
+let path = plugin_path.ok_or_else(|| ...)?;
+let activation = self.inner.activations.get(&path).ok_or_else(|| ...)?;
+```
+
+**Pattern**: Single method:
+
+```rust
+impl Plexus {
+    fn get_activation_for_handle(&self, handle: &Handle) -> Result<&dyn ActivationObject, PlexusError> {
+        // encapsulates registry lookup + fallback + activation fetch
+    }
+}
+```
+
+---
+
+## Missing Pieces
+
+### 1. Plexus-Level render() Method
+
+The arch doc describes `Plexus::render(handle)` but it's not implemented. We have:
+- `do_resolve_handle()` - resolves handle to stream
+- `lookup_plugin()` - finds plugin path
+- But no direct resolve→render convenience method
+
+### 2. Context Building Integration
+
+`Cone::build_context()` from the arch doc not implemented. Current code in `resolve_context_to_messages()` does inline resolution without mustache rendering.
+
+### 3. Template Inheritance / Fallbacks
+
+No fallback chain:
+```
+plugin/method/custom → plugin/method/default → plugin/*/default → global/default
+```
+
+### 4. Template Validation
+
+Templates not validated against schemas. Invalid templates fail at render time.
+
+### 5. Batch Resolution
+
+No batch resolve for multiple handles:
+```rust
+async fn resolve_batch(&self, handles: &[Handle]) -> Vec<Result<Envelope<Value>>>
+```
+
+---
+
+## Suggested Improvements Priority
+
+| Priority | Item | Effort | Impact |
+|----------|------|--------|--------|
+| High | Auto-register templates in `register()` | Low | Reduces boilerplate |
+| High | Add `Plexus::render(handle)` | Low | Completes the API |
+| Medium | Database UUID migration | Medium | Removes dual identity |
+| Medium | HasTemplates trait | Low | Deduplication |
+| Medium | `Handle::for_method()` pattern | Low | Cleaner handle creation |
+| Low | Template validation | Medium | Better error messages |
+| Low | Batch resolution | Medium | Performance for context |
+
+---
+
+## File Reference
+
+Key implementation files:
+
+| File | Purpose |
+|------|---------|
+| `hub-macro/src/codegen/activation.rs` | PLUGIN_ID generation |
+| `src/types.rs` | Handle, Origin, Envelope |
+| `src/plexus/plexus.rs:291` | PluginRegistry, PluginEntry |
+| `src/plexus/plexus.rs:502` | do_resolve_handle with registry |
+| `src/activations/mustache/` | Template storage and rendering |
+| `src/activations/arbor/types.rs` | Re-exports Handle from crate::types |
+| `src/activations/cone/activation.rs:52` | register_default_templates example |
