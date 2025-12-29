@@ -295,6 +295,47 @@ pub struct PluginRegistry {
     by_path: HashMap<String, uuid::Uuid>,
 }
 
+/// Read-only snapshot of the plugin registry
+///
+/// Safe to use outside of Plexus locks.
+#[derive(Clone)]
+pub struct PluginRegistrySnapshot {
+    by_id: HashMap<uuid::Uuid, PluginEntry>,
+    by_path: HashMap<String, uuid::Uuid>,
+}
+
+impl PluginRegistrySnapshot {
+    /// Look up a plugin's path by its UUID
+    pub fn lookup(&self, id: uuid::Uuid) -> Option<&str> {
+        self.by_id.get(&id).map(|e| e.path.as_str())
+    }
+
+    /// Look up a plugin's UUID by its path
+    pub fn lookup_by_path(&self, path: &str) -> Option<uuid::Uuid> {
+        self.by_path.get(path).copied()
+    }
+
+    /// Get a plugin entry by its UUID
+    pub fn get(&self, id: uuid::Uuid) -> Option<&PluginEntry> {
+        self.by_id.get(&id)
+    }
+
+    /// List all registered plugins
+    pub fn list(&self) -> impl Iterator<Item = &PluginEntry> {
+        self.by_id.values()
+    }
+
+    /// Get the number of registered plugins
+    pub fn len(&self) -> usize {
+        self.by_id.len()
+    }
+
+    /// Check if the registry is empty
+    pub fn is_empty(&self) -> bool {
+        self.by_id.is_empty()
+    }
+}
+
 impl PluginRegistry {
     /// Create a new empty registry
     pub fn new() -> Self {
@@ -523,6 +564,25 @@ impl Plexus {
     /// Get activation schema
     pub fn get_activation_schema(&self, namespace: &str) -> Option<Schema> {
         self.inner.activations.get(namespace).map(|a| a.schema())
+    }
+
+    /// Get a snapshot of the plugin registry (safe to use outside locks)
+    pub fn registry_snapshot(&self) -> PluginRegistrySnapshot {
+        let guard = self.inner.registry.read().unwrap();
+        PluginRegistrySnapshot {
+            by_id: guard.by_id.clone(),
+            by_path: guard.by_path.clone(),
+        }
+    }
+
+    /// Look up a plugin path by its UUID
+    pub fn lookup_plugin(&self, id: uuid::Uuid) -> Option<String> {
+        self.inner.registry.read().unwrap().lookup(id).map(|s| s.to_string())
+    }
+
+    /// Look up a plugin UUID by its path
+    pub fn lookup_plugin_by_path(&self, path: &str) -> Option<uuid::Uuid> {
+        self.inner.registry.read().unwrap().lookup_by_path(path)
     }
 
     /// Get plugin schemas for all activations (including plexus itself)
