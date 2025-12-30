@@ -2,75 +2,53 @@
 members = ["."]
 
 [package]
-name = "substrate-hub"
-version = "0.2.5"
+name = "hub-core"
+version = "0.1.0"
 edition = "2021"
-description = "Backend infrastructure for LLM orchestration - plexus, activations, storage"
+description = "Core hub infrastructure - plexus routing, activation framework, MCP bridge"
 license = "AGPL-3.0-only"
-default-run = "substrate"
 
 [lib]
-name = "substrate"
+name = "hub_core"
 path = "src/lib.rs"
 
-[[bin]]
-name = "substrate"
-path = "src/main.rs"
-
 [dependencies]
+# Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+# Async runtime
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = "0.1"
 futures = "0.3"
 futures-util = "0.3"
 async-trait = "0.1"
 async-stream = "0.3"
+
+# Error handling
 thiserror = "1.0"
 anyhow = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
-either = "1.9"
+
+# Schema generation
 schemars = { version = "1.1", features = ["derive", "uuid1"] }
-axum = { version = "0.7" }
-tower = "0.4"
-sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+
+# Core types
 uuid = { version = "1.6", features = ["v4", "v5", "serde"] }
-rand = "0.8"
-hostname = "0.3"
-regex = "1.10"
-dirs = "5.0"
-which = "6.0"
-# JSON-RPC server dependencies
-jsonrpsee = { version = "0.26", features = ["server", "macros"] }
-clap = { version = "4.0", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Logging
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "tracing-log"] }
-dotenvy = "0.15"
-tower-http = { version = "0.5", features = ["trace", "util", "cors"] }
-http = "1.0"
-http-body-util = "0.1"
 
-# LLM client
+# JSON-RPC server
+jsonrpsee = { version = "0.26", features = ["server", "macros"] }
 
-# Session types for method protocols
-dialectic = { version = "0.4.1", features = ["tokio"] }
-
-# MCP server via rmcp
+# MCP server
 rmcp = { version = "0.12", features = ["server", "transport-io", "transport-streamable-http-server"] }
-cllient = { path = "../../cllient" }
+
+# Hub macro for activation generation
 hub-macro = "0.1.1"
 
-# Mustache templating
-mustache = "0.9"
-
 [dev-dependencies]
-hyper = "1"
-tower = { version = "0.5", features = ["util"] }
-reqwest = { version = "0.11", features = ["json"] }
-jsonrpsee = { version = "0.26", features = ["client", "ws-client"] }
-tokio-tungstenite = "0.21"
 tempfile = "3"
-
-[[example]]
-name = "rmcp_mcp_server"
-path = "examples/rmcp_mcp_server.rs"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tokio-test = "0.4"

@@ -780,44 +780,6 @@ mod tests {
         assert!(schema.children.is_some());
     }
 
-    /// Test direct nested routing via plexus.call("solar.mercury.info")
-    ///
-    /// This tests the full path: Plexus → Solar → Mercury without using
-    /// the plexus.call RPC wrapper - just the Activation::call trait method.
-    #[tokio::test]
-    async fn plexus_direct_nested_routing() {
-        use crate::activations::solar::Solar;
-
-        // Register Solar as a hub (enables ChildRouter lookup)
-        let plexus = Plexus::new().register_hub(Solar::new());
-
-        // Call directly via Activation trait - this should route:
-        // plexus.call("solar.mercury.info") →
-        //   doesn't match local methods →
-        //   route_to_child("solar.mercury.info") →
-        //   get_child("solar") returns Solar →
-        //   solar.router_call("mercury.info") →
-        //   solar.call("mercury.info") →
-        //   route_to_child("mercury.info") →
-        //   get_child("mercury") returns CelestialBodyActivation →
-        //   mercury.router_call("info") →
-        //   returns Mercury info
-        let result = Activation::call(&plexus, "solar.mercury.info", serde_json::json!({})).await;
-        assert!(result.is_ok(), "plexus.solar.mercury.info should work: {:?}", result.err());
-    }
-
-    /// Test 3-level nested routing: plexus → solar → jupiter → io
-    #[tokio::test]
-    async fn plexus_deep_nested_routing() {
-        use crate::activations::solar::Solar;
-
-        let plexus = Plexus::new().register_hub(Solar::new());
-
-        // Call plexus.solar.jupiter.io.info
-        let result = Activation::call(&plexus, "solar.jupiter.io.info", serde_json::json!({})).await;
-        assert!(result.is_ok(), "plexus.solar.jupiter.io.info should work: {:?}", result.err());
-    }
-
     // ========================================================================
     // INVARIANT: Handle routing - resolves to correct plugin
     // ========================================================================
@@ -869,28 +831,33 @@ mod tests {
     #[tokio::test]
     async fn invariant_resolve_handle_routes_by_plugin_id() {
         use crate::activations::health::Health;
-        use crate::activations::bash::Bash;
+        use crate::activations::echo::Echo;
         use crate::types::Handle;
         use uuid::Uuid;
 
+        let health = Health::new();
+        let echo = Echo::new();
+        let health_plugin_id = health.plugin_id();
+        let echo_plugin_id = echo.plugin_id();
+
         let plexus = Plexus::new()
-            .register(Health::new())
-            .register(Bash::new());
+            .register(health)
+            .register(echo);
 
         // Health handle → health plugin
-        let health_handle = Handle::new(Health::PLUGIN_ID, "1.0.0", "check");
+        let health_handle = Handle::new(health_plugin_id, "1.0.0", "check");
         match plexus.do_resolve_handle(&health_handle).await {
             Err(PlexusError::HandleNotSupported(name)) => assert_eq!(name, "health"),
             Err(other) => panic!("health handle should route to health plugin, got {:?}", other),
             Ok(_) => panic!("health handle should return HandleNotSupported"),
         }
 
-        // Bash handle → bash plugin
-        let bash_handle = Handle::new(Bash::PLUGIN_ID, "1.0.0", "execute");
-        match plexus.do_resolve_handle(&bash_handle).await {
-            Err(PlexusError::HandleNotSupported(name)) => assert_eq!(name, "bash"),
-            Err(other) => panic!("bash handle should route to bash plugin, got {:?}", other),
-            Ok(_) => panic!("bash handle should return HandleNotSupported"),
+        // Echo handle → echo plugin
+        let echo_handle = Handle::new(echo_plugin_id, "1.0.0", "echo");
+        match plexus.do_resolve_handle(&echo_handle).await {
+            Err(PlexusError::HandleNotSupported(name)) => assert_eq!(name, "echo"),
+            Err(other) => panic!("echo handle should route to echo plugin, got {:?}", other),
+            Ok(_) => panic!("echo handle should return HandleNotSupported"),
         }
 
         // Unknown handle → ActivationNotFound (random UUID not registered)
@@ -904,18 +871,21 @@ mod tests {
 
     #[test]
     fn invariant_handle_plugin_id_determines_routing() {
-        use crate::activations::cone::Cone;
-        use crate::activations::claudecode::ClaudeCode;
+        use crate::activations::health::Health;
+        use crate::activations::echo::Echo;
         use crate::types::Handle;
 
+        let health = Health::new();
+        let echo = Echo::new();
+
         // Same meta, different plugins → different routing targets (by plugin_id)
-        let cone_handle = Handle::new(Cone::PLUGIN_ID, "1.0.0", "chat")
+        let health_handle = Handle::new(health.plugin_id(), "1.0.0", "check")
             .with_meta(vec!["msg-123".into(), "user".into()]);
-        let claudecode_handle = Handle::new(ClaudeCode::PLUGIN_ID, "1.0.0", "chat")
+        let echo_handle = Handle::new(echo.plugin_id(), "1.0.0", "echo")
             .with_meta(vec!["msg-123".into(), "user".into()]);
 
         // Different plugin_ids ensure different routing
-        assert_ne!(cone_handle.plugin_id, claudecode_handle.plugin_id);
+        assert_ne!(health_handle.plugin_id, echo_handle.plugin_id);
     }
 
     // ========================================================================
