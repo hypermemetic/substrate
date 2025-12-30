@@ -207,6 +207,7 @@ impl ChildRouter for ArcChildRouter {
 // ============================================================================
 
 #[async_trait]
+#[allow(dead_code)] // Methods exist for completeness but some aren't called post-erasure yet
 trait ActivationObject: Send + Sync + 'static {
     fn namespace(&self) -> &str;
     fn version(&self) -> &str;
