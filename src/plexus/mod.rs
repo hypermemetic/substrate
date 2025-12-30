@@ -2,6 +2,7 @@
 // pub mod guidance;
 
 pub mod context;
+pub mod dispatch;
 pub mod errors;
 pub mod method_enum;
 pub mod middleware;
@@ -26,3 +27,4 @@ pub use types::{PlexusStreamItem, StreamMetadata};
 pub use method_enum::MethodEnumSchema;
 pub use streaming::{PlexusStream, wrap_stream, wrap_stream_with_done, error_stream, done_stream, progress_stream};
 pub use plexus::PlexusMethod;
+pub use dispatch::{HubDispatch, StreamItem, from_dispatch_stream};

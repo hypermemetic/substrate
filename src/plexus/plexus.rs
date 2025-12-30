@@ -207,6 +207,7 @@ impl ChildRouter for ArcChildRouter {
 // ============================================================================
 
 #[async_trait]
+#[allow(dead_code)] // Methods exist for completeness but some aren't called post-erasure yet
 trait ActivationObject: Send + Sync + 'static {
     fn namespace(&self) -> &str;
     fn version(&self) -> &str;
@@ -387,6 +388,8 @@ impl PluginRegistry {
 // ============================================================================
 
 struct PlexusInner {
+    /// Custom namespace for this plexus instance (defaults to "plexus")
+    namespace: String,
     activations: HashMap<String, Arc<dyn ActivationObject>>,
     /// Child routers for direct nested routing (e.g., plexus.solar.mercury.info)
     child_routers: HashMap<String, Arc<dyn ChildRouter>>,
@@ -411,14 +414,25 @@ impl Default for Plexus {
 
 impl Plexus {
     pub fn new() -> Self {
+        Self::with_namespace("plexus")
+    }
+
+    /// Create a new Plexus with a custom namespace
+    pub fn with_namespace(namespace: impl Into<String>) -> Self {
         Self {
             inner: Arc::new(PlexusInner {
+                namespace: namespace.into(),
                 activations: HashMap::new(),
                 child_routers: HashMap::new(),
                 registry: std::sync::RwLock::new(PluginRegistry::new()),
                 pending_rpc: std::sync::Mutex::new(Vec::new()),
             }),
         }
+    }
+
+    /// Get the runtime namespace for this Plexus instance
+    pub fn runtime_namespace(&self) -> &str {
+        &self.inner.namespace
     }
 
     /// Get access to the plugin registry
@@ -481,7 +495,7 @@ impl Plexus {
 
         // Include plexus's own methods
         for m in Activation::methods(self) {
-            methods.push(format!("plexus.{}", m));
+            methods.push(format!("{}.{}", self.inner.namespace, m));
         }
 
         // Include registered activation methods
@@ -532,7 +546,7 @@ impl Plexus {
         let (namespace, method_name) = self.parse_method(method)?;
 
         // Handle plexus's own methods
-        if namespace == "plexus" {
+        if namespace == self.inner.namespace {
             return Activation::call(self, method_name, params).await;
         }
 
@@ -637,9 +651,87 @@ impl Plexus {
 
         PlexusContext::init(self.compute_hash());
 
-        // Add plexus's own RPC methods
-        let plexus_methods: Methods = self.clone().into_rpc().into();
-        module.merge(plexus_methods)?;
+        // Register plexus methods with runtime namespace (instead of hardcoded "plexus_")
+        // Note: we leak these strings to get 'static lifetime required by jsonrpsee
+        let ns = self.runtime_namespace();
+        let call_method: &'static str = Box::leak(format!("{}_call", ns).into_boxed_str());
+        let call_unsub: &'static str = Box::leak(format!("{}_call_unsub", ns).into_boxed_str());
+        let hash_method: &'static str = Box::leak(format!("{}_hash", ns).into_boxed_str());
+        let hash_unsub: &'static str = Box::leak(format!("{}_hash_unsub", ns).into_boxed_str());
+        let schema_method: &'static str = Box::leak(format!("{}_schema", ns).into_boxed_str());
+        let schema_unsub: &'static str = Box::leak(format!("{}_schema_unsub", ns).into_boxed_str());
+        let hash_content_type: &'static str = Box::leak(format!("{}.hash", ns).into_boxed_str());
+        let schema_content_type: &'static str = Box::leak(format!("{}.schema", ns).into_boxed_str());
+        let ns_static: &'static str = Box::leak(ns.to_string().into_boxed_str());
+
+        // Register {ns}_call subscription
+        let plexus_for_call = self.clone();
+        module.register_subscription(
+            call_method,
+            call_method,
+            call_unsub,
+            move |params, pending, _ctx, _ext| {
+                let plexus = plexus_for_call.clone();
+                Box::pin(async move {
+                    // Parse params: {"method": "...", "params": {...}}
+                    let p: CallParams = params.parse()?;
+                    let stream = plexus.route(&p.method, p.params.unwrap_or_default()).await
+                        .map_err(|e| jsonrpsee::types::ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+                    pipe_stream_to_subscription(pending, stream).await
+                })
+            }
+        )?;
+
+        // Register {ns}_hash subscription
+        let plexus_for_hash = self.clone();
+        module.register_subscription(
+            hash_method,
+            hash_method,
+            hash_unsub,
+            move |_params, pending, _ctx, _ext| {
+                let plexus = plexus_for_hash.clone();
+                Box::pin(async move {
+                    let schema = Activation::plugin_schema(&plexus);
+                    let stream = async_stream::stream! {
+                        yield HashEvent::Hash { value: schema.hash };
+                    };
+                    let wrapped = super::streaming::wrap_stream(stream, hash_content_type, vec![ns_static.into()]);
+                    pipe_stream_to_subscription(pending, wrapped).await
+                })
+            }
+        )?;
+
+        // Register {ns}_schema subscription
+        let plexus_for_schema = self.clone();
+        module.register_subscription(
+            schema_method,
+            schema_method,
+            schema_unsub,
+            move |params, pending, _ctx, _ext| {
+                let plexus = plexus_for_schema.clone();
+                Box::pin(async move {
+                    let p: SchemaParams = params.parse().unwrap_or_default();
+                    let plugin_schema = Activation::plugin_schema(&plexus);
+
+                    let result = if let Some(ref name) = p.method {
+                        plugin_schema.methods.iter()
+                            .find(|m| m.name == *name)
+                            .map(|m| super::SchemaResult::Method(m.clone()))
+                            .ok_or_else(|| jsonrpsee::types::ErrorObject::owned(
+                                -32602,
+                                format!("Method '{}' not found", name),
+                                None::<()>,
+                            ))?
+                    } else {
+                        super::SchemaResult::Plugin(plugin_schema)
+                    };
+
+                    let stream = async_stream::stream! { yield result; };
+                    let wrapped = super::streaming::wrap_stream(stream, schema_content_type, vec![ns_static.into()]);
+                    pipe_stream_to_subscription(pending, wrapped).await
+                })
+            }
+        )?;
 
         // Add all registered activation RPC methods
         let pending = std::mem::take(&mut *self.inner.pending_rpc.lock().unwrap());
@@ -651,6 +743,36 @@ impl Plexus {
     }
 }
 
+/// Params for {ns}_call
+#[derive(Debug, serde::Deserialize)]
+struct CallParams {
+    method: String,
+    #[serde(default)]
+    params: Option<Value>,
+}
+
+/// Params for {ns}_schema
+#[derive(Debug, Default, serde::Deserialize)]
+struct SchemaParams {
+    method: Option<String>,
+}
+
+/// Helper to pipe a PlexusStream to a subscription sink
+async fn pipe_stream_to_subscription(
+    pending: jsonrpsee::PendingSubscriptionSink,
+    mut stream: PlexusStream,
+) -> jsonrpsee::core::SubscriptionResult {
+    use futures::StreamExt;
+    use jsonrpsee::SubscriptionMessage;
+
+    let sink = pending.accept().await?;
+    while let Some(item) = stream.next().await {
+        let msg = SubscriptionMessage::new("result", sink.subscription_id(), &item)?;
+        sink.send(msg).await?;
+    }
+    Ok(())
+}
+
 // ============================================================================
 // Plexus RPC Methods (via hub-macro)
 // ============================================================================
@@ -659,7 +781,8 @@ impl Plexus {
     namespace = "plexus",
     version = "1.0.0",
     description = "Central routing and introspection",
-    hub
+    hub,
+    namespace_fn = "runtime_namespace"
 )]
 impl Plexus {
     /// Route a call to a registered activation
@@ -699,7 +822,7 @@ impl Plexus {
 #[async_trait]
 impl ChildRouter for Plexus {
     fn router_namespace(&self) -> &str {
-        "plexus"
+        &self.inner.namespace
     }
 
     async fn router_call(&self, method: &str, params: Value) -> Result<PlexusStream, PlexusError> {
