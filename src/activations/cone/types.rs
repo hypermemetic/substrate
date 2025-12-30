@@ -133,9 +133,131 @@ impl From<&ConeConfig> for ConeInfo {
     }
 }
 
-/// Events emitted by cone operations
+// ============================================================================
+// Method-specific return types
+// Each method returns only its valid variants, making the API clearer
+// ============================================================================
+
+/// Result of cone.create
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type")]
+pub enum CreateResult {
+    #[serde(rename = "cone_created")]
+    Created {
+        cone_id: ConeId,
+        /// Initial position (tree + root node)
+        head: Position,
+    },
+    #[serde(rename = "error")]
+    Error { message: String },
+}
+
+/// Result of cone.get
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "type")]
+pub enum GetResult {
+    #[serde(rename = "cone_data")]
+    Data { cone: ConeConfig },
+    #[serde(rename = "error")]
+    Error { message: String },
+}
+
+/// Result of cone.list
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "type")]
+pub enum ListResult {
+    #[serde(rename = "cone_list")]
+    List { cones: Vec<ConeInfo> },
+    #[serde(rename = "error")]
+    Error { message: String },
+}
+
+/// Result of cone.delete
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "type")]
+pub enum DeleteResult {
+    #[serde(rename = "cone_deleted")]
+    Deleted { cone_id: ConeId },
+    #[serde(rename = "error")]
+    Error { message: String },
+}
+
+/// Events emitted during cone.chat (streaming)
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "type")]
+pub enum ChatEvent {
+    /// Chat response started
+    #[serde(rename = "chat_start")]
+    Start {
+        cone_id: ConeId,
+        /// Position of the user message node
+        user_position: Position,
+    },
+    /// Chat content chunk (streaming)
+    #[serde(rename = "chat_content")]
+    Content {
+        cone_id: ConeId,
+        content: String,
+    },
+    /// Chat response complete
+    #[serde(rename = "chat_complete")]
+    Complete {
+        cone_id: ConeId,
+        /// The new head position (tree + response node)
+        new_head: Position,
+        /// Total tokens used (if available)
+        usage: Option<ChatUsage>,
+    },
+    #[serde(rename = "error")]
+    Error { message: String },
+}
+
+/// Result of cone.set_head
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "type")]
+pub enum SetHeadResult {
+    #[serde(rename = "head_updated")]
+    Updated {
+        cone_id: ConeId,
+        old_head: Position,
+        new_head: Position,
+    },
+    #[serde(rename = "error")]
+    Error { message: String },
+}
+
+/// Result of cone.registry
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "type")]
+pub enum RegistryResult {
+    #[serde(rename = "registry")]
+    Registry(cllient::RegistryExport),
+}
+
+/// Resolved message from handle resolution
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "type")]
+pub enum ResolveResult {
+    #[serde(rename = "resolved_message")]
+    Message {
+        id: String,
+        role: String,
+        content: String,
+        model: Option<String>,
+        name: String,
+    },
+    #[serde(rename = "error")]
+    Error { message: String },
+}
+
+// ============================================================================
+// Legacy ConeEvent - kept for backwards compatibility but deprecated
+// ============================================================================
+
+/// Events emitted by cone operations (deprecated - use method-specific types)
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "type")]
+#[deprecated(note = "Use method-specific result types instead")]
 pub enum ConeEvent {
     /// Cone created
     #[serde(rename = "cone_created")]

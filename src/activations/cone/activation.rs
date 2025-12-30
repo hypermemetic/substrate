@@ -1,6 +1,9 @@
 use super::methods::ConeIdentifier;
 use super::storage::{ConeStorage, ConeStorageConfig};
-use super::types::{ConeEvent, ChatUsage, MessageRole};
+use super::types::{
+    ChatEvent, ChatUsage, CreateResult, DeleteResult, GetResult,
+    ListResult, MessageRole, RegistryResult, ResolveResult, SetHeadResult,
+};
 use crate::activations::arbor::{Node, NodeId, NodeType};
 use crate::activations::bash::Bash;
 use crate::plexus::Plexus;
@@ -110,7 +113,7 @@ impl Cone {
         let result_stream = stream! {
             match storage.resolve_message_handle(&identifier).await {
                 Ok(message) => {
-                    yield ConeEvent::ResolvedMessage {
+                    yield ResolveResult::Message {
                         id: message.id.to_string(),
                         role: message.role.as_str().to_string(),
                         content: message.content,
@@ -119,7 +122,7 @@ impl Cone {
                     };
                 }
                 Err(e) => {
-                    yield ConeEvent::Error {
+                    yield ResolveResult::Error {
                         message: format!("Failed to resolve handle: {}", e.message),
                     };
                 }
@@ -144,8 +147,7 @@ impl Cone {
             model_id = "LLM model ID (e.g., 'gpt-4o-mini', 'claude-3-haiku-20240307')",
             system_prompt = "Optional system prompt / instructions",
             metadata = "Optional configuration metadata"
-        ),
-        returns(ConeCreated, Error)
+        )
     )]
     async fn create(
         &self,
@@ -153,14 +155,14 @@ impl Cone {
         model_id: String,
         system_prompt: Option<String>,
         metadata: Option<serde_json::Value>,
-    ) -> impl Stream<Item = ConeEvent> + Send + 'static {
+    ) -> impl Stream<Item = CreateResult> + Send + 'static {
         let storage = self.storage.clone();
         let llm_registry = self.llm_registry.clone();
 
         stream! {
             // Validate model exists before creating cone
             if let Err(e) = llm_registry.from_id(&model_id) {
-                yield ConeEvent::Error {
+                yield CreateResult::Error {
                     message: format!("Invalid model_id '{}': {}", model_id, e)
                 };
                 return;
@@ -168,13 +170,13 @@ impl Cone {
 
             match storage.cone_create(name, model_id, system_prompt, metadata).await {
                 Ok(cone) => {
-                    yield ConeEvent::ConeCreated {
+                    yield CreateResult::Created {
                         cone_id: cone.id,
                         head: cone.head,
                     };
                 }
                 Err(e) => {
-                    yield ConeEvent::Error { message: e.message };
+                    yield CreateResult::Error { message: e.message };
                 }
             }
         }
@@ -182,13 +184,12 @@ impl Cone {
 
     /// Get cone configuration by name or ID
     #[hub_macro::hub_method(
-        params(identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')"),
-        returns(ConeData, Error)
+        params(identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')")
     )]
     async fn get(
         &self,
         identifier: ConeIdentifier,
-    ) -> impl Stream<Item = ConeEvent> + Send + 'static {
+    ) -> impl Stream<Item = GetResult> + Send + 'static {
         let storage = self.storage.clone();
 
         stream! {
@@ -196,34 +197,34 @@ impl Cone {
             let cone_id = match storage.resolve_cone_identifier(&identifier).await {
                 Ok(id) => id,
                 Err(e) => {
-                    yield ConeEvent::Error { message: e.message };
+                    yield GetResult::Error { message: e.message };
                     return;
                 }
             };
 
             match storage.cone_get(&cone_id).await {
                 Ok(cone) => {
-                    yield ConeEvent::ConeData { cone };
+                    yield GetResult::Data { cone };
                 }
                 Err(e) => {
-                    yield ConeEvent::Error { message: e.message };
+                    yield GetResult::Error { message: e.message };
                 }
             }
         }
     }
 
     /// List all cones
-    #[hub_macro::hub_method(returns(ConeList, Error))]
-    async fn list(&self) -> impl Stream<Item = ConeEvent> + Send + 'static {
+    #[hub_macro::hub_method]
+    async fn list(&self) -> impl Stream<Item = ListResult> + Send + 'static {
         let storage = self.storage.clone();
 
         stream! {
             match storage.cone_list().await {
                 Ok(cones) => {
-                    yield ConeEvent::ConeList { cones };
+                    yield ListResult::List { cones };
                 }
                 Err(e) => {
-                    yield ConeEvent::Error { message: e.message };
+                    yield ListResult::Error { message: e.message };
                 }
             }
         }
@@ -231,13 +232,12 @@ impl Cone {
 
     /// Delete a cone (associated tree is preserved)
     #[hub_macro::hub_method(
-        params(identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')"),
-        returns(ConeDeleted, Error)
+        params(identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')")
     )]
     async fn delete(
         &self,
         identifier: ConeIdentifier,
-    ) -> impl Stream<Item = ConeEvent> + Send + 'static {
+    ) -> impl Stream<Item = DeleteResult> + Send + 'static {
         let storage = self.storage.clone();
 
         stream! {
@@ -245,17 +245,17 @@ impl Cone {
             let cone_id = match storage.resolve_cone_identifier(&identifier).await {
                 Ok(id) => id,
                 Err(e) => {
-                    yield ConeEvent::Error { message: e.message };
+                    yield DeleteResult::Error { message: e.message };
                     return;
                 }
             };
 
             match storage.cone_delete(&cone_id).await {
                 Ok(()) => {
-                    yield ConeEvent::ConeDeleted { cone_id };
+                    yield DeleteResult::Deleted { cone_id };
                 }
                 Err(e) => {
-                    yield ConeEvent::Error { message: e.message };
+                    yield DeleteResult::Error { message: e.message };
                 }
             }
         }
@@ -267,15 +267,14 @@ impl Cone {
             identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')",
             prompt = "User message / prompt to send to the LLM",
             ephemeral = "If true, creates nodes but doesn't advance head and marks for deletion"
-        ),
-        returns(ChatStart, ChatContent, ChatComplete, Error)
+        )
     )]
     async fn chat(
         &self,
         identifier: ConeIdentifier,
         prompt: String,
         ephemeral: Option<bool>,
-    ) -> impl Stream<Item = ConeEvent> + Send + 'static {
+    ) -> impl Stream<Item = ChatEvent> + Send + 'static {
         let storage = self.storage.clone();
         let llm_registry = self.llm_registry.clone();
 
@@ -286,7 +285,7 @@ impl Cone {
             let cone_id = match storage.resolve_cone_identifier(&identifier).await {
                 Ok(id) => id,
                 Err(e) => {
-                    yield ConeEvent::Error { message: e.message };
+                    yield ChatEvent::Error { message: e.message };
                     return;
                 }
             };
@@ -295,7 +294,7 @@ impl Cone {
             let cone = match storage.cone_get(&cone_id).await {
                 Ok(a) => a,
                 Err(e) => {
-                    yield ConeEvent::Error { message: format!("Failed to get cone: {}", e.message) };
+                    yield ChatEvent::Error { message: format!("Failed to get cone: {}", e.message) };
                     return;
                 }
             };
@@ -304,7 +303,7 @@ impl Cone {
             let context_nodes = match storage.arbor().context_get_path(&cone.head.tree_id, &cone.head.node_id).await {
                 Ok(nodes) => nodes,
                 Err(e) => {
-                    yield ConeEvent::Error { message: format!("Failed to get context path: {}", e) };
+                    yield ChatEvent::Error { message: format!("Failed to get context path: {}", e) };
                     return;
                 }
             };
@@ -313,7 +312,7 @@ impl Cone {
             let messages = match resolve_context_to_messages(&storage, &context_nodes, &cone.system_prompt).await {
                 Ok(msgs) => msgs,
                 Err(e) => {
-                    yield ConeEvent::Error { message: format!("Failed to resolve context: {}", e) };
+                    yield ChatEvent::Error { message: format!("Failed to resolve context: {}", e) };
                     return;
                 }
             };
@@ -330,7 +329,7 @@ impl Cone {
                 ).await {
                     Ok(msg) => msg,
                     Err(e) => {
-                        yield ConeEvent::Error { message: format!("Failed to store user message: {}", e.message) };
+                        yield ChatEvent::Error { message: format!("Failed to store user message: {}", e.message) };
                         return;
                     }
                 }
@@ -345,7 +344,7 @@ impl Cone {
                 ).await {
                     Ok(msg) => msg,
                     Err(e) => {
-                        yield ConeEvent::Error { message: format!("Failed to store user message: {}", e.message) };
+                        yield ChatEvent::Error { message: format!("Failed to store user message: {}", e.message) };
                         return;
                     }
                 }
@@ -362,7 +361,7 @@ impl Cone {
                 ).await {
                     Ok(id) => id,
                     Err(e) => {
-                        yield ConeEvent::Error { message: format!("Failed to create user node: {}", e) };
+                        yield ChatEvent::Error { message: format!("Failed to create user node: {}", e) };
                         return;
                     }
                 }
@@ -375,7 +374,7 @@ impl Cone {
                 ).await {
                     Ok(id) => id,
                     Err(e) => {
-                        yield ConeEvent::Error { message: format!("Failed to create user node: {}", e) };
+                        yield ChatEvent::Error { message: format!("Failed to create user node: {}", e) };
                         return;
                     }
                 }
@@ -384,7 +383,7 @@ impl Cone {
             let user_position = cone.head.advance(user_node_id);
 
             // Signal chat start
-            yield ConeEvent::ChatStart {
+            yield ChatEvent::Start {
                 cone_id,
                 user_position,
             };
@@ -396,7 +395,7 @@ impl Cone {
             let request_builder = match llm_registry.from_id(&cone.model_id) {
                 Ok(rb) => rb,
                 Err(e) => {
-                    yield ConeEvent::Error { message: format!("Failed to create request builder: {}", e) };
+                    yield ChatEvent::Error { message: format!("Failed to create request builder: {}", e) };
                     return;
                 }
             };
@@ -411,7 +410,7 @@ impl Cone {
             let mut stream_result = match builder.stream().await {
                 Ok(s) => s,
                 Err(e) => {
-                    yield ConeEvent::Error { message: format!("Failed to start LLM stream: {}", e) };
+                    yield ChatEvent::Error { message: format!("Failed to start LLM stream: {}", e) };
                     return;
                 }
             };
@@ -425,7 +424,7 @@ impl Cone {
                 match event {
                     Ok(cllient::streaming::StreamEvent::Content(text)) => {
                         full_response.push_str(&text);
-                        yield ConeEvent::ChatContent {
+                        yield ChatEvent::Content {
                             cone_id,
                             content: text,
                         };
@@ -435,14 +434,14 @@ impl Cone {
                         output_tokens = out.map(|t| t as i64);
                     }
                     Ok(cllient::streaming::StreamEvent::Error(e)) => {
-                        yield ConeEvent::Error { message: format!("LLM error: {}", e) };
+                        yield ChatEvent::Error { message: format!("LLM error: {}", e) };
                         return;
                     }
                     Ok(_) => {
                         // Ignore other events (Start, Finish, Role, Raw)
                     }
                     Err(e) => {
-                        yield ConeEvent::Error { message: format!("Stream error: {}", e) };
+                        yield ChatEvent::Error { message: format!("Stream error: {}", e) };
                         return;
                     }
                 }
@@ -460,7 +459,7 @@ impl Cone {
                 ).await {
                     Ok(msg) => msg,
                     Err(e) => {
-                        yield ConeEvent::Error { message: format!("Failed to store assistant message: {}", e.message) };
+                        yield ChatEvent::Error { message: format!("Failed to store assistant message: {}", e.message) };
                         return;
                     }
                 }
@@ -475,7 +474,7 @@ impl Cone {
                 ).await {
                     Ok(msg) => msg,
                     Err(e) => {
-                        yield ConeEvent::Error { message: format!("Failed to store assistant message: {}", e.message) };
+                        yield ChatEvent::Error { message: format!("Failed to store assistant message: {}", e.message) };
                         return;
                     }
                 }
@@ -492,7 +491,7 @@ impl Cone {
                 ).await {
                     Ok(id) => id,
                     Err(e) => {
-                        yield ConeEvent::Error { message: format!("Failed to create response node: {}", e) };
+                        yield ChatEvent::Error { message: format!("Failed to create response node: {}", e) };
                         return;
                     }
                 }
@@ -505,7 +504,7 @@ impl Cone {
                 ).await {
                     Ok(id) => id,
                     Err(e) => {
-                        yield ConeEvent::Error { message: format!("Failed to create response node: {}", e) };
+                        yield ChatEvent::Error { message: format!("Failed to create response node: {}", e) };
                         return;
                     }
                 }
@@ -516,7 +515,7 @@ impl Cone {
             // 6. Update canonical_head (skip for ephemeral)
             if !is_ephemeral {
                 if let Err(e) = storage.cone_update_head(&cone_id, response_node_id).await {
-                    yield ConeEvent::Error { message: format!("Failed to update head: {}", e.message) };
+                    yield ChatEvent::Error { message: format!("Failed to update head: {}", e.message) };
                     return;
                 }
             }
@@ -532,7 +531,7 @@ impl Cone {
             };
 
             // For ephemeral, return original head (not the ephemeral node)
-            yield ConeEvent::ChatComplete {
+            yield ChatEvent::Complete {
                 cone_id,
                 new_head: if is_ephemeral { cone.head } else { new_head },
                 usage: usage_info,
@@ -545,14 +544,13 @@ impl Cone {
         params(
             identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')",
             node_id = "UUID of the target node to set as the new head"
-        ),
-        returns(HeadUpdated, Error)
+        )
     )]
     async fn set_head(
         &self,
         identifier: ConeIdentifier,
         node_id: NodeId,
-    ) -> impl Stream<Item = ConeEvent> + Send + 'static {
+    ) -> impl Stream<Item = SetHeadResult> + Send + 'static {
         let storage = self.storage.clone();
 
         stream! {
@@ -560,7 +558,7 @@ impl Cone {
             let cone_id = match storage.resolve_cone_identifier(&identifier).await {
                 Ok(id) => id,
                 Err(e) => {
-                    yield ConeEvent::Error { message: e.message };
+                    yield SetHeadResult::Error { message: e.message };
                     return;
                 }
             };
@@ -569,7 +567,7 @@ impl Cone {
             let old_head = match storage.cone_get(&cone_id).await {
                 Ok(cone) => cone.head,
                 Err(e) => {
-                    yield ConeEvent::Error { message: e.message };
+                    yield SetHeadResult::Error { message: e.message };
                     return;
                 }
             };
@@ -579,27 +577,27 @@ impl Cone {
 
             match storage.cone_update_head(&cone_id, node_id).await {
                 Ok(()) => {
-                    yield ConeEvent::HeadUpdated {
+                    yield SetHeadResult::Updated {
                         cone_id,
                         old_head,
                         new_head,
                     };
                 }
                 Err(e) => {
-                    yield ConeEvent::Error { message: e.message };
+                    yield SetHeadResult::Error { message: e.message };
                 }
             }
         }
     }
 
     /// Get available LLM services and models
-    #[hub_macro::hub_method(returns(Registry))]
-    async fn registry(&self) -> impl Stream<Item = ConeEvent> + Send + 'static {
+    #[hub_macro::hub_method]
+    async fn registry(&self) -> impl Stream<Item = RegistryResult> + Send + 'static {
         let llm_registry = self.llm_registry.clone();
 
         stream! {
             let export = llm_registry.export();
-            yield ConeEvent::Registry(export);
+            yield RegistryResult::Registry(export);
         }
     }
 }
