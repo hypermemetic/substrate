@@ -9,9 +9,6 @@ pub use storage::{ConeStorage, ConeStorageConfig};
 pub use types::{
     ConeConfig, ConeError, ConeEvent, ConeId, ConeInfo, ChatUsage,
     Message, MessageId, MessageRole, Position,
-    // Schema types for RegistryExport (mirrors cllient types with schemars 1.x)
-    RegistryExportSchema, ModelExportSchema, ServiceExportSchema,
-    RegistryStatsSchema, CapabilitiesSchema, PricingSchema, ConstraintsSchema,
 };
 
 #[cfg(test)]
@@ -19,10 +16,7 @@ mod tests {
     use super::*;
 
     /// Test that ConeEvent::Registry variant has proper schema with all fields.
-    ///
-    /// This was added to fix the schema mismatch where cone.registry was returning
-    /// a generic serde_json::Value schema instead of the proper RegistryExportSchema
-    /// with families, models, services, and stats fields.
+    /// cllient now uses schemars 1.x so RegistryExport derives JsonSchema directly.
     #[test]
     fn test_cone_registry_schema_has_all_fields() {
         let schema = schemars::schema_for!(ConeEvent);
@@ -38,19 +32,23 @@ mod tests {
                 == Some("registry")
         }).expect("Should have registry variant");
 
-        // Check that registry variant has the expected fields
+        // With schemars 1.x, the Registry variant references RegistryExport via $ref
+        // Check that the variant has the expected structure (type field + reference to RegistryExport)
         let properties = registry_variant.get("properties").unwrap();
-        assert!(properties.get("families").is_some(), "Should have families field");
-        assert!(properties.get("models").is_some(), "Should have models field");
-        assert!(properties.get("services").is_some(), "Should have services field");
-        assert!(properties.get("stats").is_some(), "Should have stats field");
+        assert!(properties.get("type").is_some(), "Should have type discriminant");
 
-        // Verify the types are correct
-        let models_ref = properties.get("models")
-            .and_then(|m| m.get("items"))
-            .and_then(|i| i.get("$ref"))
-            .and_then(|r| r.as_str());
-        assert_eq!(models_ref, Some("#/$defs/ModelExportSchema"), "models should reference ModelExportSchema");
+        // The RegistryExport fields should be in $defs and referenced
+        let defs = schema_value.get("$defs").expect("Should have $defs");
+        let registry_export = defs.get("RegistryExport").expect("Should have RegistryExport in $defs");
+        let registry_props = registry_export.get("properties").unwrap();
+
+        assert!(registry_props.get("families").is_some(), "RegistryExport should have families field");
+        assert!(registry_props.get("models").is_some(), "RegistryExport should have models field");
+        assert!(registry_props.get("services").is_some(), "RegistryExport should have services field");
+        assert!(registry_props.get("stats").is_some(), "RegistryExport should have stats field");
+
+        // Verify ModelExport is also in defs
+        assert!(defs.get("ModelExport").is_some(), "Should have ModelExport in $defs");
     }
 
     /// Test that the registry method schema is properly filtered to only include
