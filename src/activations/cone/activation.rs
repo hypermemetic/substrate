@@ -138,12 +138,15 @@ impl Cone {
 )]
 impl Cone {
     /// Create a new cone (LLM agent with persistent conversation context)
-    #[hub_macro::hub_method(params(
-        name = "Human-readable name for the cone",
-        model_id = "LLM model ID (e.g., 'gpt-4o-mini', 'claude-3-haiku-20240307')",
-        system_prompt = "Optional system prompt / instructions",
-        metadata = "Optional configuration metadata"
-    ))]
+    #[hub_macro::hub_method(
+        params(
+            name = "Human-readable name for the cone",
+            model_id = "LLM model ID (e.g., 'gpt-4o-mini', 'claude-3-haiku-20240307')",
+            system_prompt = "Optional system prompt / instructions",
+            metadata = "Optional configuration metadata"
+        ),
+        returns(ConeCreated, Error)
+    )]
     async fn create(
         &self,
         name: String,
@@ -178,9 +181,10 @@ impl Cone {
     }
 
     /// Get cone configuration by name or ID
-    #[hub_macro::hub_method(params(
-        identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')"
-    ))]
+    #[hub_macro::hub_method(
+        params(identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')"),
+        returns(ConeData, Error)
+    )]
     async fn get(
         &self,
         identifier: ConeIdentifier,
@@ -209,7 +213,7 @@ impl Cone {
     }
 
     /// List all cones
-    #[hub_macro::hub_method]
+    #[hub_macro::hub_method(returns(ConeList, Error))]
     async fn list(&self) -> impl Stream<Item = ConeEvent> + Send + 'static {
         let storage = self.storage.clone();
 
@@ -226,9 +230,10 @@ impl Cone {
     }
 
     /// Delete a cone (associated tree is preserved)
-    #[hub_macro::hub_method(params(
-        identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')"
-    ))]
+    #[hub_macro::hub_method(
+        params(identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')"),
+        returns(ConeDeleted, Error)
+    )]
     async fn delete(
         &self,
         identifier: ConeIdentifier,
@@ -257,11 +262,14 @@ impl Cone {
     }
 
     /// Chat with a cone - appends prompt to context, calls LLM, advances head
-    #[hub_macro::hub_method(params(
-        identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')",
-        prompt = "User message / prompt to send to the LLM",
-        ephemeral = "If true, creates nodes but doesn't advance head and marks for deletion"
-    ))]
+    #[hub_macro::hub_method(
+        params(
+            identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')",
+            prompt = "User message / prompt to send to the LLM",
+            ephemeral = "If true, creates nodes but doesn't advance head and marks for deletion"
+        ),
+        returns(ChatStart, ChatContent, ChatComplete, Error)
+    )]
     async fn chat(
         &self,
         identifier: ConeIdentifier,
@@ -533,10 +541,13 @@ impl Cone {
     }
 
     /// Move cone's canonical head to a different node in the tree
-    #[hub_macro::hub_method(params(
-        identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')",
-        node_id = "UUID of the target node to set as the new head"
-    ))]
+    #[hub_macro::hub_method(
+        params(
+            identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')",
+            node_id = "UUID of the target node to set as the new head"
+        ),
+        returns(HeadUpdated, Error)
+    )]
     async fn set_head(
         &self,
         identifier: ConeIdentifier,
@@ -582,7 +593,7 @@ impl Cone {
     }
 
     /// Get available LLM services and models
-    #[hub_macro::hub_method]
+    #[hub_macro::hub_method(returns(Registry))]
     async fn registry(&self) -> impl Stream<Item = ConeEvent> + Send + 'static {
         let llm_registry = self.llm_registry.clone();
 

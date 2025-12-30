@@ -6,6 +6,157 @@ use uuid::Uuid;
 /// Unique identifier for an cone configuration
 pub type ConeId = Uuid;
 
+// ============================================================================
+// Registry Schema Types
+// ============================================================================
+// These types mirror cllient::export types but with schemars 1.x JsonSchema derives.
+// This enables proper schema generation for the Registry event variant.
+// The actual data comes from cllient::RegistryExport which serializes identically.
+
+/// Schema-only type for RegistryExport (mirrors cllient::RegistryExport)
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RegistryExportSchema {
+    /// All available services
+    pub services: Vec<ServiceExportSchema>,
+    /// All model families (e.g., "claude", "gpt", "deepseek")
+    pub families: Vec<String>,
+    /// All available models
+    pub models: Vec<ModelExportSchema>,
+    /// Summary statistics
+    pub stats: RegistryStatsSchema,
+}
+
+/// Schema-only type for RegistryStats
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RegistryStatsSchema {
+    /// Total number of services
+    pub service_count: usize,
+    /// Total number of model families
+    pub family_count: usize,
+    /// Total number of models
+    pub model_count: usize,
+    /// Number of verified models
+    pub verified_count: usize,
+    /// Number of unverified models
+    pub unverified_count: usize,
+}
+
+/// Schema-only type for ServiceExport
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ServiceExportSchema {
+    /// Service identifier (e.g., "openai", "anthropic")
+    pub name: String,
+    /// Base URL for the API
+    pub base_url: String,
+    /// Message format type
+    pub message_format: String,
+    /// Rate limits if configured
+    pub rate_limits: Option<RateLimitsExportSchema>,
+    /// Number of models using this service
+    pub model_count: usize,
+}
+
+/// Schema-only type for RateLimitsExport
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RateLimitsExportSchema {
+    pub requests_per_minute: Option<u32>,
+    pub tokens_per_minute: Option<u32>,
+    pub concurrent_requests: Option<u32>,
+}
+
+/// Schema-only type for ModelExport
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ModelExportSchema {
+    /// Model identifier
+    pub id: String,
+    /// Model family (e.g., "claude", "gpt")
+    pub family: String,
+    /// Human-readable name
+    pub name: String,
+    /// Service this model uses
+    pub service: String,
+    /// Version string if available
+    pub version: Option<String>,
+    /// Variant (e.g., "haiku", "sonnet", "opus")
+    pub variant: Option<String>,
+    /// Lab/organization that created the model
+    pub lab: Option<String>,
+    /// Verification status
+    pub status: VerificationStatusSchema,
+    /// Model capabilities
+    pub capabilities: CapabilitiesSchema,
+    /// Pricing information
+    pub pricing: PricingSchema,
+    /// Model constraints
+    pub constraints: ConstraintsSchema,
+    /// Use cases this model is suited for
+    pub use_cases: Vec<String>,
+}
+
+/// Schema-only type for VerificationStatus
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum VerificationStatusSchema {
+    Verified,
+    Unverified,
+    Broken,
+    Deprecated,
+    Error,
+    NotFound,
+}
+
+/// Schema-only type for Capabilities
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CapabilitiesSchema {
+    pub context_window: u32,
+    pub max_output_tokens: u32,
+    #[serde(default)]
+    pub vision: bool,
+    #[serde(default)]
+    pub functions: bool,
+    #[serde(default)]
+    pub streaming: bool,
+    #[serde(default)]
+    pub json_mode: bool,
+    #[serde(default)]
+    pub system_prompt: bool,
+    #[serde(default)]
+    pub multimodal: bool,
+}
+
+/// Schema-only type for Pricing
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PricingSchema {
+    #[serde(default)]
+    pub currency: CurrencySchema,
+    pub input_per_1k_tokens: f64,
+    pub output_per_1k_tokens: f64,
+    #[serde(default)]
+    pub cached_input_per_1k_tokens: Option<f64>,
+}
+
+/// Schema-only type for Currency
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, Default)]
+pub enum CurrencySchema {
+    #[default]
+    USD,
+    EUR,
+    GBP,
+}
+
+/// Schema-only type for Constraints
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, Default)]
+pub struct ConstraintsSchema {
+    #[serde(default)]
+    pub max_images_per_message: Option<u32>,
+    #[serde(default)]
+    pub max_image_size_mb: Option<u32>,
+    #[serde(default)]
+    pub supported_image_formats: Vec<String>,
+    #[serde(default)]
+    pub max_function_calls_per_message: Option<u32>,
+}
+
 /// Unique identifier for a message
 pub type MessageId = Uuid;
 
@@ -210,7 +361,7 @@ pub enum ConeEvent {
 
     /// Registry information (available models and services)
     #[serde(rename = "registry")]
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(with = "RegistryExportSchema")]
     Registry(cllient::RegistryExport),
 }
 
