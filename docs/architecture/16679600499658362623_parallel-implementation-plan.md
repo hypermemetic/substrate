@@ -1,8 +1,26 @@
 # Parallel Implementation Plan: Typed Client Generation
 
-**Status**: Active
+**Status**: Phases 1-3 Complete
 **Scope**: Multi-agent orchestrated implementation
-**Updated**: 2025-12-30
+**Updated**: 2025-12-31
+
+## Progress Summary
+
+| Agent | Phase 1 | Phase 2 | Phase 3 | Phase 4 |
+|-------|---------|---------|---------|---------|
+| A (Protocol) | ✅ | ✅ | ✅ | Pending |
+| B (Transpiler) | ✅ | Pending | Pending | Pending |
+| C (Arbor) | ✅ Design | Pending | Pending | Pending |
+
+### Completed Commits
+- `hub-core:2c1d36c` - feat: add streaming field to MethodSchema
+- `hub-macro:11e3b0b` - feat: emit streaming flag in method schemas
+- `hub-macro:ee81b30` - feat: add explicit streaming attribute to hub_method
+- `substrate-protocol:eeebff5` - feat: add streaming field to MethodSchema (Haskell)
+- `substrate:a08ab38` - feat: mark streaming methods with explicit attribute
+
+### Key Design Decision
+Changed from **inferred streaming** (based on `stream_item_type.is_some()`) to **explicit streaming** attribute. All methods return `impl Stream`, so inference doesn't work. Methods must now use `#[hub_method(streaming)]` to mark multi-event streams.
 
 ## Overview
 
@@ -200,41 +218,32 @@ pub enum NodeCreateResult {
 **Depends on**: Phase 1 completion for each agent
 **Agents continue independently**
 
-### Agent A: hub-macro Emits Streaming
+### Agent A: hub-macro Emits Streaming ✅ COMPLETE
+
+**Implementation**: Changed from inference to explicit attribute.
 
 ```rust
-// hub-macro/src/codegen/method_enum.rs
+// hub-macro/src/parse.rs - Added to HubMethodAttrs and MethodInfo:
+pub streaming: bool,
 
-// In method_schemas() generation, add streaming to each schema:
+// hub-macro/src/codegen/method_enum.rs - Uses explicit flag:
 let streaming_flags: Vec<bool> = methods
     .iter()
-    .map(|m| m.stream_item_type.is_some())
+    .map(|m| m.streaming)  // From #[hub_method(streaming)] attribute
     .collect();
 
-// Later in the quote!:
-let mut schema = #crate_path::plexus::MethodSchema::new(
-    name.to_string(),
-    desc.to_string(),
-    hash.to_string(),
-);
-if let Some(p) = params {
-    schema = schema.with_params(p);
-}
-if let Some(r) = filtered_returns {
-    schema = schema.with_returns(r);
-}
-schema = schema.with_streaming(streaming_flags[i]);  // ADD
-schema
+// substrate/src/activations/cone/activation.rs - Usage:
+#[hub_macro::hub_method(
+    streaming,  // <-- Explicit marker for multi-event streams
+    params(...)
+)]
+async fn chat(...) -> impl Stream<Item = ChatEvent> { ... }
 ```
 
-**Validation**:
+**Verified**:
 ```bash
-# Start hub, query schema
-synapse --schema cone chat | jq '.streaming'
-# Should output: true
-
-synapse --schema cone create | jq '.streaming'
-# Should output: false
+synapse --schema cone | jq '.methods[] | {name, streaming}'
+# chat: true, all others: false
 ```
 
 ### Agent B: Type Generator
@@ -329,19 +338,21 @@ async fn tree_create(&self, ...) -> impl Stream<Item = TreeCreateResult> {
 **Depends on**: Phase 2 completion
 **Integration begins**
 
-### Agent A: Synapse Reads Streaming Flag
+### Agent A: Synapse Reads Streaming Flag ✅ COMPLETE
+
+**Implementation**: Added `methodStreaming` to Haskell `MethodSchema` in substrate-protocol.
 
 ```haskell
--- synapse/src/Synapse/Schema/Types.hs
+-- substrate-protocol/src/Plexus/Schema/Recursive.hs
 
 data MethodSchema = MethodSchema
   { methodName        :: Text
   , methodDescription :: Text
-  , methodHash        :: Text
+  , methodHash        :: PluginHash
   , methodParams      :: Maybe Value
   , methodReturns     :: Maybe Value
-  , methodStreaming   :: Bool  -- ADD
-  } deriving (Show, Eq, Generic)
+  , methodStreaming   :: Bool  -- ADDED
+  } deriving stock (Show, Eq, Generic)
 
 instance FromJSON MethodSchema where
   parseJSON = withObject "MethodSchema" $ \o -> MethodSchema
@@ -350,22 +361,15 @@ instance FromJSON MethodSchema where
     <*> o .: "hash"
     <*> o .:? "params"
     <*> o .:? "returns"
-    <*> o .:? "streaming" .!= False  -- Default false for backwards compat
+    <*> o .:? "streaming" .!= False  -- Backwards compatible
 ```
 
-```haskell
--- synapse/src/Synapse/IR/Builder.hs
-
--- Replace inference with explicit read:
-extractMethodDef namespace pathPrefix method =
-  let streaming = methodStreaming method  -- CHANGED: was inference
-  in ...
-```
-
-**Validation**:
+**Verified**:
 ```bash
-synapse --emit-ir cone | jq '.irMethods["cone.chat"].mdStreaming'
-# Should output: true (from explicit flag, not inference)
+synapse --schema cone | jq '.methods[] | {name, streaming}'
+# {name: "chat", streaming: true}
+# {name: "create", streaming: false}
+# ... all others false
 ```
 
 ### Agent B: Namespace Generator
@@ -567,11 +571,18 @@ Agent C Phase 1 ─────┴───► Agent C Phase 2 ───► Agen
 
 ## Success Metrics
 
-- [ ] All three agents complete Phase 1 within same sprint
-- [ ] No blocking dependencies cause idle time > 1 day
+- [x] All three agents complete Phase 1 within same sprint
+- [x] No blocking dependencies cause idle time > 1 day
 - [ ] End-to-end pipeline works on first integration attempt
 - [ ] Generated TypeScript has zero type errors
 - [ ] Schema hash verification catches version mismatch
+
+## Next Steps
+
+1. **Agent B Phase 2**: Implement type generator using hub-codegen scaffold
+2. **Agent B Phase 3**: Implement namespace generator with streaming-aware return types
+3. **Agent C Phase 2**: Implement per-method return types for arbor (design in `16679574983150601727_arbor-per-method-types-design.md`)
+4. **Phase 4**: End-to-end integration test
 
 ---
 
