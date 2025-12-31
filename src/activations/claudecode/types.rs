@@ -290,10 +290,10 @@ pub enum ChatEvent {
         usage: Option<ChatUsage>,
     },
 
-    /// Unknown event from Claude Code - forwards unrecognized events
+    /// Passthrough for unrecognized Claude Code events
     /// Data is stored separately (referenced by handle) and also forwarded inline
-    #[serde(rename = "unknown")]
-    Unknown {
+    #[serde(rename = "passthrough")]
+    Passthrough {
         event_type: String,
         handle: String,
         data: Value,
