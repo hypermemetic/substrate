@@ -73,4 +73,17 @@ mod tests {
         let registry_variants = registry_returns.get("oneOf").and_then(|v| v.as_array()).unwrap();
         assert_eq!(registry_variants.len(), 1, "RegistryResult should have 1 variant");
     }
+
+    #[test]
+    fn test_streaming_flag() {
+        let method_schemas = ConeMethod::method_schemas();
+
+        // chat is streaming (returns impl Stream<Item = ChatEvent>)
+        let chat = method_schemas.iter().find(|m| m.name == "chat").unwrap();
+        assert!(chat.streaming, "chat should be streaming");
+
+        // create is NOT streaming (returns impl Stream but only yields one item)
+        let create = method_schemas.iter().find(|m| m.name == "create").unwrap();
+        assert!(!create.streaming, "create should NOT be streaming");
+    }
 }

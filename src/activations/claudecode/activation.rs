@@ -90,11 +90,14 @@ impl ClaudeCode {
     }
 
     /// Chat with a session, streaming tokens like Cone
-    #[hub_macro::hub_method(params(
-        name = "Session name to chat with",
-        prompt = "User message / prompt to send",
-        ephemeral = "If true, creates nodes but doesn't advance head and marks for deletion"
-    ))]
+    #[hub_macro::hub_method(
+        streaming,
+        params(
+            name = "Session name to chat with",
+            prompt = "User message / prompt to send",
+            ephemeral = "If true, creates nodes but doesn't advance head and marks for deletion"
+        )
+    )]
     async fn chat(
         &self,
         name: String,

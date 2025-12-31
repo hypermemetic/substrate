@@ -263,6 +263,7 @@ impl Cone {
 
     /// Chat with a cone - appends prompt to context, calls LLM, advances head
     #[hub_macro::hub_method(
+        streaming,
         params(
             identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')",
             prompt = "User message / prompt to send to the LLM",
