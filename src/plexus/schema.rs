@@ -80,6 +80,16 @@ pub struct MethodSchema {
     /// JSON Schema for the method's return type (None if not specified)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub returns: Option<schemars::Schema>,
+
+    /// Whether this method streams multiple events (true) or returns a single result (false)
+    ///
+    /// - `streaming: true` → returns `AsyncGenerator<T>` (multiple events)
+    /// - `streaming: false` → returns `Promise<T>` (single event, collected)
+    ///
+    /// All methods use the same streaming protocol under the hood, but this flag
+    /// tells clients how to present the result.
+    #[serde(default)]
+    pub streaming: bool,
 }
 
 impl PluginSchema {
@@ -279,6 +289,7 @@ impl MethodSchema {
             hash: hash.into(),
             params: None,
             returns: None,
+            streaming: false,
         }
     }
 
@@ -291,6 +302,15 @@ impl MethodSchema {
     /// Add return type schema
     pub fn with_returns(mut self, returns: schemars::Schema) -> Self {
         self.returns = Some(returns);
+        self
+    }
+
+    /// Set the streaming flag
+    ///
+    /// - `true` → method streams multiple events (use `AsyncGenerator<T>`)
+    /// - `false` → method returns single result (use `Promise<T>`)
+    pub fn with_streaming(mut self, streaming: bool) -> Self {
+        self.streaming = streaming;
         self
     }
 }
