@@ -177,7 +177,6 @@ impl MethodEnumSchema for CelestialBodyMethod {
     }
 }
 
-
 /// Activation wrapper for CelestialBody
 ///
 /// This makes a celestial body callable as a plugin.
