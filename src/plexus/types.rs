@@ -122,6 +122,16 @@ impl PlexusStreamItem {
     pub fn done(metadata: StreamMetadata) -> Self {
         Self::Done { metadata }
     }
+
+    /// Get the metadata from any stream item variant
+    pub fn metadata(&self) -> &StreamMetadata {
+        match self {
+            Self::Data { metadata, .. } => metadata,
+            Self::Progress { metadata, .. } => metadata,
+            Self::Error { metadata, .. } => metadata,
+            Self::Done { metadata } => metadata,
+        }
+    }
 }
 
 #[cfg(test)]
