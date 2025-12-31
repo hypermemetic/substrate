@@ -1,6 +1,6 @@
 use super::methods::HealthMethod;
 use super::types::HealthEvent;
-use crate::plexus::{wrap_stream, PlexusError, PlexusStream, Activation, PlexusStreamItem, StreamMetadata, PlexusContext};
+use crate::plexus::{wrap_stream, PlexusError, PlexusStream, Activation, PlexusStreamItem, StreamMetadata, PlexusContext, MethodSchema, PluginSchema, SchemaResult};
 use async_stream::stream;
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
@@ -194,5 +194,33 @@ impl Activation for Health {
     fn into_rpc_methods(self) -> Methods {
         // Register RPC subscription methods
         self.into_rpc().into()
+    }
+
+    fn plugin_schema(&self) -> PluginSchema {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        // check method
+        let check_desc = "Check the health status of the hub and return uptime";
+        let mut hasher = DefaultHasher::new();
+        "check".hash(&mut hasher);
+        check_desc.hash(&mut hasher);
+        let check_hash = format!("{:016x}", hasher.finish());
+
+        // schema method
+        let schema_desc = "Get plugin or method schema. Pass {\"method\": \"name\"} for a specific method.";
+        let mut hasher = DefaultHasher::new();
+        "schema".hash(&mut hasher);
+        schema_desc.hash(&mut hasher);
+        let schema_hash = format!("{:016x}", hasher.finish());
+
+        let methods = vec![
+            MethodSchema::new("check", check_desc, check_hash)
+                .with_returns(schemars::schema_for!(HealthEvent)),
+            MethodSchema::new("schema", schema_desc, schema_hash)
+                .with_returns(schemars::schema_for!(SchemaResult)),
+        ];
+
+        PluginSchema::leaf(self.namespace(), self.version(), self.description(), methods)
     }
 }

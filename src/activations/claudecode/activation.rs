@@ -324,12 +324,12 @@ impl ClaudeCode {
                         match storage.unknown_event_store(Some(&session_id), &event_type, &data).await {
                             Ok(handle) => {
                                 tracing::debug!(event_type = %event_type, handle = %handle, "Unknown Claude event stored");
-                                yield ChatEvent::Unknown { event_type, handle, data };
+                                yield ChatEvent::Passthrough { event_type, handle, data };
                             }
                             Err(e) => {
                                 tracing::warn!(event_type = %event_type, error = %e, "Failed to store unknown event");
                                 // Still forward the event even if storage fails
-                                yield ChatEvent::Unknown {
+                                yield ChatEvent::Passthrough {
                                     event_type,
                                     handle: "storage-failed".to_string(),
                                     data,

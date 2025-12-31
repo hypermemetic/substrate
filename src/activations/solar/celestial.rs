@@ -132,7 +132,8 @@ impl CelestialBody {
         let info_hash = format!("{:016x}", hasher.finish());
 
         let methods = vec![
-            MethodSchema::new("info", &info_desc, info_hash),
+            MethodSchema::new("info", &info_desc, info_hash)
+                .with_returns(schemars::schema_for!(SolarEvent)),
         ];
 
         let namespace = self.name.to_lowercase().replace(' ', "_");
@@ -173,6 +174,20 @@ impl MethodEnumSchema for CelestialBodyMethod {
     fn schema_with_consts() -> Value {
         serde_json::to_value(schemars::schema_for!(CelestialBodyMethod))
             .expect("Schema should serialize")
+    }
+}
+
+impl CelestialBodyMethod {
+    /// Generate method schemas with return types for celestial bodies
+    pub fn method_schemas(body_name: &str) -> Vec<MethodSchema> {
+        vec![MethodSchema {
+            name: "info".to_string(),
+            description: format!("Get information about {}", body_name),
+            hash: format!("celestial-info-{}", body_name.to_lowercase()),
+            params: None,
+            returns: Some(schemars::schema_for!(SolarEvent)),
+            streaming: false,
+        }]
     }
 }
 

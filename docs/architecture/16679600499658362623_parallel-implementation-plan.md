@@ -586,6 +586,119 @@ Agent C Phase 1 ─────┴───► Agent C Phase 2 ───► Agen
 
 ---
 
+## IR Implementation Status
+
+The hub-codegen IR types (`hub-codegen/src/ir.rs`) are a simplified subset of Synapse's IR (`synapse/src/Synapse/IR/Types.hs`).
+
+### Implemented ✓
+
+| Component | Synapse | hub-codegen | Notes |
+|-----------|---------|-------------|-------|
+| **IR Top-level** |
+| Types map | `Map Text TypeDef` | `HashMap<String, TypeDef>` | ✓ Equivalent |
+| **TypeDef** |
+| name | `tdName` | `name` | ✓ |
+| description | `tdDescription` | `description` | ✓ |
+| kind | `tdKind` | `kind` | ✓ |
+| **TypeKind** |
+| Struct | `KindStruct { ksFields }` | `Struct { fields }` | ✓ |
+| Enum | `KindEnum { keVariants }` | `Enum { variants }` | ✓ (missing discriminator) |
+| Alias | `KindAlias { kaTarget }` | `Alias { target }` | ✓ |
+| Primitive | `KindPrimitive { kpType }` | `Primitive { name }` | ✓ (missing format) |
+| **FieldDef** |
+| name | `fdName` | `name` | ✓ |
+| type | `fdType` | `ty` | ✓ |
+| description | `fdDescription` | `description` | ✓ |
+| required | `fdRequired` | `optional` (inverted) | ✓ |
+| **MethodDef** |
+| name | `mdName` | `name` | ✓ |
+| description | `mdDescription` | `description` | ✓ |
+| params | `mdParams` | `params` | ✓ |
+| returns | `mdReturns` | `returns` | ✓ |
+| streaming | `mdStreaming` | `streaming` | ✓ |
+| **TypeRef** |
+| Named | `RefNamed Text` | `Named { name }` | ✓ |
+| Array | `RefArray TypeRef` | `Array { element }` | ✓ |
+| Optional | `RefOptional TypeRef` | `Optional { inner }` | ✓ |
+| Primitive | `RefPrimitive Text` | `Primitive { name }` | ✓ |
+| Unknown | `RefUnknown` | `Any` | ✓ |
+
+### Not Yet Implemented ✗
+
+| Component | Synapse | hub-codegen | Priority |
+|-----------|---------|-------------|----------|
+| **IR Top-level** |
+| Version | `irVersion :: Text` | - | Low (add later) |
+| Methods keying | By full path (`cone.chat`) | By namespace (vec per ns) | Medium (structural diff) |
+| Plugins | `Map Text [Text]` (ns → method names) | `HashMap<String, PluginMeta>` | Low (different purpose) |
+| **MethodDef** |
+| fullPath | `mdFullPath :: Text` | - | Medium (useful for routing) |
+| namespace | `mdNamespace :: Text` | - | Medium (can derive from fullPath) |
+| **FieldDef** |
+| default | `fdDefault :: Maybe Value` | - | High (needed for optional params) |
+| **ParamDef** |
+| default | `pdDefault :: Maybe Value` | - | High (needed for optional params) |
+| **TypeKind::Enum** |
+| discriminator | `keDiscriminator :: Text` | - | Medium (assumes "type") |
+| **TypeRef::Primitive** |
+| format | `(Maybe Text)` format hint | - | Medium (uuid, int64, etc.) |
+
+### Structural Differences
+
+1. **Method Organization**:
+   - Synapse: `irMethods :: Map Text MethodDef` keyed by full path (e.g., `"cone.chat"`)
+   - hub-codegen: `methods: HashMap<String, Vec<MethodDef>>` keyed by namespace
+
+2. **Plugins Metadata**:
+   - Synapse: `irPlugins :: Map Text [Text]` maps namespace to method names
+   - hub-codegen: `plugins: HashMap<String, PluginMeta>` stores namespace/version/description
+
+3. **Required vs Optional**:
+   - Synapse: `fdRequired :: Bool` (true = required)
+   - hub-codegen: `optional: bool` (true = optional, inverted)
+
+### Migration Path
+
+To align hub-codegen with Synapse IR:
+
+```rust
+// 1. Add version
+pub struct IR {
+    pub version: String,  // Add
+    // ...
+}
+
+// 2. Add defaults to FieldDef/ParamDef
+pub struct FieldDef {
+    // ...
+    pub default: Option<serde_json::Value>,  // Add
+}
+
+// 3. Add discriminator to Enum
+pub enum TypeKind {
+    Enum {
+        discriminator: String,  // Add (default "type")
+        variants: Vec<VariantDef>
+    },
+    // ...
+}
+
+// 4. Add format to Primitive TypeRef
+pub enum TypeRef {
+    Primitive { name: String, format: Option<String> },  // Add format
+    // ...
+}
+
+// 5. Add fullPath/namespace to MethodDef
+pub struct MethodDef {
+    pub full_path: String,   // Add
+    pub namespace: String,   // Add
+    // ...
+}
+```
+
+---
+
 ## Agent Launch Commands
 
 ```bash
