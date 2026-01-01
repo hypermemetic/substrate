@@ -521,6 +521,33 @@ Each hub:
 
 ## Future Improvements
 
+### Enum Format Requirements
+
+For synapse IR Builder to correctly parse enum types, Rust enums must use **internally-tagged** format:
+
+```rust
+// ✅ CORRECT - internally tagged
+#[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum MyEnum {
+    VariantA { field: String },
+    VariantB { other: i32 },
+}
+// Wire format: {"type": "variant_a", "field": "..."}
+
+// ❌ WRONG - adjacently tagged (serde default)
+#[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MyEnum {
+    VariantA { field: String },
+}
+// Wire format: {"variant_a": {"field": "..."}}
+```
+
+**Why this matters:** The internally-tagged format puts the discriminant inline with the data, making it possible to parse the enum without prior knowledge of all variants. Adjacently-tagged format wraps the variant name as a key around the data, which is incompatible with synapse's IR Builder parser.
+
+**Future:** hub-macro should enforce this at compile time or emit warnings for enums without `#[serde(tag = "type")]`.
+
 ### CLI Parameter Validation
 
 **Problem**: When required parameters are missing, synapse returns a generic "Internal error" (-32603) instead of a helpful message like "missing required parameter: count".
