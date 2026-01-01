@@ -549,6 +549,7 @@ pub enum MyEnum {
 
 **Future:** hub-macro should enforce this at compile time or emit warnings for enums without `#[serde(tag = "type")]`.
 
+
 ### CLI Parameter Validation
 
 **Problem**: When required parameters are missing, synapse returns a generic "Internal error" (-32603) instead of a helpful message like "missing required parameter: count".
@@ -669,6 +670,7 @@ npx tsc --noEmit ✓ (compiles)
 - Document the enum tagging requirement in contributing guidelines
 
 ---
+
 
 ## Migration Path
 
