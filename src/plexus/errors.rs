@@ -41,12 +41,12 @@ pub struct TryRequest {
 }
 
 impl TryRequest {
-    /// Create a try request for plexus_schema (the discovery endpoint)
+    /// Create a try request for plexus.schema (the discovery endpoint)
     pub fn schema() -> Self {
         Self {
             jsonrpc: "2.0".to_string(),
             id: 1,
-            method: "plexus_schema".to_string(),
+            method: "plexus.schema".to_string(),
             params: vec![],
         }
     }
@@ -207,7 +207,7 @@ mod tests {
             error.data().unwrap().get()
         ).unwrap();
 
-        assert_eq!(data.try_request.method, "plexus_schema");
+        assert_eq!(data.try_request.method, "plexus.schema");
     }
 
     #[test]
@@ -220,7 +220,7 @@ mod tests {
             error.data().unwrap().get()
         ).unwrap();
 
-        assert_eq!(data.try_request.method, "plexus_schema");
+        assert_eq!(data.try_request.method, "plexus.schema");
         assert_eq!(data.context["available_activations"].as_array().unwrap().len(), 3);
     }
 

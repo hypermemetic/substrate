@@ -684,20 +684,20 @@ impl Plexus {
 
         PlexusContext::init(self.compute_hash());
 
-        // Register plexus methods with runtime namespace (instead of hardcoded "plexus_")
+        // Register plexus methods with runtime namespace using dot notation (e.g., "plexus.call")
         // Note: we leak these strings to get 'static lifetime required by jsonrpsee
         let ns = self.runtime_namespace();
-        let call_method: &'static str = Box::leak(format!("{}_call", ns).into_boxed_str());
-        let call_unsub: &'static str = Box::leak(format!("{}_call_unsub", ns).into_boxed_str());
-        let hash_method: &'static str = Box::leak(format!("{}_hash", ns).into_boxed_str());
-        let hash_unsub: &'static str = Box::leak(format!("{}_hash_unsub", ns).into_boxed_str());
-        let schema_method: &'static str = Box::leak(format!("{}_schema", ns).into_boxed_str());
-        let schema_unsub: &'static str = Box::leak(format!("{}_schema_unsub", ns).into_boxed_str());
+        let call_method: &'static str = Box::leak(format!("{}.call", ns).into_boxed_str());
+        let call_unsub: &'static str = Box::leak(format!("{}.call_unsub", ns).into_boxed_str());
+        let hash_method: &'static str = Box::leak(format!("{}.hash", ns).into_boxed_str());
+        let hash_unsub: &'static str = Box::leak(format!("{}.hash_unsub", ns).into_boxed_str());
+        let schema_method: &'static str = Box::leak(format!("{}.schema", ns).into_boxed_str());
+        let schema_unsub: &'static str = Box::leak(format!("{}.schema_unsub", ns).into_boxed_str());
         let hash_content_type: &'static str = Box::leak(format!("{}.hash", ns).into_boxed_str());
         let schema_content_type: &'static str = Box::leak(format!("{}.schema", ns).into_boxed_str());
         let ns_static: &'static str = Box::leak(ns.to_string().into_boxed_str());
 
-        // Register {ns}_call subscription
+        // Register {ns}.call subscription
         let plexus_for_call = self.clone();
         module.register_subscription(
             call_method,
@@ -715,7 +715,7 @@ impl Plexus {
             }
         )?;
 
-        // Register {ns}_hash subscription
+        // Register {ns}.hash subscription
         let plexus_for_hash = self.clone();
         module.register_subscription(
             hash_method,
@@ -734,7 +734,7 @@ impl Plexus {
             }
         )?;
 
-        // Register {ns}_schema subscription
+        // Register {ns}.schema subscription
         let plexus_for_schema = self.clone();
         module.register_subscription(
             schema_method,
@@ -776,7 +776,7 @@ impl Plexus {
     }
 }
 
-/// Params for {ns}_call
+/// Params for {ns}.call
 #[derive(Debug, serde::Deserialize)]
 struct CallParams {
     method: String,
@@ -784,7 +784,7 @@ struct CallParams {
     params: Option<Value>,
 }
 
-/// Params for {ns}_schema
+/// Params for {ns}.schema
 #[derive(Debug, Default, serde::Deserialize)]
 struct SchemaParams {
     method: Option<String>,
