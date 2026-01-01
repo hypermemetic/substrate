@@ -272,37 +272,6 @@ pub enum SchemaEvent {
     Schema(PluginSchema),
 }
 
-/// Event for call() method - wraps dynamic responses from routed methods
-///
-/// This allows plexus.call to follow the uniform streaming pattern where
-/// all methods return streams and errors are stream events.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum CallEvent {
-    /// Forwarded data from the called method
-    Data {
-        /// The actual response content (dynamic based on called method)
-        content: Value,
-        /// Content type identifier (e.g., "echo.echo", "health.status")
-        content_type: String,
-    },
-    /// Progress update during long-running operations
-    Progress {
-        /// Human-readable progress message
-        message: String,
-        /// Optional completion percentage (0.0 - 100.0)
-        #[serde(skip_serializing_if = "Option::is_none")]
-        percentage: Option<f32>,
-    },
-    /// Error from routing or method execution
-    Error {
-        /// Error message
-        message: String,
-        /// Optional error code
-        #[serde(skip_serializing_if = "Option::is_none")]
-        code: Option<String>,
-    },
-}
 
 // ============================================================================
 // Plugin Registry
@@ -831,38 +800,31 @@ impl Plexus {
         &self,
         method: String,
         params: Option<Value>,
-    ) -> impl Stream<Item = CallEvent> + Send + 'static {
-        use super::types::PlexusStreamItem;
-        use futures::StreamExt;
+    ) -> impl Stream<Item = super::types::PlexusStreamItem> + Send + 'static {
+        use super::context::PlexusContext;
+        use super::types::{PlexusStreamItem, StreamMetadata};
 
         let result = self.route(&method, params.unwrap_or_default()).await;
 
-        stream! {
-            match result {
-                Ok(mut plexus_stream) => {
-                    while let Some(item) = plexus_stream.next().await {
-                        match item {
-                            PlexusStreamItem::Data { content, content_type, .. } => {
-                                yield CallEvent::Data { content, content_type };
-                            }
-                            PlexusStreamItem::Progress { message, percentage, .. } => {
-                                yield CallEvent::Progress { message, percentage };
-                            }
-                            PlexusStreamItem::Error { message, code, .. } => {
-                                yield CallEvent::Error { message, code };
-                            }
-                            PlexusStreamItem::Done { .. } => {
-                                // Stream complete, will naturally end
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    yield CallEvent::Error {
+        match result {
+            Ok(plexus_stream) => {
+                // Forward the routed stream directly - it already contains PlexusStreamItems
+                plexus_stream
+            }
+            Err(e) => {
+                // Return error as a PlexusStreamItem stream
+                let metadata = StreamMetadata::new(
+                    vec![self.inner.namespace.clone()],
+                    PlexusContext::hash(),
+                );
+                Box::pin(futures::stream::once(async move {
+                    PlexusStreamItem::Error {
+                        metadata,
                         message: e.to_string(),
                         code: None,
-                    };
-                }
+                        recoverable: false,
+                    }
+                }))
             }
         }
     }
