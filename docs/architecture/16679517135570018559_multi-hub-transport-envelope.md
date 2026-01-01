@@ -519,6 +519,20 @@ Each hub:
 4. **No double-wrapping**: Single `PlexusStreamItem` layer, content is domain data
 5. **Errors are stream events**: Not JSON-RPC errors, allows partial success in streams
 
+## Future Improvements
+
+### CLI Parameter Validation
+
+**Problem**: When required parameters are missing, synapse returns a generic "Internal error" (-32603) instead of a helpful message like "missing required parameter: count".
+
+**Solution approach**:
+1. Synapse already fetches schema via `plexus.schema`
+2. Before invoking `plexus.call`, validate provided params against the schema's `required` array
+3. If missing required params, emit a clear error: `Error: missing required parameter(s): count`
+4. This validation happens client-side before the RPC call
+
+---
+
 ## Migration Path
 
 ### Phase 1: Namespace Consistency
