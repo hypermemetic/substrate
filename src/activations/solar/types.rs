@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Events from solar system observations
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "event", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum SolarEvent {
     /// Information about a celestial body
     Body {
