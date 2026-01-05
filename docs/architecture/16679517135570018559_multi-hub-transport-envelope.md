@@ -671,20 +671,20 @@ npx tsc --noEmit ✓ (compiles)
 
 ## Migration Path
 
-### Phase 1: Namespace Consistency
-1. **Rename RPC methods** from `plexus_call` → `plexus.call` (dot notation)
-2. **Update synapse CLI** to require explicit backend: `synapse plexus <path>`
-3. **Update substrate-protocol** Transport layer for new method names
+### Phase 1: Namespace Consistency (COMPLETED)
+1. **Rename RPC methods** from `plexus_call` → `plexus.call` (dot notation) - DONE
+2. **Update synapse CLI** to require explicit backend: `synapse plexus <path>` - DONE
+3. **Update substrate-protocol** Transport layer for new method names - DONE
 
-### Phase 2: Remove Double-Wrapping
-4. **Add PlexusStreamItem to IR** as a core type with JSON Schema
-5. **Change plexus.call** to return `impl Stream<Item = PlexusStreamItem>`
-6. **Remove CallEvent** entirely
-7. **Remove synapse unwrap** - PlexusStreamItem is already the expected type
+### Phase 2: Remove Double-Wrapping (COMPLETED)
+4. **Add PlexusStreamItem to IR** as a core type with JSON Schema - DONE
+5. **Change plexus.call** to return `impl Stream<Item = PlexusStreamItem>` - DONE
+6. **Remove CallEvent** entirely - DONE (hub-core no longer has CallEvent)
+7. **Remove synapse unwrap** - PlexusStreamItem is already the expected type - DONE
 
-### Phase 3: Two-Layer Codegen
-8. **Update hub-codegen** for two-layer generation (RPC + typed wrappers)
-9. **Add `call` to hub-macro** for `hub = true` plugins
+### Phase 3: Two-Layer Codegen (COMPLETED)
+8. **Update hub-codegen** for two-layer generation (RPC + typed wrappers) - DONE
+9. **Add `call` to hub-macro** for `hub = true` plugins - DONE
 
 ### Phase 4: Multi-Backend (Future)
 10. **Backend discovery** - orchestrator exposes `backends.list`, `backends.info`
@@ -699,3 +699,147 @@ npx tsc --noEmit ✓ (compiles)
 - **Clean layering**: Transport (PlexusStreamItem) vs Application (typed events)
 - **Simpler synapse**: No CallEvent unwrap needed
 - **Better codegen**: Clear separation of RPC layer vs typed wrappers
+
+---
+
+## Completed Implementation Details
+
+### TypeScript Codegen Pipeline (Completed)
+
+The full codegen pipeline is now operational:
+
+```
+Rust Schema (JSON Schema with $defs)
+    ↓
+synapse plexus -i (IR generation)
+    ↓
+Synapse IR (types, methods, plugins)
+    ↓
+hub-codegen
+    ↓
+TypeScript package:
+├── types.ts      - Type definitions from irTypes
+├── transport.ts  - SubstrateClient (WebSocket + plexus.call wrapper)
+├── rpc.ts        - RpcClient interface
+├── namespaces.ts - Typed method wrappers per namespace
+├── index.ts      - Re-exports
+├── package.json  - Versioned with plexus hash
+└── tsconfig.json - Build config
+```
+
+#### Transport Layer (transport.ts)
+
+The generated transport wraps all method calls in the `plexus.call` envelope:
+
+```typescript
+// Call method internally wraps in plexus.call format
+async *call(method: string, params?: unknown): AsyncGenerator<PlexusStreamItem> {
+  const request: JsonRpcRequest = {
+    jsonrpc: '2.0',
+    id: this.nextId++,
+    method: 'plexus.call',  // Always wrap in plexus.call
+    params: {
+      method,               // The actual method being called
+      params: params ?? {},
+    },
+  };
+  // ... subscription handling
+}
+```
+
+This ensures all RPC calls follow the uniform envelope format regardless of which namespace method is being called.
+
+#### Package Versioning (package.json)
+
+The generated package uses the plexus hash for versioning:
+
+```json
+{
+  "name": "@plexus/client",
+  "version": "0.0.0-<first-16-chars-of-plexus-hash>",
+  ...
+}
+```
+
+This provides:
+- **Cache invalidation**: Package version changes when schema changes
+- **Semantic linking**: Client version tied to server schema version
+- **Deterministic builds**: Same schema = same version
+
+#### IR Hash Propagation
+
+The irHash flows through the pipeline:
+
+1. **hub-core**: Computes plexus hash from plugin tree
+2. **synapse plexus -i**: Captures hash in `irHash` field of IR
+3. **hub-codegen**: Reads `ir_hash` from IR, uses for package.json version
+
+```haskell
+-- Synapse IR Builder (Builder.hs)
+irAlgebra (PluginF schema path childIRs) = do
+  -- Use this plugin's hash if at root
+  let thisHash = if null path || path == [namespace]
+                 then Just (psHash schema)
+                 else irHash childIR
+  pure $ IR { irHash = thisHash, ... }
+```
+
+### Known Limitations
+
+#### Discriminator Field Detection
+
+The synapse IR Builder currently **hardcodes the discriminator field name to "type"**:
+
+```haskell
+-- Synapse.IR.Builder line 249-250
+inferDiscriminator :: [VariantDef] -> Text
+inferDiscriminator _ = "type"  -- Convention: always "type"
+```
+
+This works because our Rust enums follow the convention:
+
+```rust
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum MyEvent { ... }
+```
+
+**Future improvement**: Detect discriminator dynamically from the JSON Schema `oneOf` structure. The discriminator field is the one that:
+1. Has a `const` value in each variant's properties
+2. Is consistent across all variants
+
+Example schema structure to detect from:
+```json
+{
+  "oneOf": [
+    {
+      "properties": {
+        "type": { "const": "data" },    // <- discriminator
+        "content": { ... }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "error" },   // <- same field with different const
+        "message": { ... }
+      }
+    }
+  ]
+}
+```
+
+The field appearing in all variants with a `const` value is the discriminator.
+
+#### Streaming Inference
+
+Streaming is inferred from return type structure - an enum with more than one non-error variant is considered streaming:
+
+```haskell
+inferStreaming :: TypeDef -> Bool
+inferStreaming td = case tdKind td of
+  KindEnum _ variants ->
+    let nonErrorVariants = filter (not . isErrorVariant) variants
+    in length nonErrorVariants > 1
+  _ -> False
+```
+
+This heuristic works for most cases but may need refinement for edge cases.

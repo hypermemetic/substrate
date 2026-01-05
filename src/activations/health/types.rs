@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// This is a plain domain type - no trait implementations needed.
 /// The caller (Plexus) wraps this with metadata when streaming.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "event", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum HealthEvent {
     /// Current health status
     Status {

@@ -51,7 +51,7 @@ impl From<&str> for MustacheError {
 
 /// Events from mustache operations
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "event", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum MustacheEvent {
     /// Template rendered successfully
     Rendered {

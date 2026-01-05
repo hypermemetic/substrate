@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// Events from echo operations
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "event", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum EchoEvent {
     /// Echo response
     Echo {
