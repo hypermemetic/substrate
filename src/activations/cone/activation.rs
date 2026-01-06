@@ -623,11 +623,10 @@ async fn resolve_context_to_messages(
             NodeType::External { handle } => {
                 // Resolve handle based on plugin_id
                 if handle.plugin_id == Cone::PLUGIN_ID {
-                    // Resolve cone message handle - message UUID is in meta[0]
-                    let msg_id = handle.meta.first()
-                        .ok_or_else(|| "Cone handle missing message ID in meta".to_string())?;
+                    // Resolve cone message handle - format: "msg-{uuid}:{role}:{name}"
+                    let identifier = handle.meta.join(":");
                     let msg = storage
-                        .resolve_message_handle(msg_id)
+                        .resolve_message_handle(&identifier)
                         .await
                         .map_err(|e| format!("Failed to resolve message handle: {}", e.message))?;
 
