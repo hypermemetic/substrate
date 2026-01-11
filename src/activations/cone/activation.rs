@@ -72,7 +72,7 @@ impl<P: HubContext> Cone<P> {
 
 }
 
-/// Convenience constructor for Cone with NoParent (standalone/testing)
+/// Convenience constructor and utilities for Cone with NoParent (standalone/testing)
 impl Cone<NoParent> {
     pub async fn new(
         config: ConeStorageConfig,
@@ -80,10 +80,33 @@ impl Cone<NoParent> {
     ) -> Result<Self, String> {
         Self::with_context_type(config, arbor).await
     }
+
+    /// Register default templates with the mustache plugin
+    ///
+    /// Call this during initialization to register Cone's default templates
+    /// for rendering resolved messages and events.
+    pub async fn register_default_templates(
+        &self,
+        mustache: &crate::activations::mustache::Mustache,
+    ) -> Result<(), String> {
+        let plugin_id = Self::PLUGIN_ID;
+
+        mustache.register_templates(plugin_id, &[
+            // Chat method - resolved message template
+            ("chat", "default", "[{{role}}] {{#name}}({{name}}) {{/name}}{{content}}"),
+            ("chat", "markdown", "**{{role}}**{{#name}} ({{name}}){{/name}}\n\n{{content}}"),
+            ("chat", "json", r#"{"role":"{{role}}","content":"{{content}}","name":"{{name}}"}"#),
+
+            // Create method - cone created event
+            ("create", "default", "Cone created: {{cone_id}} (head: {{head.tree_id}}/{{head.node_id}})"),
+
+            // List method - cone list event
+            ("list", "default", "{{#cones}}{{name}} ({{id}}) - {{model_id}}\n{{/cones}}"),
+        ]).await
+    }
 }
 
 impl<P: HubContext> Cone<P> {
-
     /// Resolve a cone handle to its message content
     ///
     /// Called by the macro-generated resolve_handle method.
@@ -138,7 +161,7 @@ impl<P: HubContext> Cone<P> {
     description = "LLM cone with persistent conversation context",
     resolve_handle
 )]
-impl Cone {
+impl<P: HubContext> Cone<P> {
     /// Create a new cone (LLM agent with persistent conversation context)
     #[hub_macro::hub_method(
         params(
@@ -621,7 +644,8 @@ async fn resolve_context_to_messages(
             }
             NodeType::External { handle } => {
                 // Resolve handle based on plugin_id
-                if handle.plugin_id == Cone::PLUGIN_ID {
+                // Use Cone::<NoParent> to access the const (same for all P)
+                if handle.plugin_id == Cone::<NoParent>::PLUGIN_ID {
                     // Resolve cone message handle - format: "msg-{uuid}:{role}:{name}"
                     let identifier = handle.meta.join(":");
                     let msg = storage
