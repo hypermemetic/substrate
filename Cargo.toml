@@ -60,6 +60,7 @@ rmcp = { version = "0.12", features = ["server", "transport-io", "transport-stre
 cllient = { path = "../../juggernautlabs/cllient" }
 hub-macro = { path = "../hub-macro" }
 hub-core = { path = "../hub-core" }
+hyperforge = { path = "../hyperforge" }
 
 # Mustache templating
 mustache = "0.9"

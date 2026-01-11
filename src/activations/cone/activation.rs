@@ -6,24 +6,32 @@ use super::types::{
 };
 use crate::activations::arbor::{Node, NodeId, NodeType};
 use crate::activations::bash::Bash;
-use crate::plexus::Plexus;
+use crate::plexus::{HubContext, NoParent};
 use async_stream::stream;
 use cllient::{Message, ModelRegistry};
 use futures::Stream;
 use hub_macro::hub_methods;
-use std::sync::{Arc, OnceLock, Weak};
+use std::marker::PhantomData;
+use std::sync::{Arc, OnceLock};
 
 /// Cone plugin - orchestrates LLM conversations with Arbor context
+///
+/// Generic over `P: HubContext` to allow different parent contexts:
+/// - `Weak<Plexus>` when registered with a Plexus hub
+/// - Custom context types for sub-hubs
+/// - `NoParent` for standalone testing
 #[derive(Clone)]
-pub struct Cone {
+pub struct Cone<P: HubContext = NoParent> {
     storage: Arc<ConeStorage>,
     llm_registry: Arc<ModelRegistry>,
     /// Hub reference for resolving foreign handles when walking arbor trees
-    hub: Arc<OnceLock<Weak<Plexus>>>,
+    hub: Arc<OnceLock<P>>,
+    _phantom: PhantomData<P>,
 }
 
-impl Cone {
-    pub async fn new(
+impl<P: HubContext> Cone<P> {
+    /// Create a new Cone with a specific parent context type
+    pub async fn with_context_type(
         config: ConeStorageConfig,
         arbor: Arc<crate::activations::arbor::ArborStorage>,
     ) -> Result<Self, String> {
@@ -38,52 +46,43 @@ impl Cone {
             storage: Arc::new(storage),
             llm_registry: Arc::new(llm_registry),
             hub: Arc::new(OnceLock::new()),
+            _phantom: PhantomData,
         })
     }
 
-    /// Inject hub reference for resolving foreign handles
+    /// Inject parent context for resolving foreign handles
     ///
-    /// Called during Plexus construction via Arc::new_cyclic.
+    /// Called during hub construction (e.g., via Arc::new_cyclic for Plexus).
     /// This allows Cone to resolve handles from other plugins when walking arbor trees.
-    pub fn inject_hub(&self, hub: Weak<Plexus>) {
-        let _ = self.hub.set(hub);
+    pub fn inject_parent(&self, parent: P) {
+        let _ = self.hub.set(parent);
     }
 
-    /// Register default templates with the mustache plugin
+    /// Check if parent context has been injected
+    pub fn has_parent(&self) -> bool {
+        self.hub.get().is_some()
+    }
+
+    /// Get a reference to the parent context
     ///
-    /// Call this during initialization to register Cone's default templates
-    /// for rendering resolved messages and events.
-    pub async fn register_default_templates(
-        &self,
-        mustache: &crate::activations::mustache::Mustache,
-    ) -> Result<(), String> {
-        let plugin_id = Self::PLUGIN_ID;
-
-        mustache.register_templates(plugin_id, &[
-            // Chat method - resolved message template
-            ("chat", "default", "[{{role}}] {{#name}}({{name}}) {{/name}}{{content}}"),
-            ("chat", "markdown", "**{{role}}**{{#name}} ({{name}}){{/name}}\n\n{{content}}"),
-            ("chat", "json", r#"{"role":"{{role}}","content":"{{content}}","name":"{{name}}"}"#),
-
-            // Create method - cone created event
-            ("create", "default", "Cone created: {{cone_id}} (head: {{head.tree_id}}/{{head.node_id}})"),
-
-            // List method - cone list event
-            ("list", "default", "{{#cones}}{{name}} ({{id}}) - {{model_id}}\n{{/cones}}"),
-        ]).await
+    /// Returns None if inject_parent hasn't been called yet.
+    pub fn parent(&self) -> Option<&P> {
+        self.hub.get()
     }
 
-    /// Get the hub reference
-    ///
-    /// Panics if called before inject_hub.
-    #[allow(dead_code)]
-    pub fn hub(&self) -> Arc<Plexus> {
-        self.hub
-            .get()
-            .expect("hub not initialized - inject_hub must be called first")
-            .upgrade()
-            .expect("hub has been dropped")
+}
+
+/// Convenience constructor for Cone with NoParent (standalone/testing)
+impl Cone<NoParent> {
+    pub async fn new(
+        config: ConeStorageConfig,
+        arbor: Arc<crate::activations::arbor::ArborStorage>,
+    ) -> Result<Self, String> {
+        Self::with_context_type(config, arbor).await
     }
+}
+
+impl<P: HubContext> Cone<P> {
 
     /// Resolve a cone handle to its message content
     ///
