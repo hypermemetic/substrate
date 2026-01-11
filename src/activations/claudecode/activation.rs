@@ -3,57 +3,79 @@ use super::{
     storage::ClaudeCodeStorage,
     types::*,
 };
-use crate::plexus::Plexus;
+use crate::plexus::{HubContext, NoParent};
 use async_stream::stream;
 use futures::{Stream, StreamExt};
 use hub_macro::hub_methods;
 use serde_json::Value;
-use std::sync::{Arc, OnceLock, Weak};
+use std::marker::PhantomData;
+use std::sync::{Arc, OnceLock};
 
 /// ClaudeCode activation - manages Claude Code sessions with Arbor-backed history
+///
+/// Generic over `P: HubContext` to allow different parent contexts:
+/// - `Weak<Plexus>` when registered with a Plexus hub
+/// - Custom context types for sub-hubs
+/// - `NoParent` for standalone testing
 #[derive(Clone)]
-pub struct ClaudeCode {
+pub struct ClaudeCode<P: HubContext = NoParent> {
     storage: Arc<ClaudeCodeStorage>,
     executor: ClaudeCodeExecutor,
     /// Hub reference for resolving foreign handles when walking arbor trees
-    hub: Arc<OnceLock<Weak<Plexus>>>,
+    hub: Arc<OnceLock<P>>,
+    _phantom: PhantomData<P>,
 }
 
-impl ClaudeCode {
-    pub fn new(storage: Arc<ClaudeCodeStorage>) -> Self {
+impl<P: HubContext> ClaudeCode<P> {
+    /// Create a new ClaudeCode with a specific parent context type
+    pub fn with_context_type(storage: Arc<ClaudeCodeStorage>) -> Self {
         Self {
             storage,
             executor: ClaudeCodeExecutor::new(),
             hub: Arc::new(OnceLock::new()),
+            _phantom: PhantomData,
         }
     }
 
-    pub fn with_executor(storage: Arc<ClaudeCodeStorage>, executor: ClaudeCodeExecutor) -> Self {
+    /// Create with custom executor and parent context type
+    pub fn with_executor_and_context(storage: Arc<ClaudeCodeStorage>, executor: ClaudeCodeExecutor) -> Self {
         Self {
             storage,
             executor,
             hub: Arc::new(OnceLock::new()),
+            _phantom: PhantomData,
         }
     }
 
-    /// Inject hub reference for resolving foreign handles
+    /// Inject parent context for resolving foreign handles
     ///
-    /// Called during Plexus construction via Arc::new_cyclic.
+    /// Called during hub construction (e.g., via Arc::new_cyclic for Plexus).
     /// This allows ClaudeCode to resolve handles from other plugins when walking arbor trees.
-    pub fn inject_hub(&self, hub: Weak<Plexus>) {
-        let _ = self.hub.set(hub);
+    pub fn inject_parent(&self, parent: P) {
+        let _ = self.hub.set(parent);
     }
 
-    /// Get the hub reference
+    /// Check if parent context has been injected
+    pub fn has_parent(&self) -> bool {
+        self.hub.get().is_some()
+    }
+
+    /// Get a reference to the parent context
     ///
-    /// Panics if called before inject_hub.
-    #[allow(dead_code)]
-    pub fn hub(&self) -> Arc<Plexus> {
-        self.hub
-            .get()
-            .expect("hub not initialized - inject_hub must be called first")
-            .upgrade()
-            .expect("hub has been dropped")
+    /// Returns None if inject_parent hasn't been called yet.
+    pub fn parent(&self) -> Option<&P> {
+        self.hub.get()
+    }
+}
+
+/// Convenience constructors for ClaudeCode with NoParent (standalone/testing)
+impl ClaudeCode<NoParent> {
+    pub fn new(storage: Arc<ClaudeCodeStorage>) -> Self {
+        Self::with_context_type(storage)
+    }
+
+    pub fn with_executor(storage: Arc<ClaudeCodeStorage>, executor: ClaudeCodeExecutor) -> Self {
+        Self::with_executor_and_context(storage, executor)
     }
 }
 
@@ -62,7 +84,7 @@ impl ClaudeCode {
     version = "1.0.0",
     description = "Manage Claude Code sessions with Arbor-backed conversation history"
 )]
-impl ClaudeCode {
+impl<P: HubContext> ClaudeCode<P> {
     /// Create a new Claude Code session
     #[hub_macro::hub_method]
     async fn create(

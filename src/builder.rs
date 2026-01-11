@@ -2,7 +2,7 @@
 //!
 //! This module is used by both the main binary and examples.
 
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use crate::activations::arbor::{Arbor, ArborConfig};
 use crate::activations::bash::Bash;
@@ -27,6 +27,10 @@ use hyperforge::HyperforgeHub;
 /// Hub activations (with nested children) are registered with `register_hub`
 /// to enable direct nested routing like `plexus.solar.mercury.info`.
 ///
+/// This function uses `Arc::new_cyclic` to inject a weak reference to the Plexus
+/// into Cone and ClaudeCode, enabling them to resolve foreign handles through
+/// the hub without creating reference cycles.
+///
 /// This function is async because Arbor, Cone, and ClaudeCode require
 /// async database initialization.
 pub async fn build_plexus() -> Arc<Plexus> {
@@ -37,18 +41,20 @@ pub async fn build_plexus() -> Arc<Plexus> {
     let arbor_storage = arbor.storage();
 
     // Initialize Cone with shared Arbor storage
-    let cone = Cone::new(ConeStorageConfig::default(), arbor_storage.clone())
+    // Use explicit type annotation for Weak<Plexus> parent context
+    let cone: Cone<Weak<Plexus>> = Cone::with_context_type(ConeStorageConfig::default(), arbor_storage.clone())
         .await
         .expect("Failed to initialize Cone");
 
     // Initialize ClaudeCode with shared Arbor storage
+    // Use explicit type annotation for Weak<Plexus> parent context
     let claudecode_storage = ClaudeCodeStorage::new(
         ClaudeCodeStorageConfig::default(),
         arbor_storage,
     )
     .await
     .expect("Failed to initialize ClaudeCode storage");
-    let claudecode = ClaudeCode::new(Arc::new(claudecode_storage));
+    let claudecode: ClaudeCode<Weak<Plexus>> = ClaudeCode::with_context_type(Arc::new(claudecode_storage));
 
     // Initialize Mustache for template rendering
     let mustache = Mustache::new(MustacheStorageConfig::default())
@@ -60,7 +66,15 @@ pub async fn build_plexus() -> Arc<Plexus> {
         .await
         .expect("Failed to initialize Changelog");
 
-    let plexus = Arc::new(
+    // Use Arc::new_cyclic to get a Weak<Plexus> during construction
+    // This allows us to inject the parent context into Cone and ClaudeCode
+    // before the Plexus is fully constructed, avoiding reference cycles
+    let plexus = Arc::new_cyclic(|weak_plexus: &Weak<Plexus>| {
+        // Inject parent context into plugins that need it
+        cone.inject_parent(weak_plexus.clone());
+        claudecode.inject_parent(weak_plexus.clone());
+
+        // Build and return the Plexus
         Plexus::new()
             .register(Health::new())
             .register(Echo::new())
@@ -71,8 +85,8 @@ pub async fn build_plexus() -> Arc<Plexus> {
             .register(mustache)
             .register(changelog.clone())
             .register_hub(Solar::new())
-            .register_hub(HyperforgeHub::new()),
-    );
+            .register_hub(HyperforgeHub::new())
+    });
 
     // Run changelog startup check
     let plexus_hash = plexus.compute_hash();
