@@ -14,6 +14,7 @@ use crate::activations::health::Health;
 use crate::activations::mustache::{Mustache, MustacheStorageConfig};
 use crate::activations::solar::Solar;
 use crate::plexus::Plexus;
+use hyperforge::HyperforgeHub;
 
 /// Build the plexus with registered activations
 ///
@@ -69,7 +70,8 @@ pub async fn build_plexus() -> Arc<Plexus> {
             .register(claudecode)
             .register(mustache)
             .register(changelog.clone())
-            .register_hub(Solar::new()),
+            .register_hub(Solar::new())
+            .register_hub(HyperforgeHub::new()),
     );
 
     // Run changelog startup check
