@@ -24,3 +24,6 @@ pub mod mustache;
 
 // Changelog tracks plexus hash changes and enforces documentation
 pub mod changelog;
+
+// Interactive demonstrates bidirectional communication patterns
+pub mod interactive;

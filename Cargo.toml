@@ -58,12 +58,16 @@ dialectic = { version = "0.4.1", features = ["tokio"] }
 # MCP server via rmcp
 rmcp = { version = "0.12", features = ["server", "transport-io", "transport-streamable-http-server"] }
 cllient = { path = "../../juggernautlabs/cllient" }
-hub-macro = { path = "../hub-macro" }
-hub-core = { path = "../hub-core" }
-hyperforge = { path = "../hyperforge" }
+hub-macro = { path = "../hub-macro-bidir", package = "hub-macro-bidir" }
+hub-core = { path = "../hub-core-bidir", package = "hub-core-bidir" }
+# TODO: Re-enable when hyperforge is updated to use hub-core-bidir
+# hyperforge = { path = "../hyperforge" }
 
 # Mustache templating
 mustache = "0.9"
+
+# Synchronization primitives
+parking_lot = "0.12"
 
 [dev-dependencies]
 hyper = "1"

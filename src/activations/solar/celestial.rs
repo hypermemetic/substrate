@@ -187,6 +187,7 @@ impl CelestialBodyMethod {
             params: None,
             returns: Some(schemars::schema_for!(SolarEvent)),
             streaming: false,
+            bidirectional: false,
         }]
     }
 }
