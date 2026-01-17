@@ -86,18 +86,26 @@ impl ClaudeCode<NoParent> {
 )]
 impl<P: HubContext> ClaudeCode<P> {
     /// Create a new Claude Code session
-    #[hub_macro::hub_method]
+    #[hub_macro::hub_method(params(
+        name = "Human-readable name for the session",
+        working_dir = "Working directory for Claude Code",
+        model = "Model to use (opus, sonnet, haiku)",
+        system_prompt = "Optional system prompt / instructions",
+        loopback_enabled = "Enable loopback mode - routes tool permissions through parent for approval"
+    ))]
     async fn create(
         &self,
         name: String,
         working_dir: String,
         model: Model,
         system_prompt: Option<String>,
+        loopback_enabled: Option<bool>,
     ) -> impl Stream<Item = CreateResult> + Send + 'static {
         let storage = self.storage.clone();
+        let loopback = loopback_enabled.unwrap_or(false);
 
         stream! {
-            match storage.session_create(name, working_dir, model, system_prompt, None, None).await {
+            match storage.session_create(name, working_dir, model, system_prompt, None, loopback, None).await {
                 Ok(config) => {
                     yield CreateResult::Ok {
                         id: config.id,
@@ -222,6 +230,12 @@ impl<P: HubContext> ClaudeCode<P> {
                 working_dir: config.working_dir.clone(),
                 system_prompt: config.system_prompt.clone(),
                 mcp_config: config.mcp_config.clone(),
+                loopback_enabled: config.loopback_enabled,
+                loopback_session_id: if config.loopback_enabled {
+                    Some(session_id.to_string())
+                } else {
+                    None
+                },
                 ..Default::default()
             };
 
@@ -544,6 +558,7 @@ impl<P: HubContext> ClaudeCode<P> {
                 parent.model,
                 parent.system_prompt.clone(),
                 parent.mcp_config.clone(),
+                parent.loopback_enabled,
                 None,
             ).await {
                 Ok(mut c) => {

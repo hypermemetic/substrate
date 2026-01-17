@@ -8,6 +8,13 @@ use rmcp::transport::streamable_http_server::{
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use axum::{
+    extract::Request,
+    http::StatusCode,
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
+    routing::any,
+};
 
 /// CLI arguments for substrate
 #[derive(Parser, Debug)]
@@ -21,6 +28,94 @@ struct Args {
     /// Port for WebSocket server (ignored in stdio mode)
     #[arg(short, long, default_value = "4444")]
     port: u16,
+}
+
+/// Middleware to log all incoming HTTP requests
+async fn log_request_middleware(request: Request, next: Next) -> Response {
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    let headers = request.headers().clone();
+
+    tracing::info!("▶▶▶ MCP HTTP REQUEST ▶▶▶");
+    tracing::info!("  Method: {}", method);
+    tracing::info!("  URI: {}", uri);
+    tracing::info!("  Headers:");
+    for (name, value) in headers.iter() {
+        tracing::info!("    {}: {:?}", name, value);
+    }
+
+    let response = next.run(request).await;
+
+    let status = response.status();
+    tracing::info!("◀◀◀ MCP HTTP RESPONSE ◀◀◀");
+    tracing::info!("  Status: {}", status);
+
+    response
+}
+
+/// Fallback handler for unmatched routes - logs and returns debug info
+async fn fallback_handler(request: Request) -> impl IntoResponse {
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    let headers = request.headers().clone();
+
+    tracing::error!("╔══════════════════════════════════════════════════════════╗");
+    tracing::error!("║  UNMATCHED REQUEST - NO ROUTE FOUND                      ║");
+    tracing::error!("╚══════════════════════════════════════════════════════════╝");
+    tracing::error!("  Method: {}", method);
+    tracing::error!("  URI: {}", uri);
+    tracing::error!("  Path: {}", uri.path());
+    tracing::error!("  Query: {:?}", uri.query());
+    tracing::error!("  Headers:");
+    for (name, value) in headers.iter() {
+        tracing::error!("    {}: {:?}", name, value);
+    }
+
+    // Try to read body for POST requests
+    let body_hint = if method == axum::http::Method::POST {
+        "(body not captured in fallback - check /mcp endpoint)"
+    } else {
+        "(no body expected)"
+    };
+    tracing::error!("  Body: {}", body_hint);
+    tracing::error!("");
+    tracing::error!("  HINT: MCP endpoint is at /mcp");
+    tracing::error!("  HINT: Make sure to send 'initialize' request first!");
+
+    let debug_response = format!(
+        r#"{{
+  "error": "Route not found",
+  "received": {{
+    "method": "{}",
+    "uri": "{}",
+    "path": "{}"
+  }},
+  "hint": "MCP endpoint is at /mcp. Send 'initialize' request first.",
+  "available_endpoints": ["/mcp", "/debug"]
+}}"#,
+        method, uri, uri.path()
+    );
+
+    (StatusCode::NOT_FOUND, [("content-type", "application/json")], debug_response)
+}
+
+/// Debug endpoint that returns server info
+async fn debug_handler() -> impl IntoResponse {
+    tracing::info!("Debug endpoint hit");
+
+    let info = r#"{
+  "server": "substrate-plexus",
+  "mcp_endpoint": "/mcp",
+  "mcp_protocol": "MCP Streamable HTTP (2025-03-26)",
+  "notes": [
+    "MCP requires 'initialize' request before 'tools/list'",
+    "Accept header must include 'application/json, text/event-stream'",
+    "Tool names use format: namespace.method (e.g., 'loopback.permit')",
+    "Claude Code references tools as: mcp__<server>__<tool_name>"
+  ]
+}"#;
+
+    (StatusCode::OK, [("content-type", "application/json")], info)
 }
 
 /// Serve RPC module over stdio (MCP-compatible transport)
@@ -168,8 +263,12 @@ async fn main() -> anyhow::Result<()> {
             config,
         );
 
-        // Build axum router with MCP at /mcp
-        let mcp_app = axum::Router::new().nest_service("/mcp", mcp_service);
+        // Build axum router with MCP at /mcp, debug endpoint, and request logging
+        let mcp_app = axum::Router::new()
+            .nest_service("/mcp", mcp_service)
+            .route("/debug", any(debug_handler))
+            .fallback(fallback_handler)
+            .layer(middleware::from_fn(log_request_middleware));
 
         // Start MCP HTTP server
         let mcp_listener = tokio::net::TcpListener::bind(mcp_addr).await?;

@@ -33,6 +33,10 @@ pub struct LaunchConfig {
     pub disallowed_tools: Vec<String>,
     /// Max turns
     pub max_turns: Option<i32>,
+    /// Enable loopback mode - routes tool permissions through Plexus for parent approval
+    pub loopback_enabled: bool,
+    /// Session ID for loopback correlation
+    pub loopback_session_id: Option<String>,
 }
 
 impl Default for LaunchConfig {
@@ -49,6 +53,8 @@ impl Default for LaunchConfig {
             allowed_tools: Vec::new(),
             disallowed_tools: Vec::new(),
             max_turns: None,
+            loopback_enabled: false,
+            loopback_session_id: None,
         }
     }
 }
@@ -132,8 +138,11 @@ impl ClaudeCodeExecutor {
             args.push(prompt.clone());
         }
 
-        // Permission prompt tool
-        if let Some(ref tool) = config.permission_prompt_tool {
+        // Permission prompt tool - loopback takes precedence
+        if config.loopback_enabled {
+            args.push("--permission-prompt-tool".to_string());
+            args.push("mcp__plexus__loopback_permit".to_string());
+        } else if let Some(ref tool) = config.permission_prompt_tool {
             args.push("--permission-prompt-tool".to_string());
             args.push(tool.clone());
         }
@@ -180,7 +189,50 @@ impl ClaudeCodeExecutor {
         let mut args = self.build_args(&config);
         let claude_path = self.claude_path.clone();
         let working_dir = config.working_dir.clone();
-        let mcp_config = config.mcp_config.clone();
+        let loopback_enabled = config.loopback_enabled;
+        let loopback_session_id = config.loopback_session_id.clone();
+
+        // Build MCP config - merge loopback config if enabled
+        let mcp_config = if loopback_enabled {
+            let plexus_url = std::env::var("PLEXUS_MCP_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:4445/mcp".to_string());
+
+            let loopback_mcp = serde_json::json!({
+                "mcpServers": {
+                    "plexus": {
+                        "type": "http",
+                        "url": plexus_url
+                    }
+                }
+            });
+
+            // Merge with existing config if present
+            match config.mcp_config {
+                Some(existing) => {
+                    // Merge mcpServers from both
+                    let mut merged = existing.clone();
+                    if let (Some(existing_servers), Some(loopback_servers)) = (
+                        merged.get_mut("mcpServers"),
+                        loopback_mcp.get("mcpServers")
+                    ) {
+                        if let (Some(existing_obj), Some(loopback_obj)) = (
+                            existing_servers.as_object_mut(),
+                            loopback_servers.as_object()
+                        ) {
+                            for (k, v) in loopback_obj {
+                                existing_obj.insert(k.clone(), v.clone());
+                            }
+                        }
+                    } else {
+                        merged["mcpServers"] = loopback_mcp["mcpServers"].clone();
+                    }
+                    Some(merged)
+                }
+                None => Some(loopback_mcp)
+            }
+        } else {
+            config.mcp_config.clone()
+        };
 
         Box::pin(stream! {
             // Handle MCP config if present
@@ -228,12 +280,23 @@ impl ClaudeCodeExecutor {
                     .join(" ")
             );
 
+            // Debug: log the command being executed
+            tracing::debug!(cmd = %shell_cmd, "Launching Claude Code");
+            eprintln!("[DEBUG] Claude command: {}", shell_cmd);
+
             let mut cmd = Command::new("bash");
             cmd.args(&["-c", &shell_cmd])
                 .current_dir(&working_dir)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .stdin(Stdio::null());
+
+            // Set loopback session ID env var if loopback is enabled
+            if loopback_enabled {
+                if let Some(ref session_id) = loopback_session_id {
+                    cmd.env("LOOPBACK_SESSION_ID", session_id);
+                }
+            }
 
             let mut child = match cmd.spawn() {
                 Ok(c) => c,

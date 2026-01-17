@@ -127,6 +127,8 @@ pub struct ClaudeCodeConfig {
     pub system_prompt: Option<String>,
     /// MCP server configuration (JSON)
     pub mcp_config: Option<Value>,
+    /// Enable loopback mode - routes tool permissions through parent for approval
+    pub loopback_enabled: bool,
     /// Additional metadata
     pub metadata: Option<Value>,
     /// Created timestamp
@@ -156,6 +158,7 @@ pub struct ClaudeCodeInfo {
     pub head: Position,
     pub claude_session_id: Option<String>,
     pub working_dir: String,
+    pub loopback_enabled: bool,
     pub created_at: i64,
 }
 
@@ -168,6 +171,7 @@ impl From<&ClaudeCodeConfig> for ClaudeCodeInfo {
             head: config.head,
             claude_session_id: config.claude_session_id.clone(),
             working_dir: config.working_dir.clone(),
+            loopback_enabled: config.loopback_enabled,
             created_at: config.created_at,
         }
     }

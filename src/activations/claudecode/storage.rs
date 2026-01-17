@@ -67,6 +67,7 @@ impl ClaudeCodeStorage {
                 model TEXT NOT NULL,
                 system_prompt TEXT,
                 mcp_config TEXT,
+                loopback_enabled INTEGER NOT NULL DEFAULT 0,
                 metadata TEXT,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
@@ -126,6 +127,7 @@ impl ClaudeCodeStorage {
         model: Model,
         system_prompt: Option<String>,
         mcp_config: Option<Value>,
+        loopback_enabled: bool,
         metadata: Option<Value>,
     ) -> Result<ClaudeCodeConfig, ClaudeCodeError> {
         let session_id = ClaudeCodeId::new_v4();
@@ -151,8 +153,8 @@ impl ClaudeCodeStorage {
 
         // Try inserting with the original name first
         let final_name = match sqlx::query(
-            "INSERT INTO claudecode_sessions (id, name, claude_session_id, tree_id, canonical_head, working_dir, model, system_prompt, mcp_config, metadata, created_at, updated_at)
-             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO claudecode_sessions (id, name, claude_session_id, tree_id, canonical_head, working_dir, model, system_prompt, mcp_config, loopback_enabled, metadata, created_at, updated_at)
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(session_id.to_string())
         .bind(&name)
@@ -162,6 +164,7 @@ impl ClaudeCodeStorage {
         .bind(model.as_str())
         .bind(&system_prompt)
         .bind(mcp_config_json.clone())
+        .bind(loopback_enabled)
         .bind(metadata_json.clone())
         .bind(now)
         .bind(now)
@@ -174,8 +177,8 @@ impl ClaudeCodeStorage {
                 let unique_name = format!("{}#{}", name, session_id);
 
                 sqlx::query(
-                    "INSERT INTO claudecode_sessions (id, name, claude_session_id, tree_id, canonical_head, working_dir, model, system_prompt, mcp_config, metadata, created_at, updated_at)
-                     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO claudecode_sessions (id, name, claude_session_id, tree_id, canonical_head, working_dir, model, system_prompt, mcp_config, loopback_enabled, metadata, created_at, updated_at)
+                     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 )
                 .bind(session_id.to_string())
                 .bind(&unique_name)
@@ -185,6 +188,7 @@ impl ClaudeCodeStorage {
                 .bind(model.as_str())
                 .bind(&system_prompt)
                 .bind(mcp_config_json)
+                .bind(loopback_enabled)
                 .bind(metadata_json)
                 .bind(now)
                 .bind(now)
@@ -206,6 +210,7 @@ impl ClaudeCodeStorage {
             model,
             system_prompt,
             mcp_config,
+            loopback_enabled,
             metadata,
             created_at: now,
             updated_at: now,
@@ -215,7 +220,7 @@ impl ClaudeCodeStorage {
     /// Get a session by ID
     pub async fn session_get(&self, session_id: &ClaudeCodeId) -> Result<ClaudeCodeConfig, ClaudeCodeError> {
         let row = sqlx::query(
-            "SELECT id, name, claude_session_id, tree_id, canonical_head, working_dir, model, system_prompt, mcp_config, metadata, created_at, updated_at
+            "SELECT id, name, claude_session_id, tree_id, canonical_head, working_dir, model, system_prompt, mcp_config, loopback_enabled, metadata, created_at, updated_at
              FROM claudecode_sessions WHERE id = ?",
         )
         .bind(session_id.to_string())
@@ -231,7 +236,7 @@ impl ClaudeCodeStorage {
     pub async fn session_get_by_name(&self, name: &str) -> Result<ClaudeCodeConfig, ClaudeCodeError> {
         // Try exact match first
         if let Some(row) = sqlx::query(
-            "SELECT id, name, claude_session_id, tree_id, canonical_head, working_dir, model, system_prompt, mcp_config, metadata, created_at, updated_at
+            "SELECT id, name, claude_session_id, tree_id, canonical_head, working_dir, model, system_prompt, mcp_config, loopback_enabled, metadata, created_at, updated_at
              FROM claudecode_sessions WHERE name = ?",
         )
         .bind(name)
@@ -245,7 +250,7 @@ impl ClaudeCodeStorage {
         // Try partial match
         let pattern = format!("{}%", name);
         let rows = sqlx::query(
-            "SELECT id, name, claude_session_id, tree_id, canonical_head, working_dir, model, system_prompt, mcp_config, metadata, created_at, updated_at
+            "SELECT id, name, claude_session_id, tree_id, canonical_head, working_dir, model, system_prompt, mcp_config, loopback_enabled, metadata, created_at, updated_at
              FROM claudecode_sessions WHERE name LIKE ?",
         )
         .bind(&pattern)
@@ -270,7 +275,7 @@ impl ClaudeCodeStorage {
     /// List all sessions
     pub async fn session_list(&self) -> Result<Vec<ClaudeCodeInfo>, ClaudeCodeError> {
         let rows = sqlx::query(
-            "SELECT id, name, claude_session_id, tree_id, canonical_head, working_dir, model, created_at
+            "SELECT id, name, claude_session_id, tree_id, canonical_head, working_dir, model, loopback_enabled, created_at
              FROM claudecode_sessions ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
@@ -284,6 +289,7 @@ impl ClaudeCodeStorage {
                 let tree_id_str: String = row.get("tree_id");
                 let head_str: String = row.get("canonical_head");
                 let model_str: String = row.get("model");
+                let loopback: i32 = row.get("loopback_enabled");
 
                 let tree_id = TreeId::parse_str(&tree_id_str)
                     .map_err(|e| format!("Invalid tree ID: {}", e))?;
@@ -299,6 +305,7 @@ impl ClaudeCodeStorage {
                     head: Position::new(tree_id, node_id),
                     claude_session_id: row.get("claude_session_id"),
                     working_dir: row.get("working_dir"),
+                    loopback_enabled: loopback != 0,
                     created_at: row.get("created_at"),
                 })
             })
@@ -649,6 +656,7 @@ impl ClaudeCodeStorage {
         let model_str: String = row.get("model");
         let metadata_json: Option<String> = row.get("metadata");
         let mcp_config_json: Option<String> = row.get("mcp_config");
+        let loopback: i32 = row.get("loopback_enabled");
 
         let tree_id = TreeId::parse_str(&tree_id_str)
             .map_err(|e| format!("Invalid tree ID: {}", e))?;
@@ -666,6 +674,7 @@ impl ClaudeCodeStorage {
             model,
             system_prompt: row.get("system_prompt"),
             mcp_config: mcp_config_json.and_then(|s| serde_json::from_str(&s).ok()),
+            loopback_enabled: loopback != 0,
             metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
