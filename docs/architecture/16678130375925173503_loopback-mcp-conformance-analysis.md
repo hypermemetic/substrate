@@ -576,6 +576,113 @@ claude --permission-prompt-tool "mcp__plexus__loopback_permit" --print "curl exa
 2. **Response format is critical** - The `content[0].text` field must be valid JSON that Claude Code can parse
 3. **No metadata in responses** - Tool responses used by Claude Code infrastructure (like permission-prompt-tool) must not have any appended metadata
 
+## Streaming Output from Headless Claude Code
+
+To get real-time event streams from Claude Code running in headless/print mode:
+
+### Required Flags
+
+```bash
+claude \
+  --print \
+  --output-format stream-json \
+  --verbose \
+  --model <model> \
+  "your prompt"
+```
+
+| Flag | Required | Purpose |
+|------|----------|---------|
+| `--print` | Yes | Non-interactive mode (no TUI) |
+| `--output-format stream-json` | Yes | Emit newline-delimited JSON events |
+| `--verbose` | Yes | **Required** when using `stream-json` |
+| `--include-partial-messages` | No | Include streaming text deltas |
+
+### Event Types
+
+Events are newline-delimited JSON objects with a `type` field:
+
+```json
+{"type":"system","subtype":"init","session_id":"uuid","model":"claude-sonnet-4-20250514","cwd":"/path","tools":["Bash","Read",...]}
+{"type":"assistant","message":{"id":"msg_xxx","content":[...],"model":"..."}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}}
+{"type":"result","subtype":"success","session_id":"uuid","cost_usd":0.01,"duration_ms":1234,"num_turns":1}
+```
+
+| Event Type | Description |
+|------------|-------------|
+| `system` | Session initialization - model, cwd, available tools |
+| `assistant` | Complete assistant message with all content blocks |
+| `user` | User message (when replaying) |
+| `stream_event` | Partial streaming chunks (requires `--include-partial-messages`) |
+| `result` | Final result with cost, duration, error status |
+
+### Stream Event Subtypes
+
+When `--include-partial-messages` is enabled, `stream_event` contains granular updates:
+
+| Subtype | Description |
+|---------|-------------|
+| `message_start` | New message beginning |
+| `content_block_start` | New content block (text or tool_use) |
+| `content_block_delta` | Incremental text or JSON delta |
+| `content_block_stop` | Content block complete |
+| `message_delta` | Message-level updates (stop_reason) |
+| `message_stop` | Message complete |
+
+### Full Example with Permission Routing
+
+```bash
+claude \
+  --print \
+  --output-format stream-json \
+  --verbose \
+  --include-partial-messages \
+  --model haiku \
+  --permission-prompt-tool "mcp__plexus__loopback_permit" \
+  --mcp-config '{"mcpServers":{"plexus":{"type":"http","url":"http://127.0.0.1:4445/mcp"}}}' \
+  "curl example.com"
+```
+
+### Parsing in Code
+
+**Node.js:**
+```javascript
+const { spawn } = require('child_process');
+const claude = spawn('claude', ['--print', '--output-format', 'stream-json', '--verbose', '-p', 'hello']);
+
+claude.stdout.on('data', (chunk) => {
+  for (const line of chunk.toString().split('\n').filter(Boolean)) {
+    const event = JSON.parse(line);
+    console.log(event.type, event);
+  }
+});
+```
+
+**Rust (see `executor.rs`):**
+```rust
+let mut reader = BufReader::new(stdout).lines();
+while let Some(line) = reader.next_line().await? {
+    let event: RawClaudeEvent = serde_json::from_str(&line)?;
+    // Process event...
+}
+```
+
+### Input Streaming
+
+Claude Code also supports streaming input with `--input-format stream-json`:
+
+```bash
+claude \
+  --print \
+  --input-format stream-json \
+  --output-format stream-json \
+  --verbose \
+  --replay-user-messages
+```
+
+This enables bidirectional streaming for real-time agent orchestration.
+
 ## Appendix: Test Commands
 
 ### Verify MCP Server Responds
