@@ -8,6 +8,7 @@ use crate::activations::arbor::{Arbor, ArborConfig};
 use crate::activations::bash::Bash;
 use crate::activations::changelog::{Changelog, ChangelogStorageConfig};
 use crate::activations::claudecode::{ClaudeCode, ClaudeCodeStorage, ClaudeCodeStorageConfig};
+use crate::activations::claudecode_loopback::{ClaudeCodeLoopback, LoopbackStorageConfig};
 use crate::activations::cone::{Cone, ConeStorageConfig};
 use crate::activations::echo::Echo;
 use crate::activations::health::Health;
@@ -66,6 +67,11 @@ pub async fn build_plexus() -> Arc<Plexus> {
         .await
         .expect("Failed to initialize Changelog");
 
+    // Initialize ClaudeCode Loopback for tool permission routing
+    let loopback = ClaudeCodeLoopback::new(LoopbackStorageConfig::default())
+        .await
+        .expect("Failed to initialize ClaudeCodeLoopback");
+
     // Use Arc::new_cyclic to get a Weak<Plexus> during construction
     // This allows us to inject the parent context into Cone and ClaudeCode
     // before the Plexus is fully constructed, avoiding reference cycles
@@ -84,6 +90,7 @@ pub async fn build_plexus() -> Arc<Plexus> {
             .register(claudecode)
             .register(mustache)
             .register(changelog.clone())
+            .register(loopback)
             .register_hub(Solar::new())
             .register_hub(HyperforgeHub::new())
     });
