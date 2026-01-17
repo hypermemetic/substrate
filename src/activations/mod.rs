@@ -42,3 +42,6 @@ pub mod lattice;
 
 // Changelog tracks plexus hash transitions and planned changes
 pub mod changelog;
+
+// ClaudeCode Loopback routes tool permissions back to parent for approval
+pub mod claudecode_loopback;

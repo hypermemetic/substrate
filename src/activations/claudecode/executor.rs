@@ -421,6 +421,13 @@ impl ClaudeCodeExecutor {
                 }
             }
 
+            // Set loopback session ID env var if loopback is enabled
+            if loopback_enabled {
+                if let Some(ref session_id) = loopback_session_id {
+                    cmd.env("LOOPBACK_SESSION_ID", session_id);
+                }
+            }
+
             let mut child = match cmd.spawn() {
                 Ok(c) => c,
                 Err(e) => {
