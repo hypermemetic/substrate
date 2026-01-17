@@ -17,6 +17,10 @@ path = "src/lib.rs"
 name = "substrate"
 path = "src/main.rs"
 
+[[bin]]
+name = "mcp-gateway"
+path = "src/bin/mcp_gateway.rs"
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -40,8 +44,8 @@ hostname = "0.3"
 regex = "1.10"
 dirs = "5.0"
 which = "6.0"
-# JSON-RPC server dependencies
-jsonrpsee = { version = "0.26", features = ["server", "macros"] }
+# JSON-RPC server and client dependencies
+jsonrpsee = { version = "0.26", features = ["server", "client", "ws-client", "macros"] }
 clap = { version = "4.0", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "tracing-log"] }
