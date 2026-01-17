@@ -1,15 +1,18 @@
 use super::activation::ClaudeCode;
 use super::types::{
-    ClaudeCodeConfig, ClaudeCodeError, ClaudeCodeId, ClaudeCodeInfo,
-    Message, MessageId, MessageRole, Model, Position,
+    BufferedEvent, ChatEvent, ClaudeCodeConfig, ClaudeCodeError, ClaudeCodeId,
+    ClaudeCodeInfo, Message, MessageId, MessageRole, Model, Position, StreamId,
+    StreamInfo, StreamStatus,
 };
 use crate::activations::arbor::{ArborStorage, NodeId, TreeId};
 use crate::types::Handle;
 use serde_json::Value;
 use sqlx::{sqlite::{SqliteConnectOptions, SqlitePool}, ConnectOptions, Row};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 /// Configuration for ClaudeCode storage
@@ -27,10 +30,21 @@ impl Default for ClaudeCodeStorageConfig {
     }
 }
 
+/// In-memory buffer for an active stream
+#[derive(Debug)]
+struct ActiveStreamBuffer {
+    /// Stream metadata
+    info: StreamInfo,
+    /// Buffered events (in-order by seq)
+    events: Vec<BufferedEvent>,
+}
+
 /// Storage layer for ClaudeCode sessions
 pub struct ClaudeCodeStorage {
     pool: SqlitePool,
     arbor: Arc<ArborStorage>,
+    /// In-memory buffers for active streams
+    streams: RwLock<HashMap<StreamId, ActiveStreamBuffer>>,
 }
 
 impl ClaudeCodeStorage {
@@ -47,7 +61,11 @@ impl ClaudeCodeStorage {
             .await
             .map_err(|e| format!("Failed to connect to claudecode database: {}", e))?;
 
-        let storage = Self { pool, arbor };
+        let storage = Self {
+            pool,
+            arbor,
+            streams: RwLock::new(HashMap::new()),
+        };
         storage.run_migrations().await?;
 
         Ok(storage)
@@ -626,6 +644,167 @@ impl ClaudeCodeStorage {
     }
 
     // ========================================================================
+    // Stream Management (in-memory buffer for async chat)
+    // ========================================================================
+
+    /// Create a new stream buffer for async chat
+    pub async fn stream_create(
+        &self,
+        session_id: ClaudeCodeId,
+    ) -> Result<StreamId, ClaudeCodeError> {
+        let stream_id = StreamId::new_v4();
+        let now = current_timestamp();
+
+        let info = StreamInfo {
+            stream_id,
+            session_id,
+            status: StreamStatus::Running,
+            user_position: None,
+            event_count: 0,
+            read_position: 0,
+            started_at: now,
+            ended_at: None,
+            error: None,
+        };
+
+        let buffer = ActiveStreamBuffer {
+            info,
+            events: Vec::new(),
+        };
+
+        let mut streams = self.streams.write().await;
+        streams.insert(stream_id, buffer);
+
+        Ok(stream_id)
+    }
+
+    /// Set the user position for a stream (called after user message is created)
+    pub async fn stream_set_user_position(
+        &self,
+        stream_id: &StreamId,
+        position: Position,
+    ) -> Result<(), ClaudeCodeError> {
+        let mut streams = self.streams.write().await;
+        let buffer = streams.get_mut(stream_id)
+            .ok_or_else(|| format!("Stream not found: {}", stream_id))?;
+        buffer.info.user_position = Some(position);
+        Ok(())
+    }
+
+    /// Push an event to a stream buffer
+    pub async fn stream_push_event(
+        &self,
+        stream_id: &StreamId,
+        event: ChatEvent,
+    ) -> Result<u64, ClaudeCodeError> {
+        let now = current_timestamp();
+        let mut streams = self.streams.write().await;
+        let buffer = streams.get_mut(stream_id)
+            .ok_or_else(|| format!("Stream not found: {}", stream_id))?;
+
+        let seq = buffer.info.event_count;
+        buffer.events.push(BufferedEvent {
+            seq,
+            event,
+            timestamp: now,
+        });
+        buffer.info.event_count += 1;
+
+        Ok(seq)
+    }
+
+    /// Update stream status
+    pub async fn stream_set_status(
+        &self,
+        stream_id: &StreamId,
+        status: StreamStatus,
+        error: Option<String>,
+    ) -> Result<(), ClaudeCodeError> {
+        let now = current_timestamp();
+        let mut streams = self.streams.write().await;
+        let buffer = streams.get_mut(stream_id)
+            .ok_or_else(|| format!("Stream not found: {}", stream_id))?;
+
+        buffer.info.status = status;
+        if status == StreamStatus::Complete || status == StreamStatus::Failed {
+            buffer.info.ended_at = Some(now);
+        }
+        if let Some(e) = error {
+            buffer.info.error = Some(e);
+        }
+
+        Ok(())
+    }
+
+    /// Get stream info
+    pub async fn stream_get_info(&self, stream_id: &StreamId) -> Result<StreamInfo, ClaudeCodeError> {
+        let streams = self.streams.read().await;
+        let buffer = streams.get(stream_id)
+            .ok_or_else(|| format!("Stream not found: {}", stream_id))?;
+        Ok(buffer.info.clone())
+    }
+
+    /// Poll events from a stream
+    /// Returns events starting from `from_seq` up to `limit` events
+    pub async fn stream_poll(
+        &self,
+        stream_id: &StreamId,
+        from_seq: Option<u64>,
+        limit: Option<usize>,
+    ) -> Result<(StreamInfo, Vec<BufferedEvent>), ClaudeCodeError> {
+        let mut streams = self.streams.write().await;
+        let buffer = streams.get_mut(stream_id)
+            .ok_or_else(|| format!("Stream not found: {}", stream_id))?;
+
+        let start = from_seq.unwrap_or(buffer.info.read_position) as usize;
+        let max_events = limit.unwrap_or(100);
+
+        let events: Vec<BufferedEvent> = buffer.events
+            .iter()
+            .skip(start)
+            .take(max_events)
+            .cloned()
+            .collect();
+
+        // Update read position to the end of what we returned
+        if !events.is_empty() {
+            let last_seq = events.last().unwrap().seq;
+            buffer.info.read_position = last_seq + 1;
+        }
+
+        Ok((buffer.info.clone(), events))
+    }
+
+    /// List all active streams
+    pub async fn stream_list(&self) -> Vec<StreamInfo> {
+        let streams = self.streams.read().await;
+        streams.values().map(|b| b.info.clone()).collect()
+    }
+
+    /// List active streams for a session
+    pub async fn stream_list_for_session(&self, session_id: &ClaudeCodeId) -> Vec<StreamInfo> {
+        let streams = self.streams.read().await;
+        streams
+            .values()
+            .filter(|b| &b.info.session_id == session_id)
+            .map(|b| b.info.clone())
+            .collect()
+    }
+
+    /// Remove a completed/failed stream from memory
+    /// Returns the final stream info if found
+    pub async fn stream_cleanup(&self, stream_id: &StreamId) -> Option<StreamInfo> {
+        let mut streams = self.streams.write().await;
+        streams.remove(stream_id).map(|b| b.info)
+    }
+
+    /// Check if a stream exists
+    pub async fn stream_exists(&self, stream_id: &StreamId) -> bool {
+        let streams = self.streams.read().await;
+        streams.contains_key(stream_id)
+    }
+
+    // ========================================================================
     // Helper methods
     // ========================================================================
 
@@ -688,4 +867,147 @@ fn current_timestamp() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test stream buffer in-memory operations (no database needed)
+    #[tokio::test]
+    async fn test_stream_buffer_operations() {
+        // Create a minimal storage with just the streams buffer
+        let streams: RwLock<HashMap<StreamId, ActiveStreamBuffer>> = RwLock::new(HashMap::new());
+
+        // Create a stream
+        let stream_id = StreamId::new_v4();
+        let session_id = ClaudeCodeId::new_v4();
+        let now = current_timestamp();
+
+        let info = StreamInfo {
+            stream_id,
+            session_id,
+            status: StreamStatus::Running,
+            user_position: None,
+            event_count: 0,
+            read_position: 0,
+            started_at: now,
+            ended_at: None,
+            error: None,
+        };
+
+        let buffer = ActiveStreamBuffer {
+            info,
+            events: Vec::new(),
+        };
+
+        streams.write().await.insert(stream_id, buffer);
+
+        // Push some events
+        {
+            let mut streams = streams.write().await;
+            let buffer = streams.get_mut(&stream_id).unwrap();
+
+            buffer.events.push(BufferedEvent {
+                seq: 0,
+                event: ChatEvent::Start {
+                    id: session_id,
+                    user_position: Position::new(TreeId::new(), NodeId::new()),
+                },
+                timestamp: now,
+            });
+            buffer.info.event_count = 1;
+
+            buffer.events.push(BufferedEvent {
+                seq: 1,
+                event: ChatEvent::Content { text: "Hello".to_string() },
+                timestamp: now,
+            });
+            buffer.info.event_count = 2;
+        }
+
+        // Poll events
+        {
+            let mut streams = streams.write().await;
+            let buffer = streams.get_mut(&stream_id).unwrap();
+
+            let events: Vec<_> = buffer.events.iter().skip(0).take(10).cloned().collect();
+            assert_eq!(events.len(), 2);
+            assert_eq!(events[0].seq, 0);
+            assert_eq!(events[1].seq, 1);
+
+            // Update read position
+            buffer.info.read_position = 2;
+        }
+
+        // Poll again - should get nothing new
+        {
+            let streams = streams.read().await;
+            let buffer = streams.get(&stream_id).unwrap();
+
+            let events: Vec<_> = buffer.events.iter()
+                .skip(buffer.info.read_position as usize)
+                .take(10)
+                .collect();
+            assert_eq!(events.len(), 0);
+        }
+
+        // Add more events
+        {
+            let mut streams = streams.write().await;
+            let buffer = streams.get_mut(&stream_id).unwrap();
+
+            buffer.events.push(BufferedEvent {
+                seq: 2,
+                event: ChatEvent::Content { text: " World".to_string() },
+                timestamp: now,
+            });
+            buffer.info.event_count = 3;
+        }
+
+        // Poll again - should get the new event
+        {
+            let mut streams = streams.write().await;
+            let buffer = streams.get_mut(&stream_id).unwrap();
+
+            let events: Vec<_> = buffer.events.iter()
+                .skip(buffer.info.read_position as usize)
+                .take(10)
+                .cloned()
+                .collect();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].seq, 2);
+
+            // Update read position
+            buffer.info.read_position = 3;
+        }
+
+        // Test status transitions
+        {
+            let mut streams = streams.write().await;
+            let buffer = streams.get_mut(&stream_id).unwrap();
+
+            assert_eq!(buffer.info.status, StreamStatus::Running);
+
+            buffer.info.status = StreamStatus::AwaitingPermission;
+            assert_eq!(buffer.info.status, StreamStatus::AwaitingPermission);
+
+            buffer.info.status = StreamStatus::Complete;
+            buffer.info.ended_at = Some(current_timestamp());
+            assert_eq!(buffer.info.status, StreamStatus::Complete);
+            assert!(buffer.info.ended_at.is_some());
+        }
+    }
+
+    #[test]
+    fn test_stream_status_serialization() {
+        // Test that StreamStatus serializes correctly for MCP
+        let status = StreamStatus::AwaitingPermission;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "\"awaiting_permission\"");
+
+        let status = StreamStatus::Running;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "\"running\"");
+    }
 }

@@ -7,6 +7,9 @@ use uuid::Uuid;
 /// Unique identifier for a ClaudeCode session
 pub type ClaudeCodeId = Uuid;
 
+/// Unique identifier for an active stream
+pub type StreamId = Uuid;
+
 /// Unique identifier for a message
 pub type MessageId = Uuid;
 
@@ -187,6 +190,58 @@ pub struct ChatUsage {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// STREAM MANAGEMENT TYPES (for non-blocking chat with loopback)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Status of an active stream
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamStatus {
+    /// Stream is actively receiving events
+    Running,
+    /// Stream is waiting for tool permission approval
+    AwaitingPermission,
+    /// Stream completed successfully
+    Complete,
+    /// Stream failed with an error
+    Failed,
+}
+
+/// Information about an active stream
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct StreamInfo {
+    /// Unique stream identifier
+    pub stream_id: StreamId,
+    /// Session this stream belongs to
+    pub session_id: ClaudeCodeId,
+    /// Current status
+    pub status: StreamStatus,
+    /// Position of the user message node (set at start)
+    pub user_position: Option<Position>,
+    /// Number of events buffered
+    pub event_count: u64,
+    /// Read position (how many events have been consumed)
+    pub read_position: u64,
+    /// When the stream started
+    pub started_at: i64,
+    /// When the stream ended (if complete/failed)
+    pub ended_at: Option<i64>,
+    /// Error message if failed
+    pub error: Option<String>,
+}
+
+/// A buffered event in the stream
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct BufferedEvent {
+    /// Sequence number within the stream
+    pub seq: u64,
+    /// The chat event
+    pub event: ChatEvent,
+    /// Timestamp when event was received
+    pub timestamp: i64,
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // METHOD-SPECIFIC RETURN TYPES
 // Each method returns exactly what it needs - no shared enums
 // ═══════════════════════════════════════════════════════════════════════════
@@ -243,6 +298,50 @@ pub enum ForkResult {
         id: ClaudeCodeId,
         head: Position,
     },
+    #[serde(rename = "error")]
+    Err { message: String },
+}
+
+/// Result of starting an async chat (non-blocking)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ChatStartResult {
+    #[serde(rename = "started")]
+    Ok {
+        stream_id: StreamId,
+        session_id: ClaudeCodeId,
+    },
+    #[serde(rename = "error")]
+    Err { message: String },
+}
+
+/// Result of polling a stream for events
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PollResult {
+    #[serde(rename = "ok")]
+    Ok {
+        /// Current stream status
+        status: StreamStatus,
+        /// Events since last poll (or from specified offset)
+        events: Vec<BufferedEvent>,
+        /// Current read position after this poll
+        read_position: u64,
+        /// Total events in buffer
+        total_events: u64,
+        /// True if there are more events available
+        has_more: bool,
+    },
+    #[serde(rename = "error")]
+    Err { message: String },
+}
+
+/// Result of listing active streams
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum StreamListResult {
+    #[serde(rename = "ok")]
+    Ok { streams: Vec<StreamInfo> },
     #[serde(rename = "error")]
     Err { message: String },
 }

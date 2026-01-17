@@ -1,9 +1,9 @@
-use substrate::{build_plexus, PlexusMcpBridge};
+use substrate::{build_plexus, PlexusMcpBridge, SqliteSessionManager, SqliteSessionConfig};
 use jsonrpsee::server::{Server, ServerHandle};
 use jsonrpsee::RpcModule;
 use clap::Parser;
 use rmcp::transport::streamable_http_server::{
-    session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
+    StreamableHttpServerConfig, StreamableHttpService,
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -28,6 +28,10 @@ struct Args {
     /// Port for WebSocket server (ignored in stdio mode)
     #[arg(short, long, default_value = "4444")]
     port: u16,
+
+    /// Disable built-in MCP HTTP server (use mcp-gateway instead)
+    #[arg(long)]
+    no_mcp: bool,
 }
 
 /// Middleware to log all incoming HTTP requests
@@ -239,9 +243,8 @@ async fn main() -> anyhow::Result<()> {
         // Stdio transport (MCP-compatible)
         serve_stdio(module).await
     } else {
-        // WebSocket transport (default) + MCP HTTP endpoint
+        // WebSocket transport (default) + optional MCP HTTP endpoint
         let ws_addr: SocketAddr = format!("127.0.0.1:{}", args.port).parse()?;
-        let mcp_addr: SocketAddr = format!("127.0.0.1:{}", args.port + 1).parse()?;
 
         // Start WebSocket server for Plexus RPC
         let ws_server = Server::builder()
@@ -249,36 +252,50 @@ async fn main() -> anyhow::Result<()> {
             .await?;
         let ws_handle: ServerHandle = ws_server.start(module);
 
-        // Build MCP interface with a fresh Plexus (since module consumed the first one)
-        let mcp_plexus = build_plexus().await;
-        let mcp_bridge = PlexusMcpBridge::new(mcp_plexus);
-
-        // Create StreamableHttpService for MCP
-        let config = StreamableHttpServerConfig::default();
-        let session_manager = LocalSessionManager::default().into();
-        let bridge_clone = mcp_bridge.clone();
-        let mcp_service = StreamableHttpService::new(
-            move || Ok(bridge_clone.clone()),
-            session_manager,
-            config,
-        );
-
-        // Build axum router with MCP at /mcp, debug endpoint, and request logging
-        let mcp_app = axum::Router::new()
-            .nest_service("/mcp", mcp_service)
-            .route("/debug", any(debug_handler))
-            .fallback(fallback_handler)
-            .layer(middleware::from_fn(log_request_middleware));
-
-        // Start MCP HTTP server
-        let mcp_listener = tokio::net::TcpListener::bind(mcp_addr).await?;
-        let mcp_handle = tokio::spawn(async move {
-            axum::serve(mcp_listener, mcp_app).await
-        });
-
         tracing::info!("Substrate plexus started");
         tracing::info!("  WebSocket: ws://{}", ws_addr);
-        tracing::info!("  MCP HTTP:  http://{}/mcp", mcp_addr);
+
+        // Optionally start MCP HTTP server (disabled with --no-mcp)
+        let mcp_addr: SocketAddr = format!("127.0.0.1:{}", args.port + 1).parse()?;
+
+        let mcp_handle = if !args.no_mcp {
+
+            // Build MCP interface with a fresh Plexus (since module consumed the first one)
+            let mcp_plexus = build_plexus().await;
+            let mcp_bridge = PlexusMcpBridge::new(mcp_plexus);
+
+            // Create StreamableHttpService for MCP with persistent SQLite sessions
+            let config = StreamableHttpServerConfig::default();
+            let session_manager = SqliteSessionManager::new(SqliteSessionConfig::default())
+                .await
+                .expect("Failed to initialize SQLite session manager");
+            let bridge_clone = mcp_bridge.clone();
+            let mcp_service = StreamableHttpService::new(
+                move || Ok(bridge_clone.clone()),
+                session_manager.into(),
+                config,
+            );
+
+            // Build axum router with MCP at /mcp, debug endpoint, and request logging
+            let mcp_app = axum::Router::new()
+                .nest_service("/mcp", mcp_service)
+                .route("/debug", any(debug_handler))
+                .fallback(fallback_handler)
+                .layer(middleware::from_fn(log_request_middleware));
+
+            // Start MCP HTTP server
+            let mcp_listener = tokio::net::TcpListener::bind(mcp_addr).await?;
+            let handle = tokio::spawn(async move {
+                axum::serve(mcp_listener, mcp_app).await
+            });
+
+            tracing::info!("  MCP HTTP:  http://{}/mcp", mcp_addr);
+            Some(handle)
+        } else {
+            tracing::info!("  MCP HTTP:  disabled (use mcp-gateway instead)");
+            None
+        };
+
         tracing::info!("Plexus hash: {}", plexus_hash);
         tracing::info!("");
         tracing::info!("Activations ({}):", activations.len());
@@ -295,17 +312,26 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("");
         tracing::info!("Total methods: {}", methods.len());
 
-        // Wait for either server to stop
-        tokio::select! {
-            _ = ws_handle.stopped() => {
-                tracing::info!("WebSocket server stopped");
-            }
-            result = mcp_handle => {
-                match result {
-                    Ok(Ok(())) => tracing::info!("MCP server stopped"),
-                    Ok(Err(e)) => tracing::error!("MCP server error: {}", e),
-                    Err(e) => tracing::error!("MCP server task failed: {}", e),
+        // Wait for servers to stop
+        match mcp_handle {
+            Some(mcp) => {
+                tokio::select! {
+                    _ = ws_handle.stopped() => {
+                        tracing::info!("WebSocket server stopped");
+                    }
+                    result = mcp => {
+                        match result {
+                            Ok(Ok(())) => tracing::info!("MCP server stopped"),
+                            Ok(Err(e)) => tracing::error!("MCP server error: {}", e),
+                            Err(e) => tracing::error!("MCP server task failed: {}", e),
+                        }
+                    }
                 }
+            }
+            None => {
+                // Only WebSocket server running
+                ws_handle.stopped().await;
+                tracing::info!("WebSocket server stopped");
             }
         }
 
