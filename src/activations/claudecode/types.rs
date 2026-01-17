@@ -11,70 +11,7 @@ use super::activation::ClaudeCode;
 /// Unique identifier for a ClaudeCode session
 pub type ClaudeCodeId = Uuid;
 
-// ============================================================================
-// Handle types for ClaudeCode activation
-// ============================================================================
-
-/// Type-safe handles for ClaudeCode activation data
-///
-/// Handles reference data stored in the ClaudeCode database and can be embedded
-/// in Arbor tree nodes for external resolution.
-#[derive(Debug, Clone, HandleEnum)]
-#[handle(plugin_id = "ClaudeCode::PLUGIN_ID", version = "1.0.0")]
-pub enum ClaudeCodeHandle {
-    /// Handle to a message in the claudecode database
-    /// Format: `{plugin_id}@1.0.0::chat:msg-{uuid}:{role}:{name}`
-    #[handle(
-        method = "chat",
-        table = "messages",
-        key = "id",
-        key_field = "message_id",
-        strip_prefix = "msg-"
-    )]
-    Message {
-        /// Message ID with "msg-" prefix (e.g., "msg-550e8400-...")
-        message_id: String,
-        /// Role: "user", "assistant", or "system"
-        role: String,
-        /// Display name
-        name: String,
-    },
-
-    /// Handle to an unknown/passthrough event
-    /// Format: `{plugin_id}@1.0.0::passthrough:{event_id}:{event_type}`
-    /// Note: No resolution - passthrough events are inline only
-    #[handle(method = "passthrough")]
-    Passthrough {
-        /// Event ID
-        event_id: String,
-        /// Event type string
-        event_type: String,
-    },
-}
-
-// ============================================================================
-// Handle resolution result types
-// ============================================================================
-
-/// Result of resolving a ClaudeCode handle
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type")]
-pub enum ResolveResult {
-    /// Successfully resolved message
-    #[serde(rename = "resolved_message")]
-    Message {
-        id: String,
-        role: String,
-        content: String,
-        model: Option<String>,
-        name: String,
-    },
-    /// Resolution error
-    #[serde(rename = "error")]
-    Error { message: String },
-}
-
-/// Unique identifier for an active stream
+// =====================================================================/// Unique identifier for an active stream
 pub type StreamId = Uuid;
 
 /// Unique identifier for a message
