@@ -269,15 +269,7 @@ impl ServerHandler for PlexusMcpBridge {
                 }
             };
 
-            // Estimate tokens (~4 chars per token for JSON/text)
-            let approx_tokens = (text_content.len() + 3) / 4;
-            let content_with_tokens = format!(
-                "{}\n\n[~{} tokens]",
-                text_content,
-                approx_tokens
-            );
-
-            Ok(CallToolResult::success(vec![Content::text(content_with_tokens)]))
+            Ok(CallToolResult::success(vec![Content::text(text_content)]))
         }
     }
 }

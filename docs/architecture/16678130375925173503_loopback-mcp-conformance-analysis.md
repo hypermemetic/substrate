@@ -4,9 +4,44 @@
 
 ## Executive Summary
 
-The Plexus `claudecode_loopback` activation attempts to replicate HumanLayer's permission-prompt-tool pattern for routing Claude Code tool permissions through a parent for approval. Investigation reveals the core mechanism works (approvals created, polling functional), but **Claude Code never invokes the permission-prompt-tool** when launched via the executor.
+The Plexus `claudecode_loopback` activation replicates HumanLayer's permission-prompt-tool pattern for routing Claude Code tool permissions through a parent for approval.
 
-This document analyzes the architectural differences between HumanLayer's working implementation and Plexus's approach to identify the root cause.
+**Status: RESOLVED** - The root cause was identified and fixed.
+
+### Root Cause
+
+The MCP bridge (`src/mcp_bridge.rs`) was appending a token count suffix to all tool responses:
+
+```rust
+// BEFORE (broken):
+let content_with_tokens = format!("{}\n\n[~{} tokens]", text_content, approx_tokens);
+Ok(CallToolResult::success(vec![Content::text(content_with_tokens)]))
+```
+
+This corrupted the JSON response that Claude Code expects from `--permission-prompt-tool`:
+
+```
+// What Plexus returned:
+{"behavior":"allow","updatedInput":{"command":"curl example.com"}}
+
+[~13 tokens]
+
+// What Claude Code expected (clean JSON):
+{"behavior":"allow","updatedInput":{"command":"curl example.com"}}
+```
+
+When Claude Code called `JSON.parse()` on the response, it failed with a Zod validation error due to the suffix.
+
+### The Fix
+
+Removed the token count suffix from MCP tool responses:
+
+```rust
+// AFTER (working):
+Ok(CallToolResult::success(vec![Content::text(text_content)]))
+```
+
+This document preserves the full investigation for reference.
 
 ## Reference Architecture: HumanLayer
 
@@ -525,12 +560,21 @@ This minimal test environment:
 4. **Fast iteration**: Modify and re-test in seconds
 5. **Clear success criteria**: Either `/tmp/pending.json` appears or it doesn't
 
-## Next Steps
+## Resolution
 
-1. **Verify hypothesis**: Launch Claude Code with stdio MCP server, confirm permission-prompt-tool works
-2. **Implement Option A**: Create minimal stdio-to-HTTP proxy
-3. **Fix token suffix**: Remove `[~N tokens]` from MCP tool responses
-4. **Test tool naming**: Try renaming `loopback.permit` to `loopback_permit`
+**Fixed in commit**: Removed token count suffix from `src/mcp_bridge.rs`
+
+The permission-prompt-tool now works correctly with Claude Code over HTTP MCP:
+
+```bash
+claude --permission-prompt-tool "mcp__plexus__loopback_permit" --print "curl example.com"
+```
+
+### Key Learnings
+
+1. **HTTP MCP works** - Claude Code's `--permission-prompt-tool` does support HTTP MCP transport (contrary to initial hypothesis)
+2. **Response format is critical** - The `content[0].text` field must be valid JSON that Claude Code can parse
+3. **No metadata in responses** - Tool responses used by Claude Code infrastructure (like permission-prompt-tool) must not have any appended metadata
 
 ## Appendix: Test Commands
 
