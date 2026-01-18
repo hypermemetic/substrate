@@ -3,6 +3,7 @@ use super::{
     storage::ClaudeCodeStorage,
     types::*,
 };
+use crate::activations::claudecode_loopback::LoopbackStorage;
 use crate::plexus::{HubContext, NoParent};
 use async_stream::stream;
 use futures::{Stream, StreamExt};
@@ -24,6 +25,8 @@ pub struct ClaudeCode<P: HubContext = NoParent> {
     executor: ClaudeCodeExecutor,
     /// Hub reference for resolving foreign handles when walking arbor trees
     hub: Arc<OnceLock<P>>,
+    /// Optional loopback storage for fetching pending approvals
+    loopback_storage: Option<Arc<LoopbackStorage>>,
     _phantom: PhantomData<P>,
 }
 
@@ -34,6 +37,7 @@ impl<P: HubContext> ClaudeCode<P> {
             storage,
             executor: ClaudeCodeExecutor::new(),
             hub: Arc::new(OnceLock::new()),
+            loopback_storage: None,
             _phantom: PhantomData,
         }
     }
@@ -44,8 +48,15 @@ impl<P: HubContext> ClaudeCode<P> {
             storage,
             executor,
             hub: Arc::new(OnceLock::new()),
+            loopback_storage: None,
             _phantom: PhantomData,
         }
+    }
+
+    /// Set the loopback storage for fetching pending approvals in poll
+    pub fn with_loopback_storage(mut self, loopback: Arc<LoopbackStorage>) -> Self {
+        self.loopback_storage = Some(loopback);
+        self
     }
 
     /// Inject parent context for resolving foreign handles
@@ -585,7 +596,7 @@ impl<P: HubContext> ClaudeCode<P> {
         }
     }
 
-    /// Start an async chat - returns immediately with stream_id for polling
+    /// Start an async chat - returns immediately with session_id for polling
     ///
     /// This is the non-blocking version of chat, designed for loopback scenarios
     /// where the parent needs to poll for events and handle tool approvals.
@@ -604,6 +615,7 @@ impl<P: HubContext> ClaudeCode<P> {
     ) -> impl Stream<Item = ChatStartResult> + Send + 'static {
         let storage = self.storage.clone();
         let executor = self.executor.clone();
+        let loopback_storage = self.loopback_storage.clone();
 
         // Resolve session before entering stream
         let resolve_result = storage.session_get_by_name(&name).await;
@@ -622,21 +634,18 @@ impl<P: HubContext> ClaudeCode<P> {
 
             let session_id = config.id;
 
-            // 2. Create stream buffer
-            let stream_id = match storage.stream_create(session_id).await {
-                Ok(id) => id,
-                Err(e) => {
-                    yield ChatStartResult::Err { message: e.to_string() };
-                    return;
-                }
-            };
+            // 2. Create/reset chat buffer for this session
+            if let Err(e) = storage.buffer_create(session_id).await {
+                yield ChatStartResult::Err { message: e.to_string() };
+                return;
+            }
 
             // 3. Spawn background task to run the chat
             let storage_bg = storage.clone();
             let executor_bg = executor.clone();
             let prompt_bg = prompt.clone();
             let config_bg = config.clone();
-            let stream_id_bg = stream_id;
+            let loopback_bg = loopback_storage.clone();
 
             tokio::spawn(async move {
                 Self::run_chat_background(
@@ -645,49 +654,68 @@ impl<P: HubContext> ClaudeCode<P> {
                     config_bg,
                     prompt_bg,
                     is_ephemeral,
-                    stream_id_bg,
+                    loopback_bg,
                 ).await;
-            }.instrument(tracing::info_span!("chat_async_bg", stream_id = %stream_id)));
+            }.instrument(tracing::info_span!("chat_async_bg", session_id = %session_id)));
 
-            // 4. Return immediately with stream_id
+            // 4. Return immediately with session_id
             yield ChatStartResult::Ok {
-                stream_id,
                 session_id,
             };
         }
     }
 
-    /// Poll a stream for new events
+    /// Poll a session for new chat events
     ///
     /// Returns events since the last poll (or from the specified offset).
     /// Use this to read events from an async chat started with chat_async.
     #[hub_macro::hub_method(
         params(
-            stream_id = "Stream ID returned from chat_async",
+            session_id = "Session ID returned from chat_async",
             from_seq = "Optional: start reading from this sequence number",
             limit = "Optional: max events to return (default 100)"
         )
     )]
     async fn poll(
         &self,
-        stream_id: StreamId,
+        session_id: ClaudeCodeId,
         from_seq: Option<u64>,
         limit: Option<u64>,
     ) -> impl Stream<Item = PollResult> + Send + 'static {
         let storage = self.storage.clone();
+        let loopback = self.loopback_storage.clone();
 
         stream! {
             let limit_usize = limit.map(|l| l as usize);
 
-            match storage.stream_poll(&stream_id, from_seq, limit_usize).await {
+            match storage.buffer_poll(&session_id, from_seq, limit_usize).await {
                 Ok((info, events)) => {
                     let has_more = info.read_position < info.event_count;
+
+                    // Fetch pending approvals for this session
+                    let session_id_str = session_id.to_string();
+                    let pending_approvals = if let Some(ref lb) = loopback {
+                        match lb.list_pending(Some(&session_id_str)).await {
+                            Ok(approvals) => approvals.into_iter().map(|a| PendingApproval {
+                                id: a.id,
+                                tool_name: a.tool_name,
+                                tool_use_id: a.tool_use_id,
+                                input: a.input,
+                                created_at: a.created_at,
+                            }).collect(),
+                            Err(_) => Vec::new(),
+                        }
+                    } else {
+                        Vec::new()
+                    };
+
                     yield PollResult::Ok {
                         status: info.status,
                         events,
                         read_position: info.read_position,
                         total_events: info.event_count,
                         has_more,
+                        pending_approvals,
                     };
                 }
                 Err(e) => {
@@ -696,43 +724,18 @@ impl<P: HubContext> ClaudeCode<P> {
             }
         }
     }
-
-    /// List active streams
-    ///
-    /// Returns all active streams, optionally filtered by session.
-    #[hub_macro::hub_method(
-        params(
-            session_id = "Optional: filter by session ID"
-        )
-    )]
-    async fn streams(
-        &self,
-        session_id: Option<ClaudeCodeId>,
-    ) -> impl Stream<Item = StreamListResult> + Send + 'static {
-        let storage = self.storage.clone();
-
-        stream! {
-            let streams = if let Some(sid) = session_id {
-                storage.stream_list_for_session(&sid).await
-            } else {
-                storage.stream_list().await
-            };
-
-            yield StreamListResult::Ok { streams };
-        }
-    }
 }
 
 // Background task implementation (outside the hub_methods block)
 impl<P: HubContext> ClaudeCode<P> {
-    /// Run chat in background, pushing events to stream buffer
+    /// Run chat in background, pushing events to session buffer
     async fn run_chat_background(
         storage: Arc<ClaudeCodeStorage>,
         executor: ClaudeCodeExecutor,
         config: ClaudeCodeConfig,
         prompt: String,
         is_ephemeral: bool,
-        stream_id: StreamId,
+        loopback_storage: Option<Arc<LoopbackStorage>>,
     ) {
         let session_id = config.id;
 
@@ -746,8 +749,8 @@ impl<P: HubContext> ClaudeCode<P> {
             ).await {
                 Ok(m) => m,
                 Err(e) => {
-                    let _ = storage.stream_push_event(&stream_id, ChatEvent::Err { message: e.to_string() }).await;
-                    let _ = storage.stream_set_status(&stream_id, StreamStatus::Failed, Some(e.to_string())).await;
+                    let _ = storage.buffer_push_event(&session_id, ChatEvent::Err { message: e.to_string() }).await;
+                    let _ = storage.buffer_set_status(&session_id, StreamStatus::Failed, Some(e.to_string())).await;
                     return;
                 }
             }
@@ -760,8 +763,8 @@ impl<P: HubContext> ClaudeCode<P> {
             ).await {
                 Ok(m) => m,
                 Err(e) => {
-                    let _ = storage.stream_push_event(&stream_id, ChatEvent::Err { message: e.to_string() }).await;
-                    let _ = storage.stream_set_status(&stream_id, StreamStatus::Failed, Some(e.to_string())).await;
+                    let _ = storage.buffer_push_event(&session_id, ChatEvent::Err { message: e.to_string() }).await;
+                    let _ = storage.buffer_set_status(&session_id, StreamStatus::Failed, Some(e.to_string())).await;
                     return;
                 }
             }
@@ -778,8 +781,8 @@ impl<P: HubContext> ClaudeCode<P> {
             ).await {
                 Ok(id) => id,
                 Err(e) => {
-                    let _ = storage.stream_push_event(&stream_id, ChatEvent::Err { message: e.to_string() }).await;
-                    let _ = storage.stream_set_status(&stream_id, StreamStatus::Failed, Some(e.to_string())).await;
+                    let _ = storage.buffer_push_event(&session_id, ChatEvent::Err { message: e.to_string() }).await;
+                    let _ = storage.buffer_set_status(&session_id, StreamStatus::Failed, Some(e.to_string())).await;
                     return;
                 }
             }
@@ -792,8 +795,8 @@ impl<P: HubContext> ClaudeCode<P> {
             ).await {
                 Ok(id) => id,
                 Err(e) => {
-                    let _ = storage.stream_push_event(&stream_id, ChatEvent::Err { message: e.to_string() }).await;
-                    let _ = storage.stream_set_status(&stream_id, StreamStatus::Failed, Some(e.to_string())).await;
+                    let _ = storage.buffer_push_event(&session_id, ChatEvent::Err { message: e.to_string() }).await;
+                    let _ = storage.buffer_set_status(&session_id, StreamStatus::Failed, Some(e.to_string())).await;
                     return;
                 }
             }
@@ -802,10 +805,10 @@ impl<P: HubContext> ClaudeCode<P> {
         let user_position = Position::new(config.head.tree_id, user_node_id);
 
         // Update stream with user position
-        let _ = storage.stream_set_user_position(&stream_id, user_position).await;
+        let _ = storage.buffer_set_user_position(&session_id, user_position).await;
 
         // 3. Push Start event
-        let _ = storage.stream_push_event(&stream_id, ChatEvent::Start {
+        let _ = storage.buffer_push_event(&session_id, ChatEvent::Start {
             id: session_id,
             user_position,
         }).await;
@@ -857,7 +860,7 @@ impl<P: HubContext> ClaudeCode<P> {
                             match delta {
                                 StreamDelta::TextDelta { text } => {
                                     response_content.push_str(&text);
-                                    let _ = storage.stream_push_event(&stream_id, ChatEvent::Content { text }).await;
+                                    let _ = storage.buffer_push_event(&session_id, ChatEvent::Content { text }).await;
                                 }
                                 StreamDelta::InputJsonDelta { partial_json } => {
                                     current_tool_input.push_str(&partial_json);
@@ -876,13 +879,19 @@ impl<P: HubContext> ClaudeCode<P> {
                                 let input: Value = serde_json::from_str(&current_tool_input)
                                     .unwrap_or(Value::Object(serde_json::Map::new()));
 
-                                // Check if this is a loopback_permit call (tool waiting for approval)
-                                if name == "mcp__plexus__loopback_permit" {
-                                    let _ = storage.stream_set_status(&stream_id, StreamStatus::AwaitingPermission, None).await;
+                                // Register tool_use_id -> session_id mapping for loopback correlation
+                                // This allows loopback_permit to find the correct session_id
+                                if let Some(ref lb) = loopback_storage {
+                                    lb.register_tool_session(&id, &session_id.to_string());
                                 }
 
-                                let _ = storage.stream_push_event(&stream_id, ChatEvent::ToolUse {
-                                    tool_name: name,
+                                // Check if this is a loopback_permit call (tool waiting for approval)
+                                if name == "mcp__plexus__loopback_permit" {
+                                    let _ = storage.buffer_set_status(&session_id, StreamStatus::AwaitingPermission, None).await;
+                                }
+
+                                let _ = storage.buffer_push_event(&session_id, ChatEvent::ToolUse {
+                                    tool_name: name.clone(),
                                     tool_use_id: id,
                                     input,
                                 }).await;
@@ -906,11 +915,15 @@ impl<P: HubContext> ClaudeCode<P> {
                                     RawContentBlock::Text { text } => {
                                         if response_content.is_empty() {
                                             response_content.push_str(&text);
-                                            let _ = storage.stream_push_event(&stream_id, ChatEvent::Content { text }).await;
+                                            let _ = storage.buffer_push_event(&session_id, ChatEvent::Content { text }).await;
                                         }
                                     }
                                     RawContentBlock::ToolUse { id, name, input } => {
-                                        let _ = storage.stream_push_event(&stream_id, ChatEvent::ToolUse {
+                                        // Register tool_use_id -> session_id mapping for loopback correlation
+                                        if let Some(ref lb) = loopback_storage {
+                                            lb.register_tool_session(&id, &session_id.to_string());
+                                        }
+                                        let _ = storage.buffer_push_event(&session_id, ChatEvent::ToolUse {
                                             tool_name: name,
                                             tool_use_id: id,
                                             input,
@@ -918,15 +931,15 @@ impl<P: HubContext> ClaudeCode<P> {
                                     }
                                     RawContentBlock::ToolResult { tool_use_id, content, is_error } => {
                                         // Tool completed - back to running if was awaiting
-                                        let _ = storage.stream_set_status(&stream_id, StreamStatus::Running, None).await;
-                                        let _ = storage.stream_push_event(&stream_id, ChatEvent::ToolResult {
+                                        let _ = storage.buffer_set_status(&session_id, StreamStatus::Running, None).await;
+                                        let _ = storage.buffer_push_event(&session_id, ChatEvent::ToolResult {
                                             tool_use_id,
                                             output: content.unwrap_or_default(),
                                             is_error: is_error.unwrap_or(false),
                                         }).await;
                                     }
                                     RawContentBlock::Thinking { thinking, .. } => {
-                                        let _ = storage.stream_push_event(&stream_id, ChatEvent::Thinking { thinking }).await;
+                                        let _ = storage.buffer_push_event(&session_id, ChatEvent::Thinking { thinking }).await;
                                     }
                                 }
                             }
@@ -949,8 +962,8 @@ impl<P: HubContext> ClaudeCode<P> {
 
                     if is_error == Some(true) {
                         if let Some(err_msg) = error {
-                            let _ = storage.stream_push_event(&stream_id, ChatEvent::Err { message: err_msg.clone() }).await;
-                            let _ = storage.stream_set_status(&stream_id, StreamStatus::Failed, Some(err_msg)).await;
+                            let _ = storage.buffer_push_event(&session_id, ChatEvent::Err { message: err_msg.clone() }).await;
+                            let _ = storage.buffer_set_status(&session_id, StreamStatus::Failed, Some(err_msg)).await;
                             return;
                         }
                     }
@@ -958,10 +971,10 @@ impl<P: HubContext> ClaudeCode<P> {
                 RawClaudeEvent::Unknown { event_type, data } => {
                     match storage.unknown_event_store(Some(&session_id), &event_type, &data).await {
                         Ok(handle) => {
-                            let _ = storage.stream_push_event(&stream_id, ChatEvent::Passthrough { event_type, handle, data }).await;
+                            let _ = storage.buffer_push_event(&session_id, ChatEvent::Passthrough { event_type, handle, data }).await;
                         }
                         Err(_) => {
-                            let _ = storage.stream_push_event(&stream_id, ChatEvent::Passthrough {
+                            let _ = storage.buffer_push_event(&session_id, ChatEvent::Passthrough {
                                 event_type,
                                 handle: "storage-failed".to_string(),
                                 data,
@@ -987,8 +1000,8 @@ impl<P: HubContext> ClaudeCode<P> {
             ).await {
                 Ok(m) => m,
                 Err(e) => {
-                    let _ = storage.stream_push_event(&stream_id, ChatEvent::Err { message: e.to_string() }).await;
-                    let _ = storage.stream_set_status(&stream_id, StreamStatus::Failed, Some(e.to_string())).await;
+                    let _ = storage.buffer_push_event(&session_id, ChatEvent::Err { message: e.to_string() }).await;
+                    let _ = storage.buffer_set_status(&session_id, StreamStatus::Failed, Some(e.to_string())).await;
                     return;
                 }
             }
@@ -1004,8 +1017,8 @@ impl<P: HubContext> ClaudeCode<P> {
             ).await {
                 Ok(m) => m,
                 Err(e) => {
-                    let _ = storage.stream_push_event(&stream_id, ChatEvent::Err { message: e.to_string() }).await;
-                    let _ = storage.stream_set_status(&stream_id, StreamStatus::Failed, Some(e.to_string())).await;
+                    let _ = storage.buffer_push_event(&session_id, ChatEvent::Err { message: e.to_string() }).await;
+                    let _ = storage.buffer_set_status(&session_id, StreamStatus::Failed, Some(e.to_string())).await;
                     return;
                 }
             }
@@ -1022,8 +1035,8 @@ impl<P: HubContext> ClaudeCode<P> {
             ).await {
                 Ok(id) => id,
                 Err(e) => {
-                    let _ = storage.stream_push_event(&stream_id, ChatEvent::Err { message: e.to_string() }).await;
-                    let _ = storage.stream_set_status(&stream_id, StreamStatus::Failed, Some(e.to_string())).await;
+                    let _ = storage.buffer_push_event(&session_id, ChatEvent::Err { message: e.to_string() }).await;
+                    let _ = storage.buffer_set_status(&session_id, StreamStatus::Failed, Some(e.to_string())).await;
                     return;
                 }
             }
@@ -1036,8 +1049,8 @@ impl<P: HubContext> ClaudeCode<P> {
             ).await {
                 Ok(id) => id,
                 Err(e) => {
-                    let _ = storage.stream_push_event(&stream_id, ChatEvent::Err { message: e.to_string() }).await;
-                    let _ = storage.stream_set_status(&stream_id, StreamStatus::Failed, Some(e.to_string())).await;
+                    let _ = storage.buffer_push_event(&session_id, ChatEvent::Err { message: e.to_string() }).await;
+                    let _ = storage.buffer_set_status(&session_id, StreamStatus::Failed, Some(e.to_string())).await;
                     return;
                 }
             }
@@ -1048,14 +1061,14 @@ impl<P: HubContext> ClaudeCode<P> {
         // 8. Update session head (skip for ephemeral)
         if !is_ephemeral {
             if let Err(e) = storage.session_update_head(&session_id, assistant_node_id, claude_session_id.clone()).await {
-                let _ = storage.stream_push_event(&stream_id, ChatEvent::Err { message: e.to_string() }).await;
-                let _ = storage.stream_set_status(&stream_id, StreamStatus::Failed, Some(e.to_string())).await;
+                let _ = storage.buffer_push_event(&session_id, ChatEvent::Err { message: e.to_string() }).await;
+                let _ = storage.buffer_set_status(&session_id, StreamStatus::Failed, Some(e.to_string())).await;
                 return;
             }
         }
 
         // 9. Push Complete event and mark stream as complete
-        let _ = storage.stream_push_event(&stream_id, ChatEvent::Complete {
+        let _ = storage.buffer_push_event(&session_id, ChatEvent::Complete {
             new_head: if is_ephemeral { config.head } else { new_head },
             claude_session_id: claude_session_id.unwrap_or_default(),
             usage: Some(ChatUsage {
@@ -1066,6 +1079,6 @@ impl<P: HubContext> ClaudeCode<P> {
             }),
         }).await;
 
-        let _ = storage.stream_set_status(&stream_id, StreamStatus::Complete, None).await;
+        let _ = storage.buffer_set_status(&session_id, StreamStatus::Complete, None).await;
     }
 }

@@ -1,5 +1,7 @@
 # Arbor-Buffered Streaming for ClaudeCode Loopback
 
+> **SUPERSEDED**: This document describes the original design. The API has been simplified to use `session_id` as the single identifier (removing `stream_id`). See [ClaudeCode Loopback Integration](16677965632570341631_claudecode-loopback-integration.md) for the current implementation.
+
 ## Problem Statement
 
 When `claudecode_chat` is called via MCP, the parent Claude blocks waiting for the stream to complete. When the child Claude needs tool approval, it calls `loopback_permit` which also blocks. This creates a deadlock:

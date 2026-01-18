@@ -47,16 +47,6 @@ pub async fn build_plexus() -> Arc<Plexus> {
         .await
         .expect("Failed to initialize Cone");
 
-    // Initialize ClaudeCode with shared Arbor storage
-    // Use explicit type annotation for Weak<Plexus> parent context
-    let claudecode_storage = ClaudeCodeStorage::new(
-        ClaudeCodeStorageConfig::default(),
-        arbor_storage,
-    )
-    .await
-    .expect("Failed to initialize ClaudeCode storage");
-    let claudecode: ClaudeCode<Weak<Plexus>> = ClaudeCode::with_context_type(Arc::new(claudecode_storage));
-
     // Initialize Mustache for template rendering
     let mustache = Mustache::new(MustacheStorageConfig::default())
         .await
@@ -71,6 +61,17 @@ pub async fn build_plexus() -> Arc<Plexus> {
     let loopback = ClaudeCodeLoopback::new(LoopbackStorageConfig::default())
         .await
         .expect("Failed to initialize ClaudeCodeLoopback");
+
+    // Initialize ClaudeCode with shared Arbor and Loopback storage
+    // Use explicit type annotation for Weak<Plexus> parent context
+    let claudecode_storage = ClaudeCodeStorage::new(
+        ClaudeCodeStorageConfig::default(),
+        arbor_storage,
+    )
+    .await
+    .expect("Failed to initialize ClaudeCode storage");
+    let claudecode: ClaudeCode<Weak<Plexus>> = ClaudeCode::with_context_type(Arc::new(claudecode_storage))
+        .with_loopback_storage(loopback.storage());
 
     // Use Arc::new_cyclic to get a Weak<Plexus> during construction
     // This allows us to inject the parent context into Cone and ClaudeCode
