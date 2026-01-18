@@ -1,8 +1,7 @@
 use super::activation::ClaudeCode;
 use super::types::{
-    BufferedEvent, ChatEvent, ClaudeCodeConfig, ClaudeCodeError, ClaudeCodeId,
-    ClaudeCodeInfo, Message, MessageId, MessageRole, Model, Position, StreamId,
-    StreamInfo, StreamStatus,
+    BufferedEvent, ChatBufferInfo, ChatEvent, ClaudeCodeConfig, ClaudeCodeError, ClaudeCodeId,
+    ClaudeCodeInfo, Message, MessageId, MessageRole, Model, Position, StreamStatus,
 };
 use crate::activations::arbor::{ArborStorage, NodeId, TreeId};
 use crate::types::Handle;
@@ -30,11 +29,11 @@ impl Default for ClaudeCodeStorageConfig {
     }
 }
 
-/// In-memory buffer for an active stream
+/// In-memory buffer for an active chat
 #[derive(Debug)]
-struct ActiveStreamBuffer {
-    /// Stream metadata
-    info: StreamInfo,
+struct ActiveChatBuffer {
+    /// Buffer metadata
+    info: ChatBufferInfo,
     /// Buffered events (in-order by seq)
     events: Vec<BufferedEvent>,
 }
@@ -43,8 +42,8 @@ struct ActiveStreamBuffer {
 pub struct ClaudeCodeStorage {
     pool: SqlitePool,
     arbor: Arc<ArborStorage>,
-    /// In-memory buffers for active streams
-    streams: RwLock<HashMap<StreamId, ActiveStreamBuffer>>,
+    /// In-memory buffers for active chats (keyed by session_id)
+    chat_buffers: RwLock<HashMap<ClaudeCodeId, ActiveChatBuffer>>,
 }
 
 impl ClaudeCodeStorage {
@@ -64,7 +63,7 @@ impl ClaudeCodeStorage {
         let storage = Self {
             pool,
             arbor,
-            streams: RwLock::new(HashMap::new()),
+            chat_buffers: RwLock::new(HashMap::new()),
         };
         storage.run_migrations().await?;
 
@@ -644,19 +643,18 @@ impl ClaudeCodeStorage {
     }
 
     // ========================================================================
-    // Stream Management (in-memory buffer for async chat)
+    // Chat Buffer Management (in-memory buffer for async chat, keyed by session_id)
     // ========================================================================
 
-    /// Create a new stream buffer for async chat
-    pub async fn stream_create(
+    /// Create or reset the chat buffer for a session
+    /// Called when starting a new chat_async on a session
+    pub async fn buffer_create(
         &self,
         session_id: ClaudeCodeId,
-    ) -> Result<StreamId, ClaudeCodeError> {
-        let stream_id = StreamId::new_v4();
+    ) -> Result<(), ClaudeCodeError> {
         let now = current_timestamp();
 
-        let info = StreamInfo {
-            stream_id,
+        let info = ChatBufferInfo {
             session_id,
             status: StreamStatus::Running,
             user_position: None,
@@ -667,40 +665,40 @@ impl ClaudeCodeStorage {
             error: None,
         };
 
-        let buffer = ActiveStreamBuffer {
+        let buffer = ActiveChatBuffer {
             info,
             events: Vec::new(),
         };
 
-        let mut streams = self.streams.write().await;
-        streams.insert(stream_id, buffer);
+        let mut buffers = self.chat_buffers.write().await;
+        buffers.insert(session_id, buffer);
 
-        Ok(stream_id)
+        Ok(())
     }
 
-    /// Set the user position for a stream (called after user message is created)
-    pub async fn stream_set_user_position(
+    /// Set the user position for a session's buffer (called after user message is created)
+    pub async fn buffer_set_user_position(
         &self,
-        stream_id: &StreamId,
+        session_id: &ClaudeCodeId,
         position: Position,
     ) -> Result<(), ClaudeCodeError> {
-        let mut streams = self.streams.write().await;
-        let buffer = streams.get_mut(stream_id)
-            .ok_or_else(|| format!("Stream not found: {}", stream_id))?;
+        let mut buffers = self.chat_buffers.write().await;
+        let buffer = buffers.get_mut(session_id)
+            .ok_or_else(|| format!("No active chat buffer for session: {}", session_id))?;
         buffer.info.user_position = Some(position);
         Ok(())
     }
 
-    /// Push an event to a stream buffer
-    pub async fn stream_push_event(
+    /// Push an event to a session's chat buffer
+    pub async fn buffer_push_event(
         &self,
-        stream_id: &StreamId,
+        session_id: &ClaudeCodeId,
         event: ChatEvent,
     ) -> Result<u64, ClaudeCodeError> {
         let now = current_timestamp();
-        let mut streams = self.streams.write().await;
-        let buffer = streams.get_mut(stream_id)
-            .ok_or_else(|| format!("Stream not found: {}", stream_id))?;
+        let mut buffers = self.chat_buffers.write().await;
+        let buffer = buffers.get_mut(session_id)
+            .ok_or_else(|| format!("No active chat buffer for session: {}", session_id))?;
 
         let seq = buffer.info.event_count;
         buffer.events.push(BufferedEvent {
@@ -713,17 +711,17 @@ impl ClaudeCodeStorage {
         Ok(seq)
     }
 
-    /// Update stream status
-    pub async fn stream_set_status(
+    /// Update session's chat buffer status
+    pub async fn buffer_set_status(
         &self,
-        stream_id: &StreamId,
+        session_id: &ClaudeCodeId,
         status: StreamStatus,
         error: Option<String>,
     ) -> Result<(), ClaudeCodeError> {
         let now = current_timestamp();
-        let mut streams = self.streams.write().await;
-        let buffer = streams.get_mut(stream_id)
-            .ok_or_else(|| format!("Stream not found: {}", stream_id))?;
+        let mut buffers = self.chat_buffers.write().await;
+        let buffer = buffers.get_mut(session_id)
+            .ok_or_else(|| format!("No active chat buffer for session: {}", session_id))?;
 
         buffer.info.status = status;
         if status == StreamStatus::Complete || status == StreamStatus::Failed {
@@ -736,25 +734,25 @@ impl ClaudeCodeStorage {
         Ok(())
     }
 
-    /// Get stream info
-    pub async fn stream_get_info(&self, stream_id: &StreamId) -> Result<StreamInfo, ClaudeCodeError> {
-        let streams = self.streams.read().await;
-        let buffer = streams.get(stream_id)
-            .ok_or_else(|| format!("Stream not found: {}", stream_id))?;
+    /// Get session's chat buffer info
+    pub async fn buffer_get_info(&self, session_id: &ClaudeCodeId) -> Result<ChatBufferInfo, ClaudeCodeError> {
+        let buffers = self.chat_buffers.read().await;
+        let buffer = buffers.get(session_id)
+            .ok_or_else(|| format!("No active chat buffer for session: {}", session_id))?;
         Ok(buffer.info.clone())
     }
 
-    /// Poll events from a stream
+    /// Poll events from a session's chat buffer
     /// Returns events starting from `from_seq` up to `limit` events
-    pub async fn stream_poll(
+    pub async fn buffer_poll(
         &self,
-        stream_id: &StreamId,
+        session_id: &ClaudeCodeId,
         from_seq: Option<u64>,
         limit: Option<usize>,
-    ) -> Result<(StreamInfo, Vec<BufferedEvent>), ClaudeCodeError> {
-        let mut streams = self.streams.write().await;
-        let buffer = streams.get_mut(stream_id)
-            .ok_or_else(|| format!("Stream not found: {}", stream_id))?;
+    ) -> Result<(ChatBufferInfo, Vec<BufferedEvent>), ClaudeCodeError> {
+        let mut buffers = self.chat_buffers.write().await;
+        let buffer = buffers.get_mut(session_id)
+            .ok_or_else(|| format!("No active chat buffer for session: {}", session_id))?;
 
         let start = from_seq.unwrap_or(buffer.info.read_position) as usize;
         let max_events = limit.unwrap_or(100);
@@ -775,33 +773,17 @@ impl ClaudeCodeStorage {
         Ok((buffer.info.clone(), events))
     }
 
-    /// List all active streams
-    pub async fn stream_list(&self) -> Vec<StreamInfo> {
-        let streams = self.streams.read().await;
-        streams.values().map(|b| b.info.clone()).collect()
+    /// Check if a session has an active chat buffer
+    pub async fn buffer_exists(&self, session_id: &ClaudeCodeId) -> bool {
+        let buffers = self.chat_buffers.read().await;
+        buffers.contains_key(session_id)
     }
 
-    /// List active streams for a session
-    pub async fn stream_list_for_session(&self, session_id: &ClaudeCodeId) -> Vec<StreamInfo> {
-        let streams = self.streams.read().await;
-        streams
-            .values()
-            .filter(|b| &b.info.session_id == session_id)
-            .map(|b| b.info.clone())
-            .collect()
-    }
-
-    /// Remove a completed/failed stream from memory
-    /// Returns the final stream info if found
-    pub async fn stream_cleanup(&self, stream_id: &StreamId) -> Option<StreamInfo> {
-        let mut streams = self.streams.write().await;
-        streams.remove(stream_id).map(|b| b.info)
-    }
-
-    /// Check if a stream exists
-    pub async fn stream_exists(&self, stream_id: &StreamId) -> bool {
-        let streams = self.streams.read().await;
-        streams.contains_key(stream_id)
+    /// Remove a session's chat buffer from memory
+    /// Returns the final buffer info if found
+    pub async fn buffer_cleanup(&self, session_id: &ClaudeCodeId) -> Option<ChatBufferInfo> {
+        let mut buffers = self.chat_buffers.write().await;
+        buffers.remove(session_id).map(|b| b.info)
     }
 
     // ========================================================================
@@ -873,19 +855,17 @@ fn current_timestamp() -> i64 {
 mod tests {
     use super::*;
 
-    /// Test stream buffer in-memory operations (no database needed)
+    /// Test chat buffer in-memory operations (no database needed)
     #[tokio::test]
-    async fn test_stream_buffer_operations() {
-        // Create a minimal storage with just the streams buffer
-        let streams: RwLock<HashMap<StreamId, ActiveStreamBuffer>> = RwLock::new(HashMap::new());
+    async fn test_chat_buffer_operations() {
+        // Create a minimal buffer map keyed by session_id
+        let buffers: RwLock<HashMap<ClaudeCodeId, ActiveChatBuffer>> = RwLock::new(HashMap::new());
 
-        // Create a stream
-        let stream_id = StreamId::new_v4();
+        // Create a buffer for a session
         let session_id = ClaudeCodeId::new_v4();
         let now = current_timestamp();
 
-        let info = StreamInfo {
-            stream_id,
+        let info = ChatBufferInfo {
             session_id,
             status: StreamStatus::Running,
             user_position: None,
@@ -896,17 +876,17 @@ mod tests {
             error: None,
         };
 
-        let buffer = ActiveStreamBuffer {
+        let buffer = ActiveChatBuffer {
             info,
             events: Vec::new(),
         };
 
-        streams.write().await.insert(stream_id, buffer);
+        buffers.write().await.insert(session_id, buffer);
 
         // Push some events
         {
-            let mut streams = streams.write().await;
-            let buffer = streams.get_mut(&stream_id).unwrap();
+            let mut buffers = buffers.write().await;
+            let buffer = buffers.get_mut(&session_id).unwrap();
 
             buffer.events.push(BufferedEvent {
                 seq: 0,
@@ -928,8 +908,8 @@ mod tests {
 
         // Poll events
         {
-            let mut streams = streams.write().await;
-            let buffer = streams.get_mut(&stream_id).unwrap();
+            let mut buffers = buffers.write().await;
+            let buffer = buffers.get_mut(&session_id).unwrap();
 
             let events: Vec<_> = buffer.events.iter().skip(0).take(10).cloned().collect();
             assert_eq!(events.len(), 2);
@@ -942,8 +922,8 @@ mod tests {
 
         // Poll again - should get nothing new
         {
-            let streams = streams.read().await;
-            let buffer = streams.get(&stream_id).unwrap();
+            let buffers = buffers.read().await;
+            let buffer = buffers.get(&session_id).unwrap();
 
             let events: Vec<_> = buffer.events.iter()
                 .skip(buffer.info.read_position as usize)
@@ -954,8 +934,8 @@ mod tests {
 
         // Add more events
         {
-            let mut streams = streams.write().await;
-            let buffer = streams.get_mut(&stream_id).unwrap();
+            let mut buffers = buffers.write().await;
+            let buffer = buffers.get_mut(&session_id).unwrap();
 
             buffer.events.push(BufferedEvent {
                 seq: 2,
@@ -967,8 +947,8 @@ mod tests {
 
         // Poll again - should get the new event
         {
-            let mut streams = streams.write().await;
-            let buffer = streams.get_mut(&stream_id).unwrap();
+            let mut buffers = buffers.write().await;
+            let buffer = buffers.get_mut(&session_id).unwrap();
 
             let events: Vec<_> = buffer.events.iter()
                 .skip(buffer.info.read_position as usize)
@@ -984,8 +964,8 @@ mod tests {
 
         // Test status transitions
         {
-            let mut streams = streams.write().await;
-            let buffer = streams.get_mut(&stream_id).unwrap();
+            let mut buffers = buffers.write().await;
+            let buffer = buffers.get_mut(&session_id).unwrap();
 
             assert_eq!(buffer.info.status, StreamStatus::Running);
 

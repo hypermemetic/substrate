@@ -1,7 +1,9 @@
 use super::types::{ApprovalId, ApprovalRequest, ApprovalStatus};
 use serde_json::Value;
 use sqlx::{sqlite::{SqliteConnectOptions, SqlitePool}, ConnectOptions, Row};
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::RwLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -20,6 +22,9 @@ impl Default for LoopbackStorageConfig {
 
 pub struct LoopbackStorage {
     pool: SqlitePool,
+    /// Maps tool_use_id -> session_id for correlation
+    /// This allows loopback_permit to find the session_id when called via MCP
+    tool_session_map: RwLock<HashMap<String, String>>,
 }
 
 impl LoopbackStorage {
@@ -33,9 +38,33 @@ impl LoopbackStorage {
             .await
             .map_err(|e| format!("Failed to connect: {}", e))?;
 
-        let storage = Self { pool };
+        let storage = Self {
+            pool,
+            tool_session_map: RwLock::new(HashMap::new()),
+        };
         storage.run_migrations().await?;
         Ok(storage)
+    }
+
+    /// Register a tool_use_id -> session_id mapping
+    /// Called by the background task when it sees a ToolUse event
+    pub fn register_tool_session(&self, tool_use_id: &str, session_id: &str) {
+        if let Ok(mut map) = self.tool_session_map.write() {
+            map.insert(tool_use_id.to_string(), session_id.to_string());
+        }
+    }
+
+    /// Lookup session_id by tool_use_id
+    /// Called by loopback_permit to find the correct session_id
+    pub fn lookup_session_by_tool(&self, tool_use_id: &str) -> Option<String> {
+        self.tool_session_map.read().ok()?.get(tool_use_id).cloned()
+    }
+
+    /// Remove a tool_use_id mapping (called after approval is resolved)
+    pub fn remove_tool_mapping(&self, tool_use_id: &str) {
+        if let Ok(mut map) = self.tool_session_map.write() {
+            map.remove(tool_use_id);
+        }
     }
 
     async fn run_migrations(&self) -> Result<(), String> {

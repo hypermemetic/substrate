@@ -194,8 +194,15 @@ impl ClaudeCodeExecutor {
 
         // Build MCP config - merge loopback config if enabled
         let mcp_config = if loopback_enabled {
-            let plexus_url = std::env::var("PLEXUS_MCP_URL")
+            let base_url = std::env::var("PLEXUS_MCP_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:4445/mcp".to_string());
+
+            // Include session_id in URL for correlation when loopback_permit is called
+            let plexus_url = if let Some(ref sid) = loopback_session_id {
+                format!("{}?session_id={}", base_url, sid)
+            } else {
+                base_url
+            };
 
             let loopback_mcp = serde_json::json!({
                 "mcpServers": {

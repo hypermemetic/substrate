@@ -31,6 +31,11 @@ impl ClaudeCodeLoopback {
         self.mcp_url = url;
         self
     }
+
+    /// Get the underlying storage (for sharing with ClaudeCode)
+    pub fn storage(&self) -> Arc<LoopbackStorage> {
+        self.storage.clone()
+    }
 }
 
 #[hub_methods(
@@ -60,27 +65,17 @@ impl ClaudeCodeLoopback {
     ) -> impl Stream<Item = String> + Send + 'static {
         // IMMEDIATE DEBUG: Log before stream starts
         eprintln!("[LOOPBACK] permit called: tool={}, tool_use_id={}", tool_name, tool_use_id);
-        let _ = std::fs::write("/tmp/loopback_permit_entry.txt", format!(
-            "permit ENTRY at {:?}\ntool: {}\ntool_use_id: {}",
-            std::time::SystemTime::now(), tool_name, tool_use_id
-        ));
 
         let storage = self.storage.clone();
 
-        // Get session ID from environment (set by claudecode when launching)
-        let session_id = std::env::var("LOOPBACK_SESSION_ID")
-            .unwrap_or_else(|_| "unknown".to_string());
+        // Look up session ID from pre-registered tool_use_id mapping
+        // This mapping was set by run_chat_background when it saw the ToolUse event
+        let session_id = storage.lookup_session_by_tool(&tool_use_id)
+            .unwrap_or_else(|| "unknown".to_string());
 
         stream! {
-            // DEBUG: Write to file to confirm permit is being called
-            let _ = std::fs::write("/tmp/loopback_permit_called.txt", format!(
-                "permit called at {:?}\ntool: {}\ntool_use_id: {}\ninput: {}\nsession: {}",
-                std::time::SystemTime::now(),
-                tool_name,
-                tool_use_id,
-                input,
-                session_id
-            ));
+            // DEBUG: Log the lookup result
+            eprintln!("[LOOPBACK] permit: tool_use_id={} mapped to session_id={}", tool_use_id, session_id);
 
             // Create approval request
             let approval = match storage.create_approval(

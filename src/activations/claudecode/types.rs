@@ -7,9 +7,6 @@ use uuid::Uuid;
 /// Unique identifier for a ClaudeCode session
 pub type ClaudeCodeId = Uuid;
 
-/// Unique identifier for an active stream
-pub type StreamId = Uuid;
-
 /// Unique identifier for a message
 pub type MessageId = Uuid;
 
@@ -207,12 +204,10 @@ pub enum StreamStatus {
     Failed,
 }
 
-/// Information about an active stream
+/// Information about an active chat buffer for a session
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct StreamInfo {
-    /// Unique stream identifier
-    pub stream_id: StreamId,
-    /// Session this stream belongs to
+pub struct ChatBufferInfo {
+    /// Session this buffer belongs to
     pub session_id: ClaudeCodeId,
     /// Current status
     pub status: StreamStatus,
@@ -222,9 +217,9 @@ pub struct StreamInfo {
     pub event_count: u64,
     /// Read position (how many events have been consumed)
     pub read_position: u64,
-    /// When the stream started
+    /// When the chat started
     pub started_at: i64,
-    /// When the stream ended (if complete/failed)
+    /// When the chat ended (if complete/failed)
     pub ended_at: Option<i64>,
     /// Error message if failed
     pub error: Option<String>,
@@ -308,11 +303,26 @@ pub enum ForkResult {
 pub enum ChatStartResult {
     #[serde(rename = "started")]
     Ok {
-        stream_id: StreamId,
+        /// Session ID - use this with poll() to get events
         session_id: ClaudeCodeId,
     },
     #[serde(rename = "error")]
     Err { message: String },
+}
+
+/// Pending approval from loopback (simplified for poll response)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PendingApproval {
+    /// Approval ID (use this with loopback.respond)
+    pub id: Uuid,
+    /// Tool requesting approval
+    pub tool_name: String,
+    /// Tool use ID from Claude
+    pub tool_use_id: String,
+    /// Tool input parameters
+    pub input: Value,
+    /// When the request was created
+    pub created_at: i64,
 }
 
 /// Result of polling a stream for events
@@ -331,20 +341,13 @@ pub enum PollResult {
         total_events: u64,
         /// True if there are more events available
         has_more: bool,
+        /// Pending approvals for this session (if loopback enabled)
+        pending_approvals: Vec<PendingApproval>,
     },
     #[serde(rename = "error")]
     Err { message: String },
 }
 
-/// Result of listing active streams
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum StreamListResult {
-    #[serde(rename = "ok")]
-    Ok { streams: Vec<StreamInfo> },
-    #[serde(rename = "error")]
-    Err { message: String },
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CHAT EVENTS - Streaming conversation (needs enum for multiple event types)
