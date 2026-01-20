@@ -231,12 +231,9 @@ async fn main() -> anyhow::Result<()> {
     let methods = plexus.list_methods();
     let plexus_hash = plexus.compute_hash();
 
-    // Convert plexus to RPC module for JSON-RPC server (consumes plexus)
-    // Arc::try_unwrap extracts the inner Plexus if this is the only reference
-    let module = match Arc::try_unwrap(plexus) {
-        Ok(p) => p.into_rpc_module()?,
-        Err(_) => panic!("plexus has multiple references - cannot convert to RPC module"),
-    };
+    // Convert plexus to RPC module for JSON-RPC server
+    // Use arc_into_rpc_module to keep the Arc alive so Weak references remain valid
+    let module = substrate::Plexus::arc_into_rpc_module(plexus)?;
 
     // Choose transport based on CLI flag
     if args.stdio {

@@ -10,11 +10,12 @@ This document provides a complete guide for developing plugins (activations) for
 4. [Manual Implementation (No Macros)](#manual-implementation-no-macros)
 5. [Hub Plugins with Children](#hub-plugins-with-children)
 6. [Parent Context Injection](#parent-context-injection)
-7. [Handle System](#handle-system)
-8. [Synapse CLI Impact](#synapse-cli-impact)
-9. [Registration and Integration](#registration-and-integration)
-10. [Best Practices](#best-practices)
-11. [Reference: Complete Examples](#reference-complete-examples)
+7. [Infrastructure Activations (Arbor Pattern)](#infrastructure-activations-arbor-pattern)
+8. [Handle System](#handle-system)
+9. [Synapse CLI Impact](#synapse-cli-impact)
+10. [Registration and Integration](#registration-and-integration)
+11. [Best Practices](#best-practices)
+12. [Reference: Complete Examples](#reference-complete-examples)
 
 ---
 
@@ -574,6 +575,86 @@ async fn test_my_plugin() {
     // Test methods that don't need parent context
 }
 ```
+
+---
+
+## Infrastructure Activations (Arbor Pattern)
+
+Some activations serve as **infrastructure** - foundational services that other activations depend on directly. Unlike typical activations which communicate solely through Plexus message routing, infrastructure activations provide shared functionality that is injected at construction time.
+
+### Arbor: The Primary Example
+
+Arbor provides tree storage for conversation context, session history, and other hierarchical data. It's used by:
+- **Cone** - Stores conversation trees with message handles
+- **ClaudeCode** - Stores session trees with Claude Code event handles
+
+### Direct vs Plexus Usage
+
+| Operation | Method | Why |
+|-----------|--------|-----|
+| Tree/node CRUD | Direct ArborStorage | Performance, ownership, atomicity |
+| Tree rendering | Direct ArborStorage | Local operation, no external data |
+| Path traversal | Direct ArborStorage | Local operation, no external data |
+| **Handle resolution** | **Via Plexus** | Arbor doesn't know how to interpret foreign handles |
+
+### Correct Pattern
+
+```rust
+// 1. Create Arbor - this is infrastructure
+let arbor_config = ArborConfig {
+    db_path: dir.path().join("arbor.db"),
+    ..Default::default()
+};
+let arbor = Arbor::new(arbor_config).await?;
+let arbor_storage = arbor.storage();
+
+// 2. Cone receives ArborStorage directly at construction
+let cone = Cone::new(cone_config, arbor_storage.clone()).await?;
+
+// 3. Cone uses ArborStorage directly for tree operations
+let tree = arbor_storage.tree_get(&tree_id).await?;
+arbor_storage.node_create_external(&tree_id, parent, handle, None).await?;
+```
+
+### Anti-Pattern
+
+```rust
+// WRONG: Don't route tree operations through Plexus
+plexus.route("arbor.tree_render", json!({"tree_id": tree_id})).await;
+```
+
+### Why Infrastructure is Special
+
+1. **Performance**: Tree operations are frequent and latency-sensitive. Plexus routing adds serialization overhead.
+
+2. **Ownership**: Activations "own" their trees - Cone creates conversation trees, ClaudeCode creates session trees.
+
+3. **Atomicity**: Complex tree operations may require transactions. Direct access enables this.
+
+4. **Type Safety**: Direct usage provides compile-time type safety with no JSON serialization.
+
+### When Plexus IS Needed
+
+The only case for Plexus is **cross-plugin handle resolution**:
+
+```rust
+// Tree contains handles like: cone@1.0.0::chat:msg-123:user:alice
+// To get the actual message content, route through Plexus
+let resolved = plexus.resolve_handle(handle).await?;
+```
+
+Arbor stores references (handles) but doesn't know how to interpret them. The owning plugin (Cone, ClaudeCode, etc.) resolves its own handles.
+
+### Creating Infrastructure Activations
+
+If you're building infrastructure:
+
+1. Provide a `Storage` struct with direct methods
+2. Accept `Arc<YourStorage>` in dependent activation constructors
+3. Document that operations should NOT go through Plexus
+4. Add docstrings explaining the usage pattern
+
+See: `docs/architecture/*_arbor-usage-pattern.md` for detailed documentation.
 
 ---
 

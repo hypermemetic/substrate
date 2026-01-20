@@ -36,7 +36,8 @@ use hyperforge::HyperforgeHub;
 /// async database initialization.
 pub async fn build_plexus() -> Arc<Plexus> {
     // Initialize Arbor first (other activations depend on its storage)
-    let arbor = Arbor::new(ArborConfig::default())
+    // Use explicit type annotation for Weak<Plexus> parent context
+    let arbor: Arbor<Weak<Plexus>> = Arbor::with_context_type(ArborConfig::default())
         .await
         .expect("Failed to initialize Arbor");
     let arbor_storage = arbor.storage();
@@ -46,6 +47,16 @@ pub async fn build_plexus() -> Arc<Plexus> {
     let cone: Cone<Weak<Plexus>> = Cone::with_context_type(ConeStorageConfig::default(), arbor_storage.clone())
         .await
         .expect("Failed to initialize Cone");
+
+    // Initialize ClaudeCode with shared Arbor storage
+    // Use explicit type annotation for Weak<Plexus> parent context
+    let claudecode_storage = ClaudeCodeStorage::new(
+        ClaudeCodeStorageConfig::default(),
+        arbor_storage,
+    )
+    .await
+    .expect("Failed to initialize ClaudeCode storage");
+    let claudecode: ClaudeCode<Weak<Plexus>> = ClaudeCode::with_context_type(Arc::new(claudecode_storage));
 
     // Initialize Mustache for template rendering
     let mustache = Mustache::new(MustacheStorageConfig::default())
@@ -62,22 +73,12 @@ pub async fn build_plexus() -> Arc<Plexus> {
         .await
         .expect("Failed to initialize ClaudeCodeLoopback");
 
-    // Initialize ClaudeCode with shared Arbor and Loopback storage
-    // Use explicit type annotation for Weak<Plexus> parent context
-    let claudecode_storage = ClaudeCodeStorage::new(
-        ClaudeCodeStorageConfig::default(),
-        arbor_storage,
-    )
-    .await
-    .expect("Failed to initialize ClaudeCode storage");
-    let claudecode: ClaudeCode<Weak<Plexus>> = ClaudeCode::with_context_type(Arc::new(claudecode_storage))
-        .with_loopback_storage(loopback.storage());
-
     // Use Arc::new_cyclic to get a Weak<Plexus> during construction
     // This allows us to inject the parent context into Cone and ClaudeCode
     // before the Plexus is fully constructed, avoiding reference cycles
     let plexus = Arc::new_cyclic(|weak_plexus: &Weak<Plexus>| {
         // Inject parent context into plugins that need it
+        arbor.inject_parent(weak_plexus.clone());
         cone.inject_parent(weak_plexus.clone());
         claudecode.inject_parent(weak_plexus.clone());
 

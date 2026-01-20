@@ -8,9 +8,9 @@ pub use activation::{ClaudeCode, ClaudeCodeMethod};
 pub use executor::{ClaudeCodeExecutor, LaunchConfig};
 pub use storage::{ClaudeCodeStorage, ClaudeCodeStorageConfig};
 pub use types::{
-    BufferedEvent, ChatBufferInfo, ChatEvent, ChatStartResult, ChatUsage, ClaudeCodeConfig,
-    ClaudeCodeError, ClaudeCodeId, ClaudeCodeInfo, CreateResult, DeleteResult,
+    BufferedEvent, ChatEvent, ChatStartResult, ChatUsage, ClaudeCodeConfig,
+    ClaudeCodeError, ClaudeCodeHandle, ClaudeCodeId, ClaudeCodeInfo, CreateResult, DeleteResult,
     ForkResult, GetResult, ListResult, Message, MessageId, MessageRole, Model,
-    PendingApproval, PollResult, Position, RawClaudeEvent, RawContentBlock,
-    RawMessage, StreamStatus,
+    PollResult, Position, RawClaudeEvent, RawContentBlock, RawMessage,
+    StreamId, StreamInfo, StreamListResult, StreamStatus,
 };

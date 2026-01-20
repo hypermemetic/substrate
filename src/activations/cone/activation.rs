@@ -70,6 +70,12 @@ impl<P: HubContext> Cone<P> {
         self.hub.get()
     }
 
+    /// Get access to the underlying storage
+    ///
+    /// Useful for testing and direct storage operations.
+    pub fn storage(&self) -> &Arc<ConeStorage> {
+        &self.storage
+    }
 }
 
 /// Convenience constructor and utilities for Cone with NoParent (standalone/testing)
