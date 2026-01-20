@@ -555,3 +555,65 @@ fn extract_display_content(content: &Value) -> String {
         json_str
     }
 }
+
+/// Resolve a handle through HubContext and extract a display string
+async fn resolve_handle_to_string<P: HubContext>(parent: &P, handle: &Handle) -> String {
+    match parent.resolve_handle(handle).await {
+        Ok(mut stream) => {
+            // Collect the first data item from the stream
+            while let Some(item) = stream.next().await {
+                match item {
+                    PlexusStreamItem::Data { content, .. } => {
+                        // Try to extract a meaningful display string from the resolved content
+                        return extract_display_content(&content);
+                    }
+                    PlexusStreamItem::Error { message, .. } => {
+                        return format!("[error: {}]", message);
+                    }
+                    PlexusStreamItem::Done { .. } => break,
+                    _ => continue,
+                }
+            }
+            format!("[empty: {}]", handle)
+        }
+        Err(e) => {
+            format!("[unresolved: {} - {}]", handle.method, e)
+        }
+    }
+}
+
+/// Extract display content from resolved handle data
+fn extract_display_content(content: &Value) -> String {
+    // Try common patterns for resolved content
+
+    // Pattern 1: { "type": "message", "role": "...", "content": "..." }
+    if let Some(msg_content) = content.get("content").and_then(|v| v.as_str()) {
+        let role = content.get("role").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let name = content.get("name").and_then(|v| v.as_str());
+
+        let truncated = if msg_content.len() > 60 {
+            format!("{}...", &msg_content[..57])
+        } else {
+            msg_content.to_string()
+        };
+
+        return if let Some(n) = name {
+            format!("[{}:{}] {}", role, n, truncated.replace('\n', "↵"))
+        } else {
+            format!("[{}] {}", role, truncated.replace('\n', "↵"))
+        };
+    }
+
+    // Pattern 2: { "type": "...", ... } - use type as label
+    if let Some(type_str) = content.get("type").and_then(|v| v.as_str()) {
+        return format!("[{}]", type_str);
+    }
+
+    // Fallback: show truncated JSON
+    let json_str = content.to_string();
+    if json_str.len() > 50 {
+        format!("{}...", &json_str[..47])
+    } else {
+        json_str
+    }
+}
