@@ -242,11 +242,86 @@ pub struct Tree {
 }
 
 impl Tree {
-    /// Render the tree as a text representation
+    /// Render the tree as a text representation (handles shown as references)
     pub fn render(&self) -> String {
         let mut output = String::new();
         self.render_node(&self.root, &mut output, "", true);
         output
+    }
+
+    /// Render the tree with resolved handle content
+    ///
+    /// Takes a resolver function that converts handles to display strings.
+    /// The resolver is called for each external node's handle.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let rendered = tree.render_resolved(|handle| async move {
+    ///     plexus.resolve_handle(handle).await
+    ///         .map(|stream| extract_content(stream))
+    ///         .unwrap_or_else(|_| format!("[unresolved: {}]", handle))
+    /// }).await;
+    /// ```
+    pub async fn render_resolved<F, Fut>(&self, resolver: F) -> String
+    where
+        F: Fn(&Handle) -> Fut,
+        Fut: std::future::Future<Output = String>,
+    {
+        // First, collect all handles and resolve them
+        let mut resolved: std::collections::HashMap<NodeId, String> = std::collections::HashMap::new();
+
+        for (node_id, node) in &self.nodes {
+            if let NodeType::External { handle } = &node.data {
+                let content = resolver(handle).await;
+                resolved.insert(*node_id, content);
+            }
+        }
+
+        // Now render with resolved content
+        let mut output = String::new();
+        self.render_node_resolved(&self.root, &mut output, "", true, &resolved);
+        output
+    }
+
+    fn render_node_resolved(
+        &self,
+        node_id: &NodeId,
+        output: &mut String,
+        prefix: &str,
+        is_last: bool,
+        resolved: &std::collections::HashMap<NodeId, String>,
+    ) {
+        let Some(node) = self.nodes.get(node_id) else {
+            return;
+        };
+
+        let connector = if is_last { "└── " } else { "├── " };
+
+        let content = match &node.data {
+            NodeType::Text { content } => {
+                let truncated = if content.len() > 60 {
+                    format!("{}...", &content[..57])
+                } else {
+                    content.clone()
+                };
+                truncated.replace('\n', "↵")
+            }
+            NodeType::External { handle } => {
+                // Use resolved content if available, otherwise show handle
+                resolved.get(node_id)
+                    .cloned()
+                    .unwrap_or_else(|| format!("[{}]", handle))
+            }
+        };
+
+        output.push_str(&format!("{}{}{}\n", prefix, connector, content));
+
+        let child_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
+
+        for (i, child_id) in node.children.iter().enumerate() {
+            let is_last_child = i == node.children.len() - 1;
+            self.render_node_resolved(child_id, output, &child_prefix, is_last_child, resolved);
+        }
     }
 
     fn render_node(&self, node_id: &NodeId, output: &mut String, prefix: &str, is_last: bool) {

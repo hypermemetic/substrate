@@ -12,6 +12,7 @@ pub use hub_core::serde_helpers;
 
 // Re-export commonly used items
 pub use builder::build_plexus;
+pub use hub_core::plexus::Plexus;
 pub use mcp_bridge::PlexusMcpBridge;
 pub use mcp_session::{SqliteSessionManager, SqliteSessionConfig};
 pub use types::{Envelope, Handle, Origin};

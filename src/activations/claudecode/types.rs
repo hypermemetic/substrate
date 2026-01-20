@@ -1,11 +1,80 @@
 use crate::activations::arbor::{NodeId, TreeId};
+use hub_macro::HandleEnum;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+use super::activation::ClaudeCode;
+
 /// Unique identifier for a ClaudeCode session
 pub type ClaudeCodeId = Uuid;
+
+// ============================================================================
+// Handle types for ClaudeCode activation
+// ============================================================================
+
+/// Type-safe handles for ClaudeCode activation data
+///
+/// Handles reference data stored in the ClaudeCode database and can be embedded
+/// in Arbor tree nodes for external resolution.
+#[derive(Debug, Clone, HandleEnum)]
+#[handle(plugin_id = "ClaudeCode::PLUGIN_ID", version = "1.0.0")]
+pub enum ClaudeCodeHandle {
+    /// Handle to a message in the claudecode database
+    /// Format: `{plugin_id}@1.0.0::chat:msg-{uuid}:{role}:{name}`
+    #[handle(
+        method = "chat",
+        table = "messages",
+        key = "id",
+        key_field = "message_id",
+        strip_prefix = "msg-"
+    )]
+    Message {
+        /// Message ID with "msg-" prefix (e.g., "msg-550e8400-...")
+        message_id: String,
+        /// Role: "user", "assistant", or "system"
+        role: String,
+        /// Display name
+        name: String,
+    },
+
+    /// Handle to an unknown/passthrough event
+    /// Format: `{plugin_id}@1.0.0::passthrough:{event_id}:{event_type}`
+    /// Note: No resolution - passthrough events are inline only
+    #[handle(method = "passthrough")]
+    Passthrough {
+        /// Event ID
+        event_id: String,
+        /// Event type string
+        event_type: String,
+    },
+}
+
+// ============================================================================
+// Handle resolution result types
+// ============================================================================
+
+/// Result of resolving a ClaudeCode handle
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type")]
+pub enum ResolveResult {
+    /// Successfully resolved message
+    #[serde(rename = "resolved_message")]
+    Message {
+        id: String,
+        role: String,
+        content: String,
+        model: Option<String>,
+        name: String,
+    },
+    /// Resolution error
+    #[serde(rename = "error")]
+    Error { message: String },
+}
+
+/// Unique identifier for an active stream
+pub type StreamId = Uuid;
 
 /// Unique identifier for a message
 pub type MessageId = Uuid;
@@ -204,10 +273,12 @@ pub enum StreamStatus {
     Failed,
 }
 
-/// Information about an active chat buffer for a session
+/// Information about an active stream
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct ChatBufferInfo {
-    /// Session this buffer belongs to
+pub struct StreamInfo {
+    /// Unique stream identifier
+    pub stream_id: StreamId,
+    /// Session this stream belongs to
     pub session_id: ClaudeCodeId,
     /// Current status
     pub status: StreamStatus,
@@ -217,9 +288,9 @@ pub struct ChatBufferInfo {
     pub event_count: u64,
     /// Read position (how many events have been consumed)
     pub read_position: u64,
-    /// When the chat started
+    /// When the stream started
     pub started_at: i64,
-    /// When the chat ended (if complete/failed)
+    /// When the stream ended (if complete/failed)
     pub ended_at: Option<i64>,
     /// Error message if failed
     pub error: Option<String>,
@@ -303,26 +374,11 @@ pub enum ForkResult {
 pub enum ChatStartResult {
     #[serde(rename = "started")]
     Ok {
-        /// Session ID - use this with poll() to get events
+        stream_id: StreamId,
         session_id: ClaudeCodeId,
     },
     #[serde(rename = "error")]
     Err { message: String },
-}
-
-/// Pending approval from loopback (simplified for poll response)
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct PendingApproval {
-    /// Approval ID (use this with loopback.respond)
-    pub id: Uuid,
-    /// Tool requesting approval
-    pub tool_name: String,
-    /// Tool use ID from Claude
-    pub tool_use_id: String,
-    /// Tool input parameters
-    pub input: Value,
-    /// When the request was created
-    pub created_at: i64,
 }
 
 /// Result of polling a stream for events
@@ -341,13 +397,20 @@ pub enum PollResult {
         total_events: u64,
         /// True if there are more events available
         has_more: bool,
-        /// Pending approvals for this session (if loopback enabled)
-        pending_approvals: Vec<PendingApproval>,
     },
     #[serde(rename = "error")]
     Err { message: String },
 }
 
+/// Result of listing active streams
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum StreamListResult {
+    #[serde(rename = "ok")]
+    Ok { streams: Vec<StreamInfo> },
+    #[serde(rename = "error")]
+    Err { message: String },
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CHAT EVENTS - Streaming conversation (needs enum for multiple event types)

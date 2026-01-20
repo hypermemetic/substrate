@@ -1,8 +1,6 @@
-use super::activation::Cone;
 use super::methods::ConeIdentifier;
-use super::types::{ConeConfig, ConeError, ConeId, ConeInfo, Message, MessageId, MessageRole, Position};
+use super::types::{ConeConfig, ConeError, ConeHandle, ConeId, ConeInfo, Message, MessageId, MessageRole, Position};
 use crate::activations::arbor::{ArborStorage, NodeId, TreeId};
-use crate::types::Handle;
 use serde_json::Value;
 use sqlx::{sqlite::{SqliteConnectOptions, SqlitePool}, ConnectOptions, Row};
 use std::path::PathBuf;
@@ -488,16 +486,13 @@ impl ConeStorage {
     /// Create a handle for a message
     ///
     /// Format: `{plugin_id}@1.0.0::chat:msg-{id}:{role}:{name}`
-    /// meta[0] = message ID (with msg- prefix for resolve_message_handle compatibility)
-    /// meta[1] = role
-    /// meta[2] = name
-    pub fn message_to_handle(message: &Message, name: &str) -> Handle {
-        Handle::new(Cone::PLUGIN_ID, "1.0.0", "chat")
-            .with_meta(vec![
-                format!("msg-{}", message.id),
-                message.role.as_str().to_string(),
-                name.to_string(),
-            ])
+    /// Uses ConeHandle enum for type-safe handle creation.
+    pub fn message_to_handle(message: &Message, name: &str) -> crate::types::Handle {
+        ConeHandle::Message {
+            message_id: format!("msg-{}", message.id),
+            role: message.role.as_str().to_string(),
+            name: name.to_string(),
+        }.to_handle()
     }
 
     // ========================================================================
@@ -554,6 +549,7 @@ fn current_timestamp() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::Cone;
 
     // ========================================================================
     // INVARIANT: Handle meta format consistency
@@ -645,7 +641,7 @@ mod tests {
         let handle = ConeStorage::message_to_handle(&message, "any-name");
 
         // plugin_id should match Cone's PLUGIN_ID
-        assert_eq!(handle.plugin_id, super::Cone::PLUGIN_ID);
+        assert_eq!(handle.plugin_id, Cone::PLUGIN_ID);
         assert_eq!(handle.version, "1.0.0");
         assert_eq!(handle.method, "chat");
     }
