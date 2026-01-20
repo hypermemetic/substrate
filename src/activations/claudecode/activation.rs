@@ -67,6 +67,53 @@ impl<P: HubContext> ClaudeCode<P> {
     pub fn parent(&self) -> Option<&P> {
         self.hub.get()
     }
+
+    /// Resolve a claudecode handle to its message content
+    ///
+    /// Called by the macro-generated resolve_handle method.
+    /// Handle format: {plugin_id}@1.0.0::chat:msg-{uuid}:{role}:{name}
+    pub async fn resolve_handle_impl(
+        &self,
+        handle: &crate::types::Handle,
+    ) -> Result<crate::plexus::PlexusStream, crate::plexus::PlexusError> {
+        use crate::plexus::{PlexusError, wrap_stream};
+        use async_stream::stream;
+
+        let storage = self.storage.clone();
+
+        // Join meta parts into colon-separated identifier
+        // Format: "msg-{uuid}:{role}:{name}"
+        if handle.meta.is_empty() {
+            return Err(PlexusError::ExecutionError(
+                "ClaudeCode handle missing message ID in meta".to_string()
+            ));
+        }
+        let identifier = handle.meta.join(":");
+
+        // Extract name from meta if present (for response)
+        let name = handle.meta.get(2).cloned();
+
+        let result_stream = stream! {
+            match storage.resolve_message_handle(&identifier).await {
+                Ok(message) => {
+                    yield ResolveResult::Message {
+                        id: message.id.to_string(),
+                        role: message.role.as_str().to_string(),
+                        content: message.content,
+                        model: message.model_id,
+                        name: name.unwrap_or_else(|| message.role.as_str().to_string()),
+                    };
+                }
+                Err(e) => {
+                    yield ResolveResult::Error {
+                        message: format!("Failed to resolve handle: {}", e.message),
+                    };
+                }
+            }
+        };
+
+        Ok(wrap_stream(result_stream, "claudecode.resolve_handle", vec!["claudecode".into()]))
+    }
 }
 
 /// Convenience constructors for ClaudeCode with NoParent (standalone/testing)
@@ -83,7 +130,8 @@ impl ClaudeCode<NoParent> {
 #[hub_methods(
     namespace = "claudecode",
     version = "1.0.0",
-    description = "Manage Claude Code sessions with Arbor-backed conversation history"
+    description = "Manage Claude Code sessions with Arbor-backed conversation history",
+    resolve_handle
 )]
 impl<P: HubContext> ClaudeCode<P> {
     /// Create a new Claude Code session
