@@ -36,7 +36,8 @@ use hyperforge::HyperforgeHub;
 /// async database initialization.
 pub async fn build_plexus() -> Arc<Plexus> {
     // Initialize Arbor first (other activations depend on its storage)
-    let arbor = Arbor::new(ArborConfig::default())
+    // Use explicit type annotation for Weak<Plexus> parent context
+    let arbor: Arbor<Weak<Plexus>> = Arbor::with_context_type(ArborConfig::default())
         .await
         .expect("Failed to initialize Arbor");
     let arbor_storage = arbor.storage();
@@ -77,6 +78,7 @@ pub async fn build_plexus() -> Arc<Plexus> {
     // before the Plexus is fully constructed, avoiding reference cycles
     let plexus = Arc::new_cyclic(|weak_plexus: &Weak<Plexus>| {
         // Inject parent context into plugins that need it
+        arbor.inject_parent(weak_plexus.clone());
         cone.inject_parent(weak_plexus.clone());
         claudecode.inject_parent(weak_plexus.clone());
 

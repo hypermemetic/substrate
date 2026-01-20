@@ -1,11 +1,9 @@
-use super::activation::ClaudeCode;
 use super::types::{
-    BufferedEvent, ChatEvent, ClaudeCodeConfig, ClaudeCodeError, ClaudeCodeId,
+    BufferedEvent, ChatEvent, ClaudeCodeConfig, ClaudeCodeError, ClaudeCodeHandle, ClaudeCodeId,
     ClaudeCodeInfo, Message, MessageId, MessageRole, Model, Position, StreamId,
     StreamInfo, StreamStatus,
 };
 use crate::activations::arbor::{ArborStorage, NodeId, TreeId};
-use crate::types::Handle;
 use serde_json::Value;
 use sqlx::{sqlite::{SqliteConnectOptions, SqlitePool}, ConnectOptions, Row};
 use std::collections::HashMap;
@@ -559,16 +557,13 @@ impl ClaudeCodeStorage {
     /// Create a handle for a message
     ///
     /// Format: `{plugin_id}@1.0.0::chat:msg-{id}:{role}:{name}`
-    /// meta[0] = message ID (with msg- prefix for resolve_message_handle compatibility)
-    /// meta[1] = role
-    /// meta[2] = name
-    pub fn message_to_handle(message: &Message, name: &str) -> Handle {
-        Handle::new(ClaudeCode::PLUGIN_ID, "1.0.0", "chat")
-            .with_meta(vec![
-                format!("msg-{}", message.id),
-                message.role.as_str().to_string(),
-                name.to_string(),
-            ])
+    /// Uses ClaudeCodeHandle enum for type-safe handle creation.
+    pub fn message_to_handle(message: &Message, name: &str) -> crate::types::Handle {
+        ClaudeCodeHandle::Message {
+            message_id: format!("msg-{}", message.id),
+            role: message.role.as_str().to_string(),
+            name: name.to_string(),
+        }.to_handle()
     }
 
     // ========================================================================

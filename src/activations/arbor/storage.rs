@@ -39,7 +39,30 @@ impl Default for ArborConfig {
     }
 }
 
-/// SQLite-based storage for Arbor
+/// SQLite-based storage for Arbor tree structures.
+///
+/// # Usage Pattern: Direct Injection
+///
+/// ArborStorage is **infrastructure** - activations should receive it directly
+/// at construction time, NOT via Plexus routing.
+///
+/// ```ignore
+/// // Correct: Direct injection
+/// let cone = Cone::new(cone_config, arbor_storage.clone()).await?;
+///
+/// // Then use directly for tree operations
+/// let tree = arbor_storage.tree_get(&tree_id).await?;
+/// let node_id = arbor_storage.node_create_external(&tree_id, parent, handle, None).await?;
+/// ```
+///
+/// **Do NOT** route tree operations through Plexus - that adds unnecessary
+/// serialization overhead for what should be direct method calls.
+///
+/// The **only** case where Plexus is needed for Arbor-related data is
+/// cross-plugin handle resolution: when you have a Handle pointing to
+/// external data (e.g., a Cone message) and need to resolve its content.
+///
+/// See: `docs/architecture/*_arbor-usage-pattern.md`
 pub struct ArborStorage {
     pool: SqlitePool,
     config: ArborConfig,
