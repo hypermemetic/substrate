@@ -51,6 +51,28 @@ pub enum ClaudeCodeHandle {
     },
 }
 
+// ============================================================================
+// Handle resolution result types
+// ============================================================================
+
+/// Result of resolving a ClaudeCode handle
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type")]
+pub enum ResolveResult {
+    /// Successfully resolved message
+    #[serde(rename = "resolved_message")]
+    Message {
+        id: String,
+        role: String,
+        content: String,
+        model: Option<String>,
+        name: String,
+    },
+    /// Resolution error
+    #[serde(rename = "error")]
+    Error { message: String },
+}
+
 /// Unique identifier for an active stream
 pub type StreamId = Uuid;
 
