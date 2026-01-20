@@ -62,6 +62,7 @@ cllient = { path = "../../juggernautlabs/cllient" }
 hub-macro = { path = "../hub-macro" }
 hub-core = { path = "../hub-core" }
 hyperforge = { path = "../hyperforge" }
+jsexec = { path = "../jsexec" }
 
 # Mustache templating
 mustache = "0.9"

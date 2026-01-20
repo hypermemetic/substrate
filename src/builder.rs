@@ -16,6 +16,7 @@ use crate::activations::mustache::{Mustache, MustacheStorageConfig};
 use crate::activations::solar::Solar;
 use crate::plexus::Plexus;
 use hyperforge::HyperforgeHub;
+use jsexec::{JsExec, JsExecConfig};
 
 /// Build the plexus with registered activations
 ///
@@ -73,6 +74,9 @@ pub async fn build_plexus() -> Arc<Plexus> {
         .await
         .expect("Failed to initialize ClaudeCodeLoopback");
 
+    // Initialize JsExec for JavaScript execution in V8 isolates
+    let jsexec = JsExec::new(JsExecConfig::default());
+
     // Use Arc::new_cyclic to get a Weak<Plexus> during construction
     // This allows us to inject the parent context into Cone and ClaudeCode
     // before the Plexus is fully constructed, avoiding reference cycles
@@ -93,6 +97,7 @@ pub async fn build_plexus() -> Arc<Plexus> {
             .register(mustache)
             .register(changelog.clone())
             .register(loopback)
+            .register(jsexec)
             .register_hub(Solar::new())
             .register_hub(HyperforgeHub::new())
     });
