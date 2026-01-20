@@ -1,5 +1,5 @@
 [workspace]
-members = ["."]
+members = [".", "hub-core", "hub-macro", "hyperforge"]
 
 [package]
 name = "substrate-hub"
@@ -61,10 +61,10 @@ dialectic = { version = "0.4.1", features = ["tokio"] }
 
 # MCP server via rmcp
 rmcp = { version = "0.12", features = ["server", "transport-io", "transport-streamable-http-server"] }
-cllient = { path = "../../juggernautlabs/cllient" }
-hub-macro = { path = "../hub-macro" }
-hub-core = { path = "../hub-core" }
-hyperforge = { path = "../hyperforge" }
+cllient = { path = "../../../juggernautlabs/cllient" }
+hub-macro = { path = "./hub-macro" }
+hub-core = { path = "./hub-core" }
+hyperforge = { path = "./hyperforge" }
 
 # Mustache templating
 mustache = "0.9"

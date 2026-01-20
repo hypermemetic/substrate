@@ -1,11 +1,55 @@
 use crate::activations::arbor::{NodeId, TreeId};
+use hub_macro::HandleEnum;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+use super::activation::ClaudeCode;
+
 /// Unique identifier for a ClaudeCode session
 pub type ClaudeCodeId = Uuid;
+
+// ============================================================================
+// Handle types for ClaudeCode activation
+// ============================================================================
+
+/// Type-safe handles for ClaudeCode activation data
+///
+/// Handles reference data stored in the ClaudeCode database and can be embedded
+/// in Arbor tree nodes for external resolution.
+#[derive(Debug, Clone, HandleEnum)]
+#[handle(plugin_id = "ClaudeCode::PLUGIN_ID", version = "1.0.0")]
+pub enum ClaudeCodeHandle {
+    /// Handle to a message in the claudecode database
+    /// Format: `{plugin_id}@1.0.0::chat:msg-{uuid}:{role}:{name}`
+    #[handle(
+        method = "chat",
+        table = "messages",
+        key = "id",
+        key_field = "message_id",
+        strip_prefix = "msg-"
+    )]
+    Message {
+        /// Message ID with "msg-" prefix (e.g., "msg-550e8400-...")
+        message_id: String,
+        /// Role: "user", "assistant", or "system"
+        role: String,
+        /// Display name
+        name: String,
+    },
+
+    /// Handle to an unknown/passthrough event
+    /// Format: `{plugin_id}@1.0.0::passthrough:{event_id}:{event_type}`
+    /// Note: No resolution - passthrough events are inline only
+    #[handle(method = "passthrough")]
+    Passthrough {
+        /// Event ID
+        event_id: String,
+        /// Event type string
+        event_type: String,
+    },
+}
 
 /// Unique identifier for an active stream
 pub type StreamId = Uuid;
