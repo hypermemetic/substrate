@@ -162,4 +162,7 @@ async fn main() -> anyhow::Result<()> {
                 .build().await?.serve().await
         }
     }
+
+    // Start the transport server
+    builder.build().await?.serve().await
 }
