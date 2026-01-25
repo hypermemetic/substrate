@@ -4,7 +4,7 @@
 //! See docs/architecture/16680179837700061695_caller-wraps-streaming.md
 
 use substrate::{
-    plexus::Plexus,
+    plexus::DynamicHub,
     activations::health::Health,
 };
 use futures::StreamExt;
@@ -13,8 +13,8 @@ use std::env;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Build the plexus with Health activation only
-    let plexus = Plexus::new()
+    // Build the hub with Health activation only
+    let plexus = DynamicHub::new("plexus")
         .register(Health::new());
 
     // Get args
