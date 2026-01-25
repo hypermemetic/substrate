@@ -86,8 +86,8 @@ pub async fn build_plexus() -> Arc<Plexus> {
         cone.inject_parent(weak_plexus.clone());
         claudecode.inject_parent(weak_plexus.clone());
 
-        // Build and return the Plexus
-        Plexus::new()
+        // Build and return the DynamicHub with "substrate" namespace
+        Plexus::new("substrate")
             .register(Health::new())
             .register(Echo::new())
             .register(Bash::new())

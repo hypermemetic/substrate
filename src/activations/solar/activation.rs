@@ -150,7 +150,7 @@ impl ChildRouter for Solar {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plexus::{Activation, Plexus};
+    use crate::plexus::{Activation, DynamicHub};
 
     #[test]
     fn solar_is_hub_with_planets() {
@@ -168,11 +168,11 @@ mod tests {
     }
 
     #[test]
-    fn solar_registered_with_plexus() {
-        let plexus = Plexus::new().register(Solar::new());
-        let schema = plexus.plugin_schema();
+    fn solar_registered_with_dynamic_hub() {
+        let hub = DynamicHub::new("plexus").register(Solar::new());
+        let schema = hub.plugin_schema();
 
-        // Plexus is a hub
+        // DynamicHub is a hub
         assert!(schema.is_hub());
         let children = schema.children.as_ref().unwrap();
 

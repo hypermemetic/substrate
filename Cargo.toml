@@ -21,6 +21,7 @@ path = "src/bin/mcp_gateway.rs"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+toml = "0.8"
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = "0.1"
 futures = "0.3"
