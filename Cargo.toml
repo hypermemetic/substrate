@@ -59,7 +59,7 @@ dialectic = { version = "0.4.1", features = ["tokio"] }
 
 # MCP server via rmcp
 rmcp = { version = "0.12", features = ["server", "transport-io", "transport-streamable-http-server"] }
-cllient = { path = "../../juggernautlabs/cllient" }
+cllient = { path = "../cllient" }
 hub-macro = { path = "../hub-macro" }
 hub-core = { path = "../hub-core" }
 hub-transport = { path = "../hub-transport" }
@@ -76,6 +76,19 @@ reqwest = { version = "0.11", features = ["json"] }
 jsonrpsee = { version = "0.26", features = ["client", "ws-client"] }
 tokio-tungstenite = "0.21"
 tempfile = "3"
+
+# Release profile optimizations for binary size
+[profile.release]
+opt-level = "z"        # Optimize for size
+lto = true             # Link Time Optimization
+codegen-units = 1      # Better optimization (slower build, smaller binary)
+panic = "abort"        # Remove panic unwinding code
+strip = true           # Remove debug symbols
+
+# Apply size optimizations to all dependencies
+[profile.release.package."*"]
+opt-level = "z"
+strip = true
 
 [[example]]
 name = "rmcp_mcp_server"
