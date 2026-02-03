@@ -14,7 +14,7 @@ use rmcp::{
 };
 use serde_json::json;
 
-use crate::plexus::{Plexus, PlexusError, PluginSchema};
+use crate::plexus::{DynamicHub, PlexusError, PluginSchema};
 use crate::plexus::types::PlexusStreamItem;
 
 // =============================================================================
@@ -87,11 +87,11 @@ fn plexus_to_mcp_error(e: PlexusError) -> McpError {
 /// MCP handler that bridges to Plexus
 #[derive(Clone)]
 pub struct PlexusMcpBridge {
-    plexus: Arc<Plexus>,
+    plexus: Arc<DynamicHub>,
 }
 
 impl PlexusMcpBridge {
-    pub fn new(plexus: Arc<Plexus>) -> Self {
+    pub fn new(plexus: Arc<DynamicHub>) -> Self {
         Self { plexus }
     }
 }

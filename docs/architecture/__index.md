@@ -19,3 +19,7 @@
 
 - **NEW** activation added in `7fa6a8d` - JavaScript execution in sandboxed V8 isolates via Cloudflare workerd
 - See `jsexec/docs/architecture/` for module loading system documentation
+
+## Mobile & Web Clients
+
+- [Mobile Client Architecture](./16677366925482194687_mobile-client-architecture.md) - **NEW**: Building iOS/Android apps with Tauri + generated TypeScript client (remote backend pattern)
