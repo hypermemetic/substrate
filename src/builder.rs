@@ -14,9 +14,10 @@ use crate::activations::echo::Echo;
 use crate::activations::health::Health;
 use crate::activations::mustache::{Mustache, MustacheStorageConfig};
 use crate::activations::solar::Solar;
-use crate::plexus::Plexus;
+use crate::plexus::DynamicHub;
 use hyperforge::HyperforgeHub;
-use jsexec::{JsExec, JsExecConfig};
+// use jsexec::{JsExec, JsExecConfig};  // temporarily disabled - needs API updates
+use registry::Registry;
 
 /// Build the plexus with registered activations
 ///
@@ -35,29 +36,29 @@ use jsexec::{JsExec, JsExecConfig};
 ///
 /// This function is async because Arbor, Cone, and ClaudeCode require
 /// async database initialization.
-pub async fn build_plexus() -> Arc<Plexus> {
+pub async fn build_plexus() -> Arc<DynamicHub> {
     // Initialize Arbor first (other activations depend on its storage)
-    // Use explicit type annotation for Weak<Plexus> parent context
-    let arbor: Arbor<Weak<Plexus>> = Arbor::with_context_type(ArborConfig::default())
+    // Use explicit type annotation for Weak<DynamicHub> parent context
+    let arbor: Arbor<Weak<DynamicHub>> = Arbor::with_context_type(ArborConfig::default())
         .await
         .expect("Failed to initialize Arbor");
     let arbor_storage = arbor.storage();
 
     // Initialize Cone with shared Arbor storage
-    // Use explicit type annotation for Weak<Plexus> parent context
-    let cone: Cone<Weak<Plexus>> = Cone::with_context_type(ConeStorageConfig::default(), arbor_storage.clone())
+    // Use explicit type annotation for Weak<DynamicHub> parent context
+    let cone: Cone<Weak<DynamicHub>> = Cone::with_context_type(ConeStorageConfig::default(), arbor_storage.clone())
         .await
         .expect("Failed to initialize Cone");
 
     // Initialize ClaudeCode with shared Arbor storage
-    // Use explicit type annotation for Weak<Plexus> parent context
+    // Use explicit type annotation for Weak<DynamicHub> parent context
     let claudecode_storage = ClaudeCodeStorage::new(
         ClaudeCodeStorageConfig::default(),
         arbor_storage,
     )
     .await
     .expect("Failed to initialize ClaudeCode storage");
-    let claudecode: ClaudeCode<Weak<Plexus>> = ClaudeCode::with_context_type(Arc::new(claudecode_storage));
+    let claudecode: ClaudeCode<Weak<DynamicHub>> = ClaudeCode::with_context_type(Arc::new(claudecode_storage));
 
     // Initialize Mustache for template rendering
     let mustache = Mustache::new(MustacheStorageConfig::default())
@@ -75,19 +76,24 @@ pub async fn build_plexus() -> Arc<Plexus> {
         .expect("Failed to initialize ClaudeCodeLoopback");
 
     // Initialize JsExec for JavaScript execution in V8 isolates
-    let jsexec = JsExec::new(JsExecConfig::default());
+    // let jsexec = JsExec::new(JsExecConfig::default());  // temporarily disabled
 
-    // Use Arc::new_cyclic to get a Weak<Plexus> during construction
+    // Initialize Registry for backend discovery
+    let registry = Registry::with_defaults()
+        .await
+        .expect("Failed to initialize Registry");
+
+    // Use Arc::new_cyclic to get a Weak<DynamicHub> during construction
     // This allows us to inject the parent context into Cone and ClaudeCode
     // before the Plexus is fully constructed, avoiding reference cycles
-    let plexus = Arc::new_cyclic(|weak_plexus: &Weak<Plexus>| {
+    let plexus = Arc::new_cyclic(|weak_plexus: &Weak<DynamicHub>| {
         // Inject parent context into plugins that need it
         arbor.inject_parent(weak_plexus.clone());
         cone.inject_parent(weak_plexus.clone());
         claudecode.inject_parent(weak_plexus.clone());
 
         // Build and return the DynamicHub with "substrate" namespace
-        Plexus::new("substrate")
+        DynamicHub::new("substrate")
             .register(Health::new())
             .register(Echo::new())
             .register(Bash::new())
@@ -97,9 +103,10 @@ pub async fn build_plexus() -> Arc<Plexus> {
             .register(mustache)
             .register(changelog.clone())
             .register(loopback)
-            .register(jsexec)
+            // .register(jsexec)  // temporarily disabled
+            .register(registry)
             .register_hub(Solar::new())
-            .register_hub(HyperforgeHub::new())
+            .register(HyperforgeHub::new())
     });
 
     // Run changelog startup check

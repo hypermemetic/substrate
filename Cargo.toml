@@ -64,7 +64,8 @@ hub-macro = { path = "../hub-macro" }
 hub-core = { path = "../hub-core" }
 hub-transport = { path = "../hub-transport" }
 hyperforge = { path = "../hyperforge" }
-jsexec = { path = "../jsexec" }
+# jsexec = { path = "../jsexec" }  # temporarily disabled - needs API updates
+registry = { path = "../registry" }
 
 # Mustache templating
 mustache = "0.9"
