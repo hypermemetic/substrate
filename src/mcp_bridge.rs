@@ -1,7 +1,7 @@
-//! MCP server bridge using rmcp with Plexus backend
+//! MCP server bridge using rmcp with Plexus RPC backend
 //!
 //! This module implements the MCP protocol using the rmcp crate,
-//! bridging MCP tool calls to Plexus activation methods.
+//! bridging MCP tool calls to Plexus RPC activation methods.
 
 use std::sync::Arc;
 
@@ -21,7 +21,7 @@ use crate::plexus::types::PlexusStreamItem;
 // Schema Transformation
 // =============================================================================
 
-/// Convert Plexus activation schemas to rmcp Tool format
+/// Convert Plexus RPC activation schemas to rmcp Tool format
 ///
 /// MCP requires all tool inputSchema to have "type": "object" at root.
 /// schemars may produce schemas without this (e.g., for unit types).
@@ -81,10 +81,10 @@ fn plexus_to_mcp_error(e: PlexusError) -> McpError {
 }
 
 // =============================================================================
-// Plexus MCP Bridge
+// Plexus RPC MCP Bridge
 // =============================================================================
 
-/// MCP handler that bridges to Plexus
+/// MCP handler that bridges to Plexus RPC server
 #[derive(Clone)]
 pub struct PlexusMcpBridge {
     plexus: Arc<DynamicHub>,

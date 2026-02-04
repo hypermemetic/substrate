@@ -24,7 +24,7 @@
 use rmcp::transport::streamable_http_server::{
     session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
 };
-use substrate::{build_plexus, PlexusMcpBridge};
+use substrate::{build_plexus_rpc, PlexusMcpBridge};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,18 +39,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let addr = "127.0.0.1:3000";
-    tracing::info!("Building Plexus with all activations...");
+    tracing::info!("Building Plexus hub with all activations...");
 
-    // Build Plexus with all activations (already returns Arc<Plexus>)
-    let plexus = build_plexus().await;
-    let methods = plexus.list_methods();
+    // Build Plexus hub with all activations (returns Arc<DynamicHub>)
+    let hub = build_plexus_rpc().await;
+    let methods = hub.list_methods();
     tracing::info!("Plexus ready with {} methods", methods.len());
     for method in &methods {
         tracing::debug!("  - {}", method);
     }
 
     // Create the handler using the library's PlexusMcpBridge
-    let handler = PlexusMcpBridge::new(plexus);
+    let handler = PlexusMcpBridge::new(hub);
 
     // Create StreamableHttpService
     let config = StreamableHttpServerConfig::default();

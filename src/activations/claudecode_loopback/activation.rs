@@ -2,7 +2,7 @@ use super::storage::{LoopbackStorage, LoopbackStorageConfig};
 use super::types::*;
 use async_stream::stream;
 use futures::Stream;
-use hub_macro::hub_methods;
+use plexus_macros::hub_methods;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
@@ -52,7 +52,7 @@ impl ClaudeCodeLoopback {
     /// Returns a JSON string (not object) because Claude Code expects the MCP response
     /// to have the permission JSON already stringified in content[0].text.
     /// See: https://github.com/anthropics/claude-code/blob/main/docs/permission-prompt-tool.md
-    #[hub_macro::hub_method(params(
+    #[plexus_macros::hub_method(params(
         tool_name = "Name of the tool being requested",
         tool_use_id = "Unique ID for this tool invocation",
         input = "Tool input parameters"
@@ -165,7 +165,7 @@ impl ClaudeCodeLoopback {
     }
 
     /// Respond to a pending approval request
-    #[hub_macro::hub_method(params(
+    #[plexus_macros::hub_method(params(
         approval_id = "ID of the approval request",
         approve = "Whether to approve (true) or deny (false)",
         message = "Optional message/reason"
@@ -191,7 +191,7 @@ impl ClaudeCodeLoopback {
     }
 
     /// List pending approval requests
-    #[hub_macro::hub_method(params(
+    #[plexus_macros::hub_method(params(
         session_id = "Optional session ID to filter by"
     ))]
     async fn pending(
@@ -213,7 +213,7 @@ impl ClaudeCodeLoopback {
     }
 
     /// Generate MCP configuration for a loopback session
-    #[hub_macro::hub_method(params(
+    #[plexus_macros::hub_method(params(
         session_id = "Session ID for correlation"
     ))]
     async fn configure(

@@ -60,9 +60,9 @@ dialectic = { version = "0.4.1", features = ["tokio"] }
 # MCP server via rmcp
 rmcp = { version = "0.12", features = ["server", "transport-io", "transport-streamable-http-server"] }
 cllient = { path = "../../juggernautlabs/cllient" }
-hub-macro = { path = "../hub-macro" }
-hub-core = { path = "../hub-core" }
-hub-transport = { path = "../hub-transport" }
+plexus-macros = { path = "../hub-macro" }
+plexus-core = { path = "../hub-core" }
+plexus-transport = { path = "../hub-transport" }
 hyperforge = { path = "../hyperforge" }
 # jsexec = { path = "../jsexec" }  # temporarily disabled - needs API updates
 registry = { path = "../registry" }

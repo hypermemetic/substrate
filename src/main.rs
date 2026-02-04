@@ -1,12 +1,12 @@
-use substrate::build_plexus;
-use hub_transport::TransportServer;
+use substrate::build_plexus_rpc;
+use plexus_transport::TransportServer;
 use clap::Parser;
 use std::sync::Arc;
 
 /// CLI arguments for substrate
 #[derive(Parser, Debug)]
 #[command(name = "substrate")]
-#[command(about = "Substrate plexus server - JSON-RPC over WebSocket or stdio")]
+#[command(about = "Substrate Plexus RPC server - JSON-RPC over WebSocket or stdio")]
 struct Args {
     /// Run in stdio mode for MCP compatibility (line-delimited JSON-RPC over stdin/stdout)
     #[arg(long)]
@@ -46,9 +46,9 @@ async fn main() -> anyhow::Result<()> {
                 // Set base level to warn, then enable specific modules
                 // This hides sqlx and other noisy deps by default
                 #[cfg(debug_assertions)]
-                let default_filter = "warn,substrate=trace,hub_macro=trace";
+                let default_filter = "warn,substrate=trace,plexus_macros=trace";
                 #[cfg(not(debug_assertions))]
-                let default_filter = "warn,substrate=debug,hub_macro=debug";
+                let default_filter = "warn,substrate=debug,plexus_macros=debug";
                 tracing_subscriber::EnvFilter::new(default_filter)
             })
     };
@@ -69,11 +69,11 @@ async fn main() -> anyhow::Result<()> {
     tracing::debug!("  ├─ debug :: introspection enabled");
     tracing::trace!("  └─ trace :: full observability unlocked");
 
-    // Build plexus (returns Arc<Plexus>)
-    let plexus = build_plexus().await;
-    let activations = plexus.list_activations_info();
-    let methods = plexus.list_methods();
-    let plexus_hash = plexus.compute_hash();
+    // Build Plexus RPC hub (returns Arc<DynamicHub>)
+    let hub = build_plexus_rpc().await;
+    let activations = hub.list_activations_info();
+    let methods = hub.list_methods();
+    let plexus_hash = hub.compute_hash();
 
     // Log activation info
     tracing::info!("Plexus hash: {}", plexus_hash);
@@ -92,13 +92,14 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("");
     tracing::info!("Total methods: {}", methods.len());
 
-    // Configure transport server using hub-transport library
-    let rpc_converter = |arc: Arc<substrate::Plexus>| {
-        substrate::Plexus::arc_into_rpc_module(arc)
+    // Configure transport server using plexus-transport library
+    let rpc_converter = |arc| {
+        use plexus_core::plexus::DynamicHub;
+        DynamicHub::arc_into_rpc_module(arc)
             .map_err(|e| anyhow::anyhow!("Failed to create RPC module: {}", e))
     };
 
-    let mut builder = TransportServer::builder(plexus, rpc_converter);
+    let mut builder = TransportServer::builder(hub, rpc_converter);
 
     // Add requested transports
     if args.stdio {
@@ -115,7 +116,7 @@ async fn main() -> anyhow::Result<()> {
     if args.stdio {
         tracing::info!("Starting stdio transport (MCP-compatible)");
     } else {
-        tracing::info!("Substrate plexus started");
+        tracing::info!("Substrate Plexus RPC server started");
         tracing::info!("  WebSocket: ws://127.0.0.1:{}", args.port);
         if !args.no_mcp {
             tracing::info!("  MCP HTTP:  http://127.0.0.1:{}/mcp", args.port + 1);
