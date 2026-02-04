@@ -38,7 +38,7 @@ use registry::Registry;
 /// into Cone and ClaudeCode, enabling them to resolve foreign handles through
 /// the hub without creating reference cycles.
 ///
-/// This function uses `Arc::new_cyclic` to inject a weak reference to the Plexus
+/// This function uses `Arc::new_cyclic` to inject a weak reference to the hub
 /// into Cone and ClaudeCode, enabling them to resolve foreign handles through
 /// the hub without creating reference cycles.
 ///
