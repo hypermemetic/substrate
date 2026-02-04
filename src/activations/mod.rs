@@ -1,7 +1,7 @@
 // Health is the reference implementation for the new architecture (manual impl)
 pub mod health;
 
-// Echo demonstrates hub-macro usage with the new architecture
+// Echo demonstrates plexus-macros usage with the new architecture
 pub mod echo;
 
 // Solar demonstrates nested plugin hierarchy (plugins with children)

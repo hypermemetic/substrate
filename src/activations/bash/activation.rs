@@ -1,7 +1,7 @@
 use super::executor::BashExecutor;
 use super::types::BashEvent;
 use futures::Stream;
-use hub_macro::hub_methods;
+use plexus_macros::hub_methods;
 
 /// Bash activation - execute shell commands and stream output
 #[derive(Clone)]
@@ -48,7 +48,7 @@ impl Default for Bash {
 )]
 impl Bash {
     /// Execute a bash command and stream stdout, stderr, and exit code
-    #[hub_macro::hub_method]
+    #[plexus_macros::hub_method]
     async fn execute(&self, command: String) -> impl Stream<Item = BashEvent> + Send + 'static {
         self.executor.execute(&command).await
     }

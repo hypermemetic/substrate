@@ -1,5 +1,5 @@
 use crate::activations::arbor::{NodeId, TreeId};
-use hub_macro::HandleEnum;
+use plexus_macros::HandleEnum;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

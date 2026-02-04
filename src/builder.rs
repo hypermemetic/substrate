@@ -1,4 +1,4 @@
-//! Plexus builder - constructs a fully configured Plexus instance
+//! Plexus RPC builder - constructs a fully configured DynamicHub instance
 //!
 //! This module is used by both the main binary and examples.
 
@@ -19,24 +19,24 @@ use hyperforge::HyperforgeHub;
 // use jsexec::{JsExec, JsExecConfig};  // temporarily disabled - needs API updates
 use registry::Registry;
 
-/// Build the plexus with registered activations
+/// Build the Plexus RPC hub with registered activations
 ///
-/// Plexus itself provides introspection methods:
-/// - plexus.call: Route calls to registered activations
-/// - plexus.hash: Get configuration hash for cache invalidation
-/// - plexus.list_activations: Enumerate registered activations
-/// - plexus.schema: Get full plexus schema
+/// The hub implements the Plexus RPC protocol and provides introspection methods:
+/// - substrate.call: Route calls to registered activations
+/// - substrate.hash: Get configuration hash for cache invalidation
+/// - substrate.list_activations: Enumerate registered activations
+/// - substrate.schema: Get full Plexus RPC schema
 ///
 /// Hub activations (with nested children) are registered with `register_hub`
-/// to enable direct nested routing like `plexus.solar.mercury.info`.
+/// to enable direct nested routing like `substrate.solar.mercury.info`.
 ///
-/// This function uses `Arc::new_cyclic` to inject a weak reference to the Plexus
+/// This function uses `Arc::new_cyclic` to inject a weak reference to the hub
 /// into Cone and ClaudeCode, enabling them to resolve foreign handles through
 /// the hub without creating reference cycles.
 ///
 /// This function is async because Arbor, Cone, and ClaudeCode require
 /// async database initialization.
-pub async fn build_plexus() -> Arc<DynamicHub> {
+pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
     // Initialize Arbor first (other activations depend on its storage)
     // Use explicit type annotation for Weak<DynamicHub> parent context
     let arbor: Arbor<Weak<DynamicHub>> = Arbor::with_context_type(ArborConfig::default())
@@ -65,7 +65,7 @@ pub async fn build_plexus() -> Arc<DynamicHub> {
         .await
         .expect("Failed to initialize Mustache");
 
-    // Initialize Changelog for tracking plexus changes
+    // Initialize Changelog for tracking Plexus RPC server changes
     let changelog = Changelog::new(ChangelogStorageConfig::default())
         .await
         .expect("Failed to initialize Changelog");
@@ -85,12 +85,12 @@ pub async fn build_plexus() -> Arc<DynamicHub> {
 
     // Use Arc::new_cyclic to get a Weak<DynamicHub> during construction
     // This allows us to inject the parent context into Cone and ClaudeCode
-    // before the Plexus is fully constructed, avoiding reference cycles
-    let plexus = Arc::new_cyclic(|weak_plexus: &Weak<DynamicHub>| {
-        // Inject parent context into plugins that need it
-        arbor.inject_parent(weak_plexus.clone());
-        cone.inject_parent(weak_plexus.clone());
-        claudecode.inject_parent(weak_plexus.clone());
+    // before the hub is fully constructed, avoiding reference cycles
+    let hub = Arc::new_cyclic(|weak_hub: &Weak<DynamicHub>| {
+        // Inject parent context into activations that need it
+        arbor.inject_parent(weak_hub.clone());
+        cone.inject_parent(weak_hub.clone());
+        claudecode.inject_parent(weak_hub.clone());
 
         // Build and return the DynamicHub with "substrate" namespace
         DynamicHub::new("substrate")
@@ -110,7 +110,7 @@ pub async fn build_plexus() -> Arc<DynamicHub> {
     });
 
     // Run changelog startup check
-    let plexus_hash = plexus.compute_hash();
+    let plexus_hash = hub.compute_hash();
     match changelog.startup_check(&plexus_hash).await {
         Ok((hash_changed, is_documented, message)) => {
             if hash_changed && !is_documented {
@@ -126,5 +126,5 @@ pub async fn build_plexus() -> Arc<DynamicHub> {
         }
     }
 
-    plexus
+    hub
 }
