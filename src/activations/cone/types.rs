@@ -291,6 +291,7 @@ pub enum ResolveResult {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type")]
 #[deprecated(note = "Use method-specific result types instead")]
+#[allow(dead_code)]
 pub enum ConeEvent {
     /// Cone created
     #[serde(rename = "cone_created")]

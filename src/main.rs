@@ -1,7 +1,6 @@
 use substrate::build_plexus_rpc;
 use plexus_transport::TransportServer;
 use clap::Parser;
-use std::sync::Arc;
 
 /// CLI arguments for substrate
 #[derive(Parser, Debug)]

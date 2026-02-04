@@ -85,6 +85,7 @@ struct ChildSummary {
 struct PluginSchema {
     namespace: String,
     #[serde(default)]
+    #[allow(dead_code)]
     description: String,
     methods: Vec<MethodSchema>,
     /// Children (for hub plugins like plexus)
