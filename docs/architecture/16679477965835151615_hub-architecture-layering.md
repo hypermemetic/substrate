@@ -2,7 +2,7 @@
 
 ## Overview
 
-The hub system provides a tree-structured RPC namespace with schema introspection and cross-language code generation.
+Plexus RPC provides a tree-structured RPC namespace with schema introspection and cross-language code generation.
 
 **Mental Model:**
 ```
@@ -21,16 +21,16 @@ The hub system provides a tree-structured RPC namespace with schema introspectio
 ```
 
 - **Externally**: Users call into a tree-like namespace (`arbor.tree_create`, `cone.chat`)
-- **Internally**: The hub references itself to compose functionality
+- **Internally**: Plexus RPC references itself to compose functionality
 - **Storage**: Each backend manages its own persistence
-- **Multiplicity**: Multiple hub backends can coexist
+- **Multiplicity**: Multiple Plexus RPC backends can coexist
 
 ## Layer Breakdown
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│                        Hub Backends                            │
-│  (plexus, future: remote hubs via URL)                        │
+│                    Plexus RPC Backends                         │
+│  (plexus, future: remote backends via URL)                    │
 ├────────────────────────────────────────────────────────────────┤
 │                         hub-macro                              │
 │  #[hub_methods] #[hub_method(streaming)]                      │
@@ -65,11 +65,11 @@ Procedural macros that generate boilerplate:
 - `#[hub_method(streaming)]`: Marks methods, enables streaming
 - Generates: method enum variants, schema extraction, streaming flags
 
-### Hub Backends
+### Plexus RPC Backends
 Concrete implementations (e.g., Plexus):
 - Trees of plugins with internal self-references
 - Backend-specific storage
-- Future: remote hubs as plugins (URL-based)
+- Future: remote backends as plugins (URL-based)
 
 ## Tree Structure
 
@@ -169,11 +169,11 @@ struct MethodSchema {
 }
 ```
 
-## Multi-Hub Vision
+## Multi-Backend Vision
 
-**Current:** All plugins in-process, single hub backend.
+**Current:** All plugins in-process, single Plexus RPC backend.
 
-**Future:** Hubs reference other hubs as plugins via URL.
+**Future:** Backends reference other backends as plugins via URL.
 
 ```
 ┌─────────────────────┐          ┌─────────────────────┐
@@ -191,8 +191,8 @@ struct MethodSchema {
 └─────────────────────┘
 ```
 
-**Requirements for multi-hub:**
-1. Transport envelope for cross-hub calls
+**Requirements for multi-backend:**
+1. Transport envelope for cross-backend calls
 2. Schema federation (remote schemas appear local)
 3. Streaming across network boundary
 4. Authentication/authorization layer
@@ -205,7 +205,7 @@ struct MethodSchema {
 | hub-macro   | Done   | Streaming attribute works                  |
 | synapse     | Done   | IR emission complete                       |
 | hub-codegen | Partial| Types done, namespace generator pending    |
-| Multi-hub   | Future | URL-based hub references not implemented   |
+| Multi-backend | Future | URL-based backend references not implemented |
 
 ## See Also
 
