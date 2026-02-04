@@ -297,7 +297,7 @@ The pipeline is language-agnostic at the IR level. Adding Python support require
 # Start Substrate server
 cargo run
 
-# Connect
+# Connect via WebSocket
 wscat -c ws://localhost:4444
 
 # Call Plexus RPC methods
