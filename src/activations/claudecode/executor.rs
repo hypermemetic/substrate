@@ -167,6 +167,7 @@ impl ClaudeCodeExecutor {
     }
 
     /// Write MCP config to a temp file and return the path
+    #[allow(dead_code)]
     async fn write_mcp_config(&self, config: &Value) -> Result<String, String> {
         let temp_dir = std::env::temp_dir();
         let temp_path = temp_dir.join(format!("mcp-config-{}.json", uuid::Uuid::new_v4()));

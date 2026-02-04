@@ -65,6 +65,7 @@ impl Default for ArborConfig {
 /// See: `docs/architecture/*_arbor-usage-pattern.md`
 pub struct ArborStorage {
     pool: SqlitePool,
+    #[allow(dead_code)]
     config: ArborConfig,
 }
 
