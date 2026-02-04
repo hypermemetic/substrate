@@ -1,186 +1,275 @@
 # Hypermemetic Rebranding Guide
 
-This document explains how to use claude-container to execute the rebranding plan.
+## The Problem
 
-## Quick Start
+The current documentation is too academic. Terms like "Activation", "Plexus", "Handle" make sense to framework authors but not to users trying to solve problems.
 
-```bash
-# First time: build the container with Rust + Haskell
-claude-container -s rebrand \
-  --config .claude-projects-rebrand.yml \
-  -f Dockerfile.claude-container \
-  --build
+**Current state:** "A categorical approach to composable RPC with streaming semantics"
+**Target state:** "Write Rust, get TypeScript SDKs. Zero config, instant streaming."
 
-# Subsequent sessions: reuse cached image
-claude-container -s rebrand \
-  --config .claude-projects-rebrand.yml \
-  -f Dockerfile.claude-container
+## Core Messaging
+
+### One-Liner
+> Write Rust services, get TypeScript clients. Zero drift, instant streaming.
+
+### Elevator Pitch
+> Define your API in Rust with regular functions. The framework extracts the schema from your code (no YAML, no proto files), generates type-safe clients for TypeScript/Rust, and gives you streaming by default. Services compose into trees - call child services like local functions.
+
+### Comparison Hook
+| Feature | gRPC | OpenAPI | tRPC | **Hypermemetic** |
+|---------|------|---------|------|------------------|
+| Schema source | .proto files | YAML/JSON | TypeScript | **Rust code** |
+| Streaming | Complex setup | Webhooks | Limited | **Built-in** |
+| Type safety | Generated | Optional | Full | **Full** |
+| Multi-language | Yes | Yes | TS only | **Yes** |
+| Compose services | Manual | Manual | No | **Native trees** |
+
+---
+
+## Phase 1: Root README (Priority: Highest)
+
+### Create `/README.md`
+
+Structure:
+1. **One-liner** (the hook)
+2. **30-second code example** - Rust service → TypeScript client
+3. **Why this exists** - 3 bullet points max
+4. **Quick start link** - `/docs/QUICKSTART.md`
+5. **Comparison table** - vs gRPC, OpenAPI, tRPC
+6. **Project structure** - what each crate does (one line each)
+
+### Code Example to Use
+
+```rust
+// server.rs - Define your service
+use hub_macro::activation;
+
+#[activation]
+impl TodoService {
+    pub async fn create(&self, title: String) -> Todo {
+        // Your logic here
+    }
+
+    pub async fn list(&self) -> Vec<Todo> {
+        // Streaming happens automatically
+    }
+}
 ```
 
-## Session Workflow
+```typescript
+// client.ts - Generated automatically
+const client = new TodoClient("ws://localhost:4444");
 
-### 1. Start a Phase
-```bash
-# Phase 1: Core README rewrites
-claude-container -s rebrand-phase1 --config .claude-projects-rebrand.yml -f Dockerfile.claude-container
-
-# Phase 2: Examples
-claude-container -s rebrand-phase2 --config .claude-projects-rebrand.yml -f Dockerfile.claude-container
+const todo = await client.create({ title: "Buy milk" });
+const todos = await client.list(); // Streams results
 ```
 
-### 2. Review Changes
-```bash
-# See what Claude changed
-claude-container --diff-session rebrand-phase1
+---
 
-# List all sessions
-claude-container --list-sessions
+## Phase 2: Crate READMEs
+
+### hub-core/README.md
+
+**Current problem:** "Categorical composition of streaming activations"
+**Target:** "The core traits for building composable services"
+
+Structure:
+1. What this crate provides (Activation trait, DynamicHub, Handle system)
+2. When to use this vs hub-macro vs substrate
+3. 10-line example showing Activation implementation
+4. Link to detailed architecture docs
+
+### hub-macro/README.md
+
+**Key message:** "Your code IS the schema"
+
+Structure:
+1. The problem: schema drift between code and API docs
+2. The solution: derive schema from Rust function signatures
+3. Before/after comparison (gRPC proto vs hub-macro)
+4. All the attributes (#[activation], #[streaming], etc.)
+
+### hub-transport/README.md
+
+**Key message:** "One service, any transport"
+
+Structure:
+1. Supported transports: WebSocket, HTTP, stdio (MCP)
+2. How to configure each
+3. Protocol matrix (what features work where)
+4. Deployment patterns
+
+### hub-codegen/README.md
+
+**Key message:** "Instant SDKs, zero config"
+
+Structure:
+1. Supported languages (TypeScript, Rust)
+2. How generation works (from Synapse IR)
+3. CLI usage
+4. Customization options
+
+### substrate/README.md
+
+**Current:** Good architecture docs but buried
+**Target:** Lead with "what can I build?" then architecture
+
+Structure:
+1. What you can build (examples: API gateway, agent orchestrator, plugin system)
+2. 5-minute quickstart
+3. Built-in services (arbor, cone, registry, etc.)
+4. Architecture overview (move current content here)
+5. Link to `/docs/architecture/` for deep dives
+
+### synapse/README.md
+
+**Current problem:** Leads with category theory
+**Target:** Lead with "CLI that discovers APIs"
+
+Structure:
+1. What it does: "Point at any Hypermemetic service, get a CLI"
+2. Demo GIF or transcript
+3. Installation
+4. Usage patterns
+5. Move "Algebraic Foundations" to `/docs/internals/`
+
+---
+
+## Phase 3: Documentation Structure
+
+### Create These Files
+
+```
+/docs/
+├── QUICKSTART.md          # 5-minute tutorial
+├── CONCEPTS.md            # Activation, Hub, Handle, Schema
+├── COMPARISON.md          # vs gRPC, OpenAPI, tRPC, etc.
+├── DEPLOYMENT.md          # Docker, K8s, systemd
+├── STREAMING.md           # How streaming works
+└── internals/
+    ├── ARCHITECTURE.md    # Deep dive for contributors
+    ├── CATEGORY-THEORY.md # Move synapse foundations here
+    └── PROTOCOL.md        # Wire protocol details
 ```
 
-### 3. Merge or Discard
-```bash
-# Happy with changes? Merge them
-claude-container --merge-session rebrand-phase1
+### /docs/QUICKSTART.md
 
-# Not happy? Delete and start over
-claude-container --delete-session rebrand-phase1
+1. Prerequisites (Rust, Node.js)
+2. Create new project
+3. Define a service (copy-paste code)
+4. Run it
+5. Generate TypeScript client
+6. Call from TypeScript
+7. Next steps
+
+### /docs/CONCEPTS.md
+
+Define each term practically:
+- **Activation** = A service that handles requests (like a controller)
+- **Hub** = A router that dispatches to activations (like an app)
+- **Handle** = A reference to another service (like dependency injection)
+- **Schema** = Auto-generated API description (like OpenAPI but from code)
+- **Streaming** = Every response is a stream (like Server-Sent Events but better)
+
+---
+
+## Phase 4: Cargo.toml Updates
+
+Update `description` field in each crate:
+
+```toml
+# hub-core
+description = "Core traits for composable streaming services"
+
+# hub-macro
+description = "Derive API schemas from Rust function signatures"
+
+# hub-transport
+description = "Transport adapters for WebSocket, HTTP, and stdio"
+
+# hub-codegen
+description = "Generate TypeScript and Rust SDKs from service schemas"
+
+# substrate
+description = "Orchestrator for composable Rust services with auto-generated clients"
 ```
 
-## The Rebranding Plan
+---
 
-### Phase 1: Naming & Root README (Week 1)
+## Phase 5: Examples
 
-**Goal**: Create the "front door" experience
+### Create /examples/todo-api/
 
-Tasks for Claude:
-1. Create `/README.md` (root) with:
-   - One-liner: "Write Rust, get TypeScript SDKs. Zero drift, instant streaming."
-   - 30-second code example
-   - Comparison table (vs gRPC, OpenAPI, tRPC)
-   - Quick start link
-
-2. Update `Cargo.toml` descriptions in:
-   - hub-core
-   - hub-macro
-   - hub-transport
-   - hub-codegen
-   - substrate
-
-3. Create `/docs/QUICKSTART.md`
-
-### Phase 2: Individual READMEs (Week 2)
-
-**Goal**: Each crate tells its story
-
-Tasks for Claude:
-1. Rewrite `hub-core/README.md` - focus on Activation trait
-2. Rewrite `hub-macro/README.md` - "code IS schema" message
-3. Rewrite `hub-transport/README.md` - protocol matrix
-4. Rewrite `hub-codegen/README.md` - SDK generation story
-5. Rewrite `substrate/README.md` - orchestrator framing
-
-### Phase 3: Examples (Week 3)
-
-**Goal**: Production-ready examples
-
-Tasks for Claude:
-1. Create `examples/todo-api/` - full CRUD example
-2. Create `examples/streaming/` - progress reporting
-3. Create `examples/typescript-client/` - SDK usage patterns
-
-### Phase 4: Docs Restructure (Week 4)
-
-**Goal**: Move academic content, create practical guides
-
-Tasks for Claude:
-1. Create `/docs/CONCEPTS.md` - Activation, Hub, Schema, Streaming
-2. Create `/docs/COMPARISON.md` - vs alternatives
-3. Move architecture docs to `/docs/internals/`
-4. Strip category theory from front matter of synapse/README.md
-
-## Prompt Templates
-
-### For Phase 1 (Root README)
+A complete, runnable example:
 ```
-Read the rebranding plan in REBRAND.md, then create the root README.md
-following the structure outlined in Phase 1.
-
-Key messaging:
-- "Write Rust, get TypeScript SDKs"
-- Schema comes from code, not YAML/proto files
-- Streaming is built-in, not bolted-on
-- Services compose into trees
-
-Show a real code example from hub-macro, then the generated TypeScript.
+examples/todo-api/
+├── Cargo.toml
+├── src/
+│   ├── main.rs      # Server setup
+│   └── service.rs   # TodoService activation
+├── client/
+│   ├── package.json
+│   └── src/
+│       └── index.ts # Generated client usage
+└── README.md        # How to run
 ```
 
-### For README Rewrites
-```
-Rewrite hub-core/README.md with practical framing:
-1. What problem does this solve? (composable RPC services)
-2. 10-line example showing Activation trait
-3. When to use this vs hub-transport vs substrate
-4. Link to detailed docs
+### Create /examples/streaming/
 
-Remove academic terminology from the intro. Keep technical depth
-in "Architecture" section for contributors.
+Show the streaming story:
+```
+examples/streaming/
+├── src/main.rs      # Service that yields progress updates
+└── README.md        # Explains streaming model
 ```
 
-### For Examples
-```
-Create examples/todo-api/ with:
-- src/main.rs: TodoService activation with CRUD methods
-- src/types.rs: Todo struct, TodoEvent enum
-- README.md: How to run, how to call from curl, how to use TS client
-- tests/: Basic integration tests
+---
 
-Use SQLite for storage. Show proper error handling with PlexusStreamItem::Error.
-```
+## Files to NOT Touch (Keep as-is)
 
-## Useful Commands Inside Container
+- `/substrate/docs/architecture/*.md` - Good internal docs
+- Test files
+- CI/CD configs
+- Cargo.lock files
 
-```bash
-# Check all Rust crates compile
-check-all
-
-# Build synapse (Haskell)
-build-synapse
-
-# Test TypeScript SDK
-test-ts
-
-# Run substrate server
-cd substrate && cargo run --release
-
-# Generate TypeScript client
-cd substrate && cargo run --release &
-cd ../hub-codegen && cargo run -- --typescript ../substrate-sandbox-ts/src/generated
-```
-
-## Files to Focus On
-
-**High Priority (user-facing)**:
-- `/README.md` (create)
-- `/docs/QUICKSTART.md` (create)
-- `hub-core/README.md`
-- `hub-macro/README.md`
-- `substrate/README.md`
-- `substrate-sandbox-ts/README.md`
-
-**Medium Priority**:
-- `hub-transport/README.md`
-- `hub-codegen/README.md`
-- `synapse/README.md`
-
-**Low Priority (move to internals)**:
-- `substrate/docs/architecture/*.md`
-- `synapse/docs/architecture/*.md`
+---
 
 ## Success Criteria
 
 After rebranding:
-1. New user can understand "what is this?" in 30 seconds
-2. Comparison with gRPC/OpenAPI is clear
-3. "Hello World" works in 5 minutes
-4. Academic terminology is in internals, not front matter
+1. New user understands "what is this?" in 30 seconds from root README
+2. Comparison with gRPC/OpenAPI is clear and compelling
+3. "Hello World" works in 5 minutes following QUICKSTART.md
+4. Academic terminology is in `/docs/internals/`, not front matter
 5. All crate descriptions are practical, not abstract
+6. At least one complete runnable example exists
+
+---
+
+## Running the Rebrand
+
+```bash
+# Start container session
+claude-container -s rebrand --config .claude-projects.yml --dockerfile Dockerfile.claude-container
+
+# Inside container, projects are at:
+# /workspace/hub-core
+# /workspace/hub-macro
+# /workspace/substrate
+# etc.
+
+# When done, extract changes:
+claude-container -s rebrand --extract
+```
+
+---
+
+## Notes for Claude
+
+When rewriting READMEs:
+- Lead with the problem being solved, not the solution's architecture
+- Use concrete examples, not abstract descriptions
+- "You can..." not "This enables..."
+- Show code before explaining it
+- Compare to familiar tools (gRPC, Express, tRPC)
+- Keep technical depth but put it after the practical intro
