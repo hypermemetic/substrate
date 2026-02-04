@@ -177,20 +177,6 @@ impl MethodEnumSchema for CelestialBodyMethod {
     }
 }
 
-impl CelestialBodyMethod {
-    /// Generate method schemas with return types for celestial bodies
-    pub fn method_schemas(body_name: &str) -> Vec<MethodSchema> {
-        vec![MethodSchema {
-            name: "info".to_string(),
-            description: format!("Get information about {}", body_name),
-            hash: format!("celestial-info-{}", body_name.to_lowercase()),
-            params: None,
-            returns: Some(schemars::schema_for!(SolarEvent)),
-            streaming: false,
-        }]
-    }
-}
-
 /// Activation wrapper for CelestialBody
 ///
 /// This makes a celestial body callable as a plugin.
