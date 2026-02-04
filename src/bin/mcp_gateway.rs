@@ -70,7 +70,7 @@ struct MethodSchema {
     params: Option<Value>,
 }
 
-/// Child summary (for hub plugins)
+/// Child summary (for hub activations with children)
 #[derive(Debug, Clone, Deserialize)]
 struct ChildSummary {
     namespace: String,
@@ -88,7 +88,7 @@ struct PluginSchema {
     #[allow(dead_code)]
     description: String,
     methods: Vec<MethodSchema>,
-    /// Children (for hub plugins like plexus)
+    /// Children (for hub activations implementing ChildRouter)
     children: Option<Vec<ChildSummary>>,
 }
 
@@ -602,14 +602,14 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("  Plexus URL: {}", args.plexus_url);
     }
 
-    // Create Plexus hub client
-    let hub_client = Arc::new(PlexusClient::new(
+    // Create Plexus client
+    let plexus_client = Arc::new(PlexusClient::new(
         args.plexus_url.clone(),
         Duration::from_secs(args.reconnect_interval),
     ));
 
     // Initial connection
-    if !hub_client.connect().await {
+    if !plexus_client.connect().await {
         if args.test {
             tracing::error!("Failed to connect to Plexus");
             std::process::exit(1);
@@ -621,7 +621,7 @@ async fn main() -> anyhow::Result<()> {
     if args.test {
         tracing::info!("Connected! Fetching schemas...");
 
-        let schemas = hub_client.get_schemas().await;
+        let schemas = plexus_client.get_schemas().await;
         let total_methods: usize = schemas.iter().map(|s| s.methods.len()).sum();
         tracing::info!("Plugins: {}, Total methods: {}", schemas.len(), total_methods);
 
@@ -644,10 +644,10 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Create MCP bridge
-    let bridge = PlexusGatewayBridge::new(hub_client.clone());
+    let bridge = PlexusGatewayBridge::new(plexus_client.clone());
 
     // Log available tools
-    let schemas = hub_client.get_schemas().await;
+    let schemas = plexus_client.get_schemas().await;
     let total_methods: usize = schemas.iter().map(|s| s.methods.len()).sum();
     tracing::info!("Plugins: {}, Methods: {}", schemas.len(), total_methods);
     for schema in &schemas {

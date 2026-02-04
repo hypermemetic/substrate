@@ -1,5 +1,5 @@
 [package]
-name = "substrate-hub"
+name = "substrate"
 version = "0.2.6"
 edition = "2021"
 description = "Reference Plexus RPC server with conversation trees and LLM orchestration"
