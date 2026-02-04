@@ -20,7 +20,7 @@ This document describes the architecture for building iOS (and cross-platform mo
 │  │  Frontend (React/Vue/Svelte)   │ │ :4444   │  ┌───────────────┐  │
 │  │                                 │ │◄───────►│  │  Substrate    │  │
 │  │  import { createClient }        │ │         │  │               │  │
-│  │    from '@plexus/client'        │ │         │  │  Plexus Hub:  │  │
+│  │    from '@plexus/client'        │ │         │  │  Plexus RPC:  │  │
 │  │                                 │ │         │  │  - arbor      │  │
 │  │  const client = createClient({  │ │         │  │  - cone       │  │
 │  │    url: 'ws://server:4444'      │ │         │  │  - claudecode │  │
@@ -85,7 +85,7 @@ This document describes the architecture for building iOS (and cross-platform mo
 **Substrate Server** (existing)
 - Runs on Mac/Linux/Cloud
 - Exposes WebSocket on port 4444 (configurable)
-- Full Plexus hub with all activations
+- Full Plexus RPC with all activations
 - No mobile-specific changes needed
 
 **hub-transport** (existing)

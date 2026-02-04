@@ -1,5 +1,7 @@
 # Rebrand Terminology Strategy
 
+> **⚠️ HISTORICAL DOCUMENT**: This document explored multiple naming options. The final decision was **Plexus RPC**. See [16676565123400000000_plexus-rpc-ecosystem-naming.md](./16676565123400000000_plexus-rpc-ecosystem-naming.md) for the complete naming strategy.
+
 ## Executive Summary
 
 This document establishes a clear, consistent terminology across the hypermemetic stack to prepare for public launch. It resolves naming conflicts, positions the project against competitors, and provides migration guidance.

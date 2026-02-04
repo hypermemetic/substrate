@@ -1,6 +1,48 @@
 # Hypermemetic Rebranding Guide
 
+**STATUS: Phase 1 & 2 Complete** ✅
+
 This document explains how to use claude-container to execute the rebranding plan.
+
+## Rebrand Status
+
+### ✅ Phase 1: COMPLETE (Naming & Documentation)
+- [x] Protocol name decided: **Plexus RPC**
+- [x] substrate/README.md updated with Plexus RPC terminology
+- [x] hub-core/README.md updated
+- [x] hub-macro/README.md created with full documentation
+- [x] hub-transport/README.md updated
+- [x] synapse/README.md updated to reference Plexus RPC servers
+- [x] All Cargo.toml descriptions mention Plexus RPC
+- [x] CLAUDE.md glossary added
+- [x] docs/COMPARISON.md created (vs gRPC, OpenAPI, tRPC, GraphQL)
+- [x] docs/QUICKSTART.md created (5-minute getting started)
+
+### ✅ Phase 2: COMPLETE (Renames & Cleanup)
+- [x] substrate-protocol → plexus-protocol (directory renamed)
+- [x] hub-synapse → plexus-synapse (cabal package renamed, binary still "synapse")
+- [x] Architecture docs updated to use Plexus RPC consistently
+- [x] Old decision documents archived to docs/architecture/old/
+- [x] Outdated src/activations/README.md removed
+
+### ⏳ Phase 3: TODO (Examples)
+- [ ] Create examples/todo-api/ - full CRUD example
+- [ ] Create examples/streaming/ - progress reporting
+- [ ] Create examples/typescript-client/ - SDK usage patterns
+
+### ⏳ Phase 4: TODO (Docs Restructure)
+- [ ] Create /docs/CONCEPTS.md
+- [ ] Consider moving architecture docs to /docs/internals/ (optional)
+
+**Key terminology established:**
+- Protocol: **Plexus RPC**
+- Server: **Plexus RPC server** (e.g., "Substrate is a Plexus RPC server")
+- Core libraries: **hub-\*** (kept for backwards compatibility)
+- Future codegen: **plexus-codegen-{language}** pattern
+
+See [docs/architecture/16676565123400000000_plexus-rpc-ecosystem-naming.md](./architecture/16676565123400000000_plexus-rpc-ecosystem-naming.md) for complete naming strategy.
+
+---
 
 ## Quick Start
 
