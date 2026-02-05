@@ -59,7 +59,7 @@ dialectic = { version = "0.4.1", features = ["tokio"] }
 
 # MCP server via rmcp
 rmcp = { version = "0.12", features = ["server", "transport-io", "transport-streamable-http-server"] }
-cllient = { path = "../cllient" }
+cllient = { path = "../../juggernautlabs/cllient" }
 plexus-macros = { path = "../hub-macro" }
 plexus-core = { path = "../hub-core" }
 plexus-transport = { path = "../hub-transport" }
