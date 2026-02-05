@@ -1,8 +1,8 @@
-# Multi-Hub Architecture with PlexusStreamItem Transport Envelope
+# Multi-Backend Architecture with PlexusStreamItem Transport Envelope
 
 ## TL;DR
 
-**Goal:** Unify the wire format and naming conventions across all hubs, preparing for multi-backend architecture.
+**Goal:** Unify the wire format and naming conventions across all Plexus RPC backends, preparing for multi-backend architecture.
 
 **Key Changes:**
 1. `plexus_call` → `plexus.call` (consistent dot notation)
@@ -16,7 +16,7 @@
 | hub-core | Remove CallEvent, plexus.call returns PlexusStreamItem directly |
 | hub-macro | Rename generated RPC from `_` to `.` notation |
 | substrate | Update RPC registration for dot notation |
-| substrate-protocol | Change `"plexus_call"` → `"plexus.call"` in Transport.hs |
+| plexus-protocol | Change `"plexus_call"` → `"plexus.call"` in Transport.hs |
 | synapse | Add backend as first path segment, remove CallEvent unwrap |
 | hub-codegen | Add PlexusStreamItem to IR, two-layer generation |
 
@@ -77,7 +77,7 @@ pub struct StreamMetadata {
 
 ## Vision
 
-Move from a single Plexus hub to multiple spawnable hub backends, each serving as an independent routing layer. All hubs share a common wire format: `PlexusStreamItem`.
+Move from a single Plexus RPC backend to multiple spawnable backends, each serving as an independent routing layer. All backends share a common wire format: `PlexusStreamItem`.
 
 ## Namespace Consistency
 

@@ -1,7 +1,7 @@
-//! MCP server bridge using rmcp with Plexus backend
+//! MCP server bridge using rmcp with Plexus RPC backend
 //!
 //! This module implements the MCP protocol using the rmcp crate,
-//! bridging MCP tool calls to Plexus activation methods.
+//! bridging MCP tool calls to Plexus RPC activation methods.
 
 use std::sync::Arc;
 
@@ -21,7 +21,7 @@ use crate::plexus::types::PlexusStreamItem;
 // Schema Transformation
 // =============================================================================
 
-/// Convert Plexus activation schemas to rmcp Tool format
+/// Convert Plexus RPC activation schemas to rmcp Tool format
 ///
 /// MCP requires all tool inputSchema to have "type": "object" at root.
 /// schemars may produce schemas without this (e.g., for unit types).
@@ -81,18 +81,18 @@ fn plexus_to_mcp_error(e: PlexusError) -> McpError {
 }
 
 // =============================================================================
-// Plexus MCP Bridge
+// Plexus RPC MCP Bridge
 // =============================================================================
 
-/// MCP handler that bridges to Plexus
+/// MCP handler that bridges to Plexus RPC server
 #[derive(Clone)]
 pub struct PlexusMcpBridge {
-    plexus: Arc<DynamicHub>,
+    hub: Arc<DynamicHub>,
 }
 
 impl PlexusMcpBridge {
-    pub fn new(plexus: Arc<DynamicHub>) -> Self {
-        Self { plexus }
+    pub fn new(hub: Arc<DynamicHub>) -> Self {
+        Self { hub }
     }
 }
 
@@ -116,7 +116,7 @@ impl ServerHandler for PlexusMcpBridge {
         _request: Option<PaginatedRequestParam>,
         _ctx: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
-        let schemas = self.plexus.list_plugin_schemas();
+        let schemas = self.hub.list_plugin_schemas();
         let tools = schemas_to_rmcp_tools(schemas);
 
         tracing::debug!("Listing {} tools", tools.len());
@@ -147,9 +147,9 @@ impl ServerHandler for PlexusMcpBridge {
         // Logger name: plexus.namespace.method (e.g., plexus.bash.execute)
         let logger = format!("plexus.{}", method_name);
 
-        // Call Plexus and get stream
+        // Call Plexus RPC hub and get stream
         let stream = self
-            .plexus
+            .hub
             .route(method_name, arguments)
             .await
             .map_err(plexus_to_mcp_error)?;

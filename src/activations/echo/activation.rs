@@ -36,14 +36,14 @@ impl Default for Echo {
 /// - EchoRpcServer implementation
 /// - Activation trait implementation
 /// - EchoMethod enum with JSON schemas
-#[hub_macro::hub_methods(
+#[plexus_macros::hub_methods(
     namespace = "echo",
     version = "1.0.0",
-    description = "Echo messages back - demonstrates hub-macro usage"
+    description = "Echo messages back - demonstrates plexus-macros usage"
 )]
 impl Echo {
     /// Echo a message back
-    #[hub_macro::hub_method(
+    #[plexus_macros::hub_method(
         description = "Echo a message back the specified number of times",
         params(
             message = "The message to echo",
@@ -70,7 +70,7 @@ impl Echo {
     }
 
     /// Echo a simple message once
-    #[hub_macro::hub_method(
+    #[plexus_macros::hub_method(
         description = "Echo a message once",
         params(message = "The message to echo")
     )]

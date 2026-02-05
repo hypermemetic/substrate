@@ -1,5 +1,5 @@
 use crate::activations::arbor::{NodeId, TreeId};
-use hub_macro::HandleEnum;
+use plexus_macros::HandleEnum;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -281,91 +281,6 @@ pub enum ResolveResult {
     },
     #[serde(rename = "error")]
     Error { message: String },
-}
-
-// ============================================================================
-// Legacy ConeEvent - kept for backwards compatibility but deprecated
-// ============================================================================
-
-/// Events emitted by cone operations (deprecated - use method-specific types)
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(tag = "type")]
-#[deprecated(note = "Use method-specific result types instead")]
-pub enum ConeEvent {
-    /// Cone created
-    #[serde(rename = "cone_created")]
-    ConeCreated {
-        cone_id: ConeId,
-        /// Initial position (tree + root node)
-        head: Position,
-    },
-
-    /// Cone deleted
-    #[serde(rename = "cone_deleted")]
-    ConeDeleted { cone_id: ConeId },
-
-    /// Cone configuration updated
-    #[serde(rename = "cone_updated")]
-    ConeUpdated { cone_id: ConeId },
-
-    /// Cone data returned
-    #[serde(rename = "cone_data")]
-    ConeData { cone: ConeConfig },
-
-    /// List of cones
-    #[serde(rename = "cone_list")]
-    ConeList { cones: Vec<ConeInfo> },
-
-    /// Chat response started (streaming)
-    #[serde(rename = "chat_start")]
-    ChatStart {
-        cone_id: ConeId,
-        /// Position of the user message node
-        user_position: Position,
-    },
-
-    /// Chat content chunk (streaming)
-    #[serde(rename = "chat_content")]
-    ChatContent {
-        cone_id: ConeId,
-        content: String,
-    },
-
-    /// Chat response complete
-    #[serde(rename = "chat_complete")]
-    ChatComplete {
-        cone_id: ConeId,
-        /// The new head position (tree + response node)
-        new_head: Position,
-        /// Total tokens used (if available)
-        usage: Option<ChatUsage>,
-    },
-
-    /// Head position updated (without chat)
-    #[serde(rename = "head_updated")]
-    HeadUpdated {
-        cone_id: ConeId,
-        old_head: Position,
-        new_head: Position,
-    },
-
-    /// Resolved message from a handle
-    #[serde(rename = "resolved_message")]
-    ResolvedMessage {
-        id: String,
-        role: String,
-        content: String,
-        model: Option<String>,
-        name: String,
-    },
-
-    /// Error during operation
-    #[serde(rename = "error")]
-    Error { message: String },
-
-    /// Registry information (available models and services)
-    #[serde(rename = "registry")]
-    Registry(cllient::RegistryExport),
 }
 
 /// Token usage information

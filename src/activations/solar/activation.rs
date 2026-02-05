@@ -64,7 +64,7 @@ impl Default for Solar {
     }
 }
 
-#[hub_macro::hub_methods(
+#[plexus_macros::hub_methods(
     namespace = "solar",
     version = "1.0.0",
     description = "Solar system model - demonstrates nested plugin hierarchy",
@@ -72,7 +72,7 @@ impl Default for Solar {
 )]
 impl Solar {
     /// Observe the entire solar system
-    #[hub_macro::hub_method(
+    #[plexus_macros::hub_method(
         description = "Get an overview of the solar system"
     )]
     async fn observe(&self) -> impl Stream<Item = SolarEvent> + Send + 'static {
@@ -92,7 +92,7 @@ impl Solar {
     }
 
     /// Get information about a specific celestial body
-    #[hub_macro::hub_method(
+    #[plexus_macros::hub_method(
         description = "Get detailed information about a celestial body",
         params(path = "Path to the body (e.g., 'earth', 'jupiter.io', 'saturn.titan')")
     )]

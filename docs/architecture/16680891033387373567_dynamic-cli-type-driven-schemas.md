@@ -8,7 +8,7 @@ This document describes the complete architecture of the self-documenting RPC sy
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         SUBSTRATE (Rust)                             │
+│             SUBSTRATE (Rust) - Plexus RPC Server                     │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                       │
 │  1. Activation Types (with schemars derive)                         │

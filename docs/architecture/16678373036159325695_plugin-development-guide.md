@@ -1,6 +1,6 @@
-# Plugin Development Guide for Plexus Hub
+# Plugin Development Guide for Plexus RPC
 
-This document provides a complete guide for developing plugins (activations) for the Plexus hub system. After reading this guide, you should be able to create plugins without reviewing the codebase, and another developer should be able to integrate your plugin into Plexus without issue.
+This document provides a complete guide for developing plugins (activations) for Plexus RPC. After reading this guide, you should be able to create plugins without reviewing the codebase, and another developer should be able to integrate your plugin into Plexus without issue.
 
 ## Table of Contents
 
@@ -23,7 +23,7 @@ This document provides a complete guide for developing plugins (activations) for
 
 ### What is an Activation?
 
-An **Activation** is a plugin that registers with the Plexus hub. Each activation:
+An **Activation** is a plugin that registers with Plexus RPC. Each activation:
 
 - Has a unique namespace (e.g., `"echo"`, `"health"`, `"solar"`)
 - Exposes methods that can be called via RPC
@@ -32,7 +32,7 @@ An **Activation** is a plugin that registers with the Plexus hub. Each activatio
 
 ### The Caller-Wraps Architecture
 
-Plexus uses a "caller-wraps" streaming architecture:
+Plexus RPC uses a "caller-wraps" streaming architecture:
 
 1. **Activations return typed domain events** - Your methods return `impl Stream<Item = YourEvent>`
 2. **The framework wraps with metadata** - `wrap_stream()` adds provenance, timestamps, and Done events
@@ -153,7 +153,7 @@ pub use activation::MyWidget;
 pub use types::WidgetEvent;
 ```
 
-### Step 4: Register with Plexus
+### Step 4: Register with Plexus RPC
 
 ```rust
 // In builder.rs or your initialization code
@@ -810,7 +810,7 @@ pub enum WidgetEvent {
 
 ## Registration and Integration
 
-### Adding Your Plugin to Plexus
+### Adding Your Plugin to Plexus RPC
 
 1. **Add to activations module:**
    ```rust

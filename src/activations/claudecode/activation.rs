@@ -6,7 +6,7 @@ use super::{
 use crate::plexus::{HubContext, NoParent};
 use async_stream::stream;
 use futures::{Stream, StreamExt};
-use hub_macro::hub_methods;
+use plexus_macros::hub_methods;
 use serde_json::Value;
 use std::marker::PhantomData;
 use std::sync::{Arc, OnceLock};
@@ -15,7 +15,7 @@ use tracing::Instrument;
 /// ClaudeCode activation - manages Claude Code sessions with Arbor-backed history
 ///
 /// Generic over `P: HubContext` to allow different parent contexts:
-/// - `Weak<Plexus>` when registered with a Plexus hub
+/// - `Weak<DynamicHub>` when registered with a DynamicHub
 /// - Custom context types for sub-hubs
 /// - `NoParent` for standalone testing
 #[derive(Clone)]
@@ -50,8 +50,8 @@ impl<P: HubContext> ClaudeCode<P> {
 
     /// Inject parent context for resolving foreign handles
     ///
-    /// Called during hub construction (e.g., via Arc::new_cyclic for Plexus).
-    /// This allows ClaudeCode to resolve handles from other plugins when walking arbor trees.
+    /// Called during hub construction (e.g., via Arc::new_cyclic for DynamicHub).
+    /// This allows ClaudeCode to resolve handles from other activations when walking arbor trees.
     pub fn inject_parent(&self, parent: P) {
         let _ = self.hub.set(parent);
     }
@@ -135,7 +135,7 @@ impl ClaudeCode<NoParent> {
 )]
 impl<P: HubContext> ClaudeCode<P> {
     /// Create a new Claude Code session
-    #[hub_macro::hub_method(params(
+    #[plexus_macros::hub_method(params(
         name = "Human-readable name for the session",
         working_dir = "Working directory for Claude Code",
         model = "Model to use (opus, sonnet, haiku)",
@@ -169,7 +169,7 @@ impl<P: HubContext> ClaudeCode<P> {
     }
 
     /// Chat with a session, streaming tokens like Cone
-    #[hub_macro::hub_method(
+    #[plexus_macros::hub_method(
         streaming,
         params(
             name = "Session name to chat with",
@@ -520,7 +520,7 @@ impl<P: HubContext> ClaudeCode<P> {
     }
 
     /// Get session configuration details
-    #[hub_macro::hub_method]
+    #[plexus_macros::hub_method]
     async fn get(&self, name: String) -> impl Stream<Item = GetResult> + Send + 'static {
         let result = self.storage.session_get_by_name(&name).await;
 
@@ -537,7 +537,7 @@ impl<P: HubContext> ClaudeCode<P> {
     }
 
     /// List all Claude Code sessions
-    #[hub_macro::hub_method]
+    #[plexus_macros::hub_method]
     async fn list(&self) -> impl Stream<Item = ListResult> + Send + 'static {
         let storage = self.storage.clone();
 
@@ -554,7 +554,7 @@ impl<P: HubContext> ClaudeCode<P> {
     }
 
     /// Delete a session
-    #[hub_macro::hub_method]
+    #[plexus_macros::hub_method]
     async fn delete(&self, name: String) -> impl Stream<Item = DeleteResult> + Send + 'static {
         let storage = self.storage.clone();
         let resolve_result = storage.session_get_by_name(&name).await;
@@ -580,7 +580,7 @@ impl<P: HubContext> ClaudeCode<P> {
     }
 
     /// Fork a session to create a branch point
-    #[hub_macro::hub_method]
+    #[plexus_macros::hub_method]
     async fn fork(
         &self,
         name: String,
@@ -637,7 +637,7 @@ impl<P: HubContext> ClaudeCode<P> {
     ///
     /// This is the non-blocking version of chat, designed for loopback scenarios
     /// where the parent needs to poll for events and handle tool approvals.
-    #[hub_macro::hub_method(
+    #[plexus_macros::hub_method(
         params(
             name = "Session name to chat with",
             prompt = "User message / prompt to send",
@@ -709,7 +709,7 @@ impl<P: HubContext> ClaudeCode<P> {
     ///
     /// Returns events since the last poll (or from the specified offset).
     /// Use this to read events from an async chat started with chat_async.
-    #[hub_macro::hub_method(
+    #[plexus_macros::hub_method(
         params(
             stream_id = "Stream ID returned from chat_async",
             from_seq = "Optional: start reading from this sequence number",
@@ -748,7 +748,7 @@ impl<P: HubContext> ClaudeCode<P> {
     /// List active streams
     ///
     /// Returns all active streams, optionally filtered by session.
-    #[hub_macro::hub_method(
+    #[plexus_macros::hub_method(
         params(
             session_id = "Optional: filter by session ID"
         )
