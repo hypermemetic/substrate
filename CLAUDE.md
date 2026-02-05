@@ -23,9 +23,32 @@ print(f'{filename}_your-title.md')
 
 This "chronological bubbling" helps prioritize recent architectural decisions.
 
+## Plexus RPC Terminology
+
+**Plexus RPC** is the protocol name. Use this terminology consistently:
+
+| Term | Definition | Usage |
+|------|------------|-------|
+| **Plexus RPC** | The RPC protocol itself | "Services communicate via Plexus RPC" |
+| **Plexus RPC server** | A server implementing Plexus RPC | "Substrate is a Plexus RPC server" |
+| **Activation** | A service/capability implementing the Activation trait | "Arbor is an activation" |
+| **DynamicHub** | Routes calls to registered activations (formerly "Plexus") | "DynamicHub routes to multiple activations" |
+| **Hub activation** | An activation with children (implements ChildRouter) | "Solar is a hub activation with planet children" |
+| **Substrate** | The reference Plexus RPC server implementation | "Substrate provides arbor, cone, and bash" |
+| **Synapse** | CLI for Plexus RPC servers | "Use synapse to connect to any Plexus RPC server" |
+
+**Library naming:**
+- `hub-core`, `hub-macro`, `hub-transport` - Keep these names (backwards compatibility)
+- Update descriptions to mention "Plexus RPC"
+- Future codegen tools: `plexus-codegen-{language}` pattern
+
+See `docs/architecture/16676565123400000000_plexus-rpc-ecosystem-naming.md` for complete strategy.
+
 ## Key Architecture Documents
 
-- **Plugin Development Guide** (`docs/architecture/16678373036159325695_plugin-development-guide.md`): Complete guide for creating Plexus plugins/activations. Covers hub macros, manual implementation, hub plugins with children, parent context injection, handle system, and Synapse CLI impact. Use this when creating new activations.
+- **Plexus RPC Ecosystem Naming** (`docs/architecture/16676565123400000000_plexus-rpc-ecosystem-naming.md`): Complete naming strategy for the Plexus RPC ecosystem. Covers protocol naming, library naming, codegen tools, and migration path.
+
+- **Plugin Development Guide** (`docs/architecture/16678373036159325695_plugin-development-guide.md`): Complete guide for creating Plexus RPC activations. Covers hub macros, manual implementation, hub plugins with children, parent context injection, handle system, and Synapse CLI impact. Use this when creating new activations.
 
 This project consists of a few pieces: Substrate, Symbols, and Cllient. All should be in the parent which should be called `controlflow`
 When I say "create an architecture doc and link it" I mean to create the same file in whichever subprojects it makes sense to add to. We then have a claude instance which reads them there and this steers cross project development. Ideally when I say "write a doc" that implicitly includes linking it and also mentioning it in the commit you add it to. usually we write a doc when we are going to commit anyway. if I'm asking for one determine if this is at a commit boundary

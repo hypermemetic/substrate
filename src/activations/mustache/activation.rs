@@ -88,7 +88,7 @@ impl Clone for Mustache {
 }
 
 /// Hub-macro generates all the boilerplate for this impl block
-#[hub_macro::hub_methods(
+#[plexus_macros::hub_methods(
     namespace = "mustache",
     version = "1.0.0",
     description = "Mustache template rendering for handle values"
@@ -99,7 +99,7 @@ impl Mustache {
     /// Looks up the template for the given plugin/method/name combination
     /// and renders the value using mustache templating. If template_name
     /// is None, uses "default".
-    #[hub_macro::hub_method(
+    #[plexus_macros::hub_method(
         description = "Render a value using a registered mustache template",
         params(
             plugin_id = "UUID of the plugin that owns the template",
@@ -174,7 +174,7 @@ impl Mustache {
     ///
     /// Templates are identified by (plugin_id, method, name). If a template
     /// with the same identifier already exists, it will be updated.
-    #[hub_macro::hub_method(
+    #[plexus_macros::hub_method(
         description = "Register a mustache template for a plugin method",
         params(
             plugin_id = "UUID of the plugin registering the template",
@@ -215,7 +215,7 @@ impl Mustache {
     }
 
     /// List all templates for a plugin
-    #[hub_macro::hub_method(
+    #[plexus_macros::hub_method(
         description = "List all templates registered for a plugin",
         params(plugin_id = "UUID of the plugin to list templates for")
     )]
@@ -240,7 +240,7 @@ impl Mustache {
     }
 
     /// Get a specific template
-    #[hub_macro::hub_method(
+    #[plexus_macros::hub_method(
         description = "Get a specific template by plugin, method, and name",
         params(
             plugin_id = "UUID of the plugin that owns the template",
@@ -279,7 +279,7 @@ impl Mustache {
     }
 
     /// Delete a template
-    #[hub_macro::hub_method(
+    #[plexus_macros::hub_method(
         description = "Delete a specific template",
         params(
             plugin_id = "UUID of the plugin that owns the template",

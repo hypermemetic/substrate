@@ -1,8 +1,8 @@
 [package]
-name = "substrate-hub"
+name = "substrate"
 version = "0.2.6"
 edition = "2021"
-description = "Backend infrastructure for LLM orchestration - plexus, activations, storage"
+description = "Reference Plexus RPC server with conversation trees and LLM orchestration"
 license = "AGPL-3.0-only"
 default-run = "substrate"
 
@@ -59,10 +59,10 @@ dialectic = { version = "0.4.1", features = ["tokio"] }
 
 # MCP server via rmcp
 rmcp = { version = "0.12", features = ["server", "transport-io", "transport-streamable-http-server"] }
-cllient = { path = "../../juggernautlabs/cllient" }
-hub-macro = { path = "../hub-macro" }
-hub-core = { path = "../hub-core" }
-hub-transport = { path = "../hub-transport" }
+cllient = { path = "../cllient" }
+plexus-macros = { path = "../hub-macro" }
+plexus-core = { path = "../hub-core" }
+plexus-transport = { path = "../hub-transport" }
 hyperforge = { path = "../hyperforge" }
 # jsexec = { path = "../jsexec" }  # temporarily disabled - needs API updates
 registry = { path = "../registry" }

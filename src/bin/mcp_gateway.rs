@@ -70,7 +70,7 @@ struct MethodSchema {
     params: Option<Value>,
 }
 
-/// Child summary (for hub plugins)
+/// Child summary (for hub activations with children)
 #[derive(Debug, Clone, Deserialize)]
 struct ChildSummary {
     namespace: String,
@@ -85,9 +85,10 @@ struct ChildSummary {
 struct PluginSchema {
     namespace: String,
     #[serde(default)]
+    #[allow(dead_code)]
     description: String,
     methods: Vec<MethodSchema>,
-    /// Children (for hub plugins like plexus)
+    /// Children (for hub activations implementing ChildRouter)
     children: Option<Vec<ChildSummary>>,
 }
 
@@ -112,7 +113,7 @@ enum PlexusStreamItem {
     Done,
 }
 
-/// Plexus client with automatic reconnection
+/// Plexus hub client with automatic reconnection
 struct PlexusClient {
     url: String,
     reconnect_interval: Duration,
@@ -335,15 +336,15 @@ impl PlexusClient {
     }
 }
 
-/// MCP handler that bridges to Plexus via JSON-RPC
+/// MCP handler that bridges to Plexus hub via JSON-RPC
 #[derive(Clone)]
 struct PlexusGatewayBridge {
-    plexus: Arc<PlexusClient>,
+    hub: Arc<PlexusClient>,
 }
 
 impl PlexusGatewayBridge {
-    fn new(plexus: Arc<PlexusClient>) -> Self {
-        Self { plexus }
+    fn new(hub: Arc<PlexusClient>) -> Self {
+        Self { hub }
     }
 }
 
@@ -405,13 +406,13 @@ impl ServerHandler for PlexusGatewayBridge {
         _ctx: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
         // Try to refresh schemas (best effort)
-        if let Err(e) = self.plexus.ensure_connected().await {
+        if let Err(e) = self.hub.ensure_connected().await {
             tracing::warn!("Could not connect to Plexus for schema refresh: {}", e);
-        } else if let Err(e) = self.plexus.refresh_schemas().await {
+        } else if let Err(e) = self.hub.refresh_schemas().await {
             tracing::warn!("Could not refresh schemas: {}", e);
         }
 
-        let schemas = self.plexus.get_schemas().await;
+        let schemas = self.hub.get_schemas().await;
         let tools = schemas_to_tools(&schemas);
 
         tracing::debug!("Listing {} tools", tools.len());
@@ -436,9 +437,9 @@ impl ServerHandler for PlexusGatewayBridge {
 
         tracing::debug!("Gateway calling tool: {} with args: {:?}", method_name, arguments);
 
-        // Call Plexus
+        // Call Plexus hub
         let results = self
-            .plexus
+            .hub
             .call(method_name, arguments)
             .await
             .map_err(|e| McpError::internal_error(e, None))?;
