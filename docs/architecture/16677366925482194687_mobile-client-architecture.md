@@ -133,7 +133,7 @@ This document describes the architecture for building iOS (and cross-platform mo
 ```bash
 # When backend schema changes
 cd substrate
-synapse plexus -i | hub-codegen -o ../mobile-app/src/plexus-client
+synapse substrate -i | hub-codegen -o ../mobile-app/src/plexus-client
 
 # TypeScript types automatically updated
 # Compiler catches breaking changes
@@ -254,7 +254,7 @@ npx tauri ios init
 ```bash
 # From substrate repo
 cd substrate
-synapse plexus -i | hub-codegen -o ../substrate-mobile/src/plexus-client
+synapse substrate -i | hub-codegen -o ../substrate-mobile/src/plexus-client
 
 # Or copy from substrate-sandbox-ts if already generated
 cp -r ../substrate-sandbox-ts/lib ../substrate-mobile/src/plexus-client

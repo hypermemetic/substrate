@@ -745,7 +745,7 @@ Synapse is the CLI client that discovers and navigates plugins dynamically from 
 Synapse fetches schemas via `plexus.schema` and generates CLI commands automatically:
 
 ```
-$ synapse plexus mywidget create --name "Test Widget"
+$ synapse substrate mywidget create --name "Test Widget"
 ```
 
 The CLI structure mirrors your plugin structure:
@@ -770,9 +770,9 @@ The CLI structure mirrors your plugin structure:
 For a hub plugin like Solar:
 
 ```
-$ synapse plexus solar observe          # Call solar.observe
-$ synapse plexus solar mercury info     # Call solar.mercury.info
-$ synapse plexus solar jupiter io info  # Call solar.jupiter.io.info
+$ synapse substrate solar observe          # Call solar.observe
+$ synapse substrate solar mercury info     # Call solar.mercury.info
+$ synapse substrate solar jupiter io info  # Call solar.jupiter.io.info
 ```
 
 ### Best Practices for CLI

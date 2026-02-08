@@ -129,7 +129,7 @@ const ws = new WebSocket('ws://localhost:4445')
 ws.send({
   jsonrpc: "2.0",
   id: 1,
-  method: "plexus_call",
+  method: "substrate.call",
   params: {
     method: "arbor.tree_create",
     params: { metadata: {...} }
@@ -144,15 +144,17 @@ Query available activations:
 ```javascript
 // Get all activations on this server
 ws.send({
-  method: "plexus_schema",
+  method: "substrate.schema",
   params: {}
 })
 // Returns: { activations: [{namespace: "arbor", methods: [...]}] }
 
 // Get detailed schema for one activation
 ws.send({
-  method: "plexus_activation_schema",
-  params: ["arbor"]
+  method: "substrate.call",
+  params: {
+    method: "arbor.schema"
+  }
 })
 ```
 ```
@@ -397,7 +399,7 @@ dev2: "If it's tightly coupled with arbor, add it as an activation.
 ```
 dev: "The Plexus server on staging is returning 404 for cone.chat"
 ops: "Checked the activations list? Maybe cone didn't register?"
-dev: "Yep, checking: synapse plexus_schema
+dev: "Yep, checking: synapse substrate schema
      ...only seeing arbor and health. Cone activation failed to start."
 ```
 

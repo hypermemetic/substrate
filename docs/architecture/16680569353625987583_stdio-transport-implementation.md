@@ -228,7 +228,7 @@ For MCP-compatible clients:
 
 ```bash
 # Direct usage
-echo '{"jsonrpc":"2.0","method":"plexus_schema","id":1}' | \
+echo '{"jsonrpc":"2.0","method":"substrate.schema","id":1}' | \
   substrate --stdio
 
 # With mcptools
@@ -334,7 +334,7 @@ connect GlobalOpts{..} = case optStdio of
 ### Validation Results
 
 ✅ **All features working**:
-- Method calls (`plexus_schema`, `health_check`)
+- Method calls (`substrate.schema`, `health_check`)
 - Streaming subscriptions (`bash_execute`)
 - Multiple concurrent requests
 - All 5 activations (34 methods)
@@ -343,7 +343,7 @@ connect GlobalOpts{..} = case optStdio of
 
 ```bash
 # Basic method call
-echo '{"jsonrpc":"2.0","method":"plexus_hash","id":1}' | \
+echo '{"jsonrpc":"2.0","method":"substrate.hash","id":1}' | \
   substrate --stdio
 
 # Subscription with streaming
@@ -351,7 +351,7 @@ echo '{"jsonrpc":"2.0","method":"plexus_hash","id":1}' | \
   substrate --stdio
 
 # List available activations
-(echo '{"jsonrpc":"2.0","method":"plexus_schema","id":3}'; sleep 1) | \
+(echo '{"jsonrpc":"2.0","method":"substrate.schema","id":3}'; sleep 1) | \
   substrate --stdio | jq -c 'select(.params.result.data.activations)'
 ```
 

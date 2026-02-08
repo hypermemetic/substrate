@@ -25,7 +25,7 @@ The stream-based error guidance system is **fully implemented and deployed**. Th
       "try": {
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "plexus_schema",
+        "method": "substrate.schema",
         "params": []
       }
     }
@@ -46,7 +46,7 @@ The stream-based error guidance system is **fully implemented and deployed**. Th
     "activation": "foo"
   },
   "suggestion": {
-    "action": "call_plexus_schema"
+    "action": "call_schema"
   }
 }
 
@@ -85,7 +85,7 @@ The stream-based error guidance system is **fully implemented and deployed**. Th
 
 Added new event types:
 - `GuidanceErrorType` enum (ActivationNotFound, MethodNotFound, InvalidParams)
-- `GuidanceSuggestion` enum (CallPlexusSchema, CallActivationSchema, TryMethod, Custom)
+- `GuidanceSuggestion` enum (CallSchema, CallActivationSchema, TryMethod, Custom)
 - `PlexusStreamEvent::Guidance` variant
 - `PlexusStreamItem::guidance()` constructor
 
@@ -209,7 +209,7 @@ type GuidanceErrorType =
   | { error_kind: "invalid_params"; method: string; reason: string };
 
 type GuidanceSuggestion =
-  | { action: "call_plexus_schema" }
+  | { action: "call_schema" }
   | { action: "call_activation_schema"; namespace: string }
   | { action: "try_method"; method: string; example_params?: any }
   | { action: "custom"; message: string };
@@ -232,7 +232,7 @@ data GuidanceErrorType
   | InvalidParams { method :: Text, reason :: Text }
 
 data GuidanceSuggestion
-  = CallPlexusSchema
+  = CallSchema
   | CallActivationSchema { namespace :: Text }
   | TryMethod { method :: Text, exampleParams :: Maybe Value }
   | Custom { message :: Text }
@@ -276,8 +276,8 @@ function handleGuidance(guidance: GuidanceEvent) {
 
 function getNextCall(suggestion: GuidanceSuggestion): { method: string; params: any[] } {
   switch (suggestion.action) {
-    case "call_plexus_schema":
-      return { method: "plexus_schema", params: [] };
+    case "call_schema":
+      return { method: "substrate.schema", params: [] };
     case "call_activation_schema":
       return { method: "plexus_activation_schema", params: [suggestion.namespace] };
     case "try_method":
@@ -314,7 +314,7 @@ handleGuidance guidance = do
   putStrLn $ "Try: " <> show nextCall
 
 getNextCall :: GuidanceSuggestion -> (Text, [Value])
-getNextCall CallPlexusSchema = ("plexus_schema", [])
+getNextCall CallSchema = ("substrate.schema", [])
 getNextCall (CallActivationSchema ns) = ("plexus_activation_schema", [toJSON ns])
 getNextCall (TryMethod method params) = (method, maybe [] pure params)
 getNextCall (Custom msg) = error $ "Custom guidance: " <> msg
@@ -350,7 +350,7 @@ The new system provides **everything the middleware did, plus more:**
 |---------|-----------|-----------------|
 | Error type | ✅ In message | ✅ Structured `error_type` |
 | Next method to call | ✅ In `data.try` | ✅ In `suggestion.action` |
-| Available activations | ✅ In `data.available_activations` | ✅ Via `call_plexus_schema` |
+| Available activations | ✅ In `data.available_activations` | ✅ Via `call_schema` |
 | Available methods | ❌ Not provided | ✅ In `available_methods` array |
 | Method schema | ❌ Not provided | ✅ In `method_schema` field |
 | Example parameters | ❌ Not provided | ✅ In `suggestion.example_params` |
@@ -375,7 +375,7 @@ symbols-dyn foo bar
     "activation": "foo"
   },
   "suggestion": {
-    "action": "call_plexus_schema"
+    "action": "call_schema"
   }
 }
 

@@ -132,7 +132,7 @@ Parent approval (via loopback.respond)
    loopback.configure
    ```
 
-2. **Direct MCP calls work**: `synapse plexus loopback.permit` creates approvals
+2. **Direct MCP calls work**: `synapse substrate loopback.permit` creates approvals
 3. **Polling/blocking works**: `loopback.permit` correctly waits for `loopback.respond`
 4. **Debug logging confirms**: When called directly, permit logs to `/tmp/loopback_permit_called.txt`
 
@@ -705,10 +705,10 @@ curl -X POST http://127.0.0.1:4445/mcp \
 
 ### Verify Loopback Directly
 ```bash
-synapse plexus loopback.permit tool_name=Read tool_use_id=test-123 input='{"path":"/tmp/test"}'
+synapse substrate loopback.permit tool_name=Read tool_use_id=test-123 input='{"path":"/tmp/test"}'
 # In another terminal:
-synapse plexus loopback.pending
-synapse plexus loopback.respond approval_id=<id> approve=true
+synapse substrate loopback.pending
+synapse substrate loopback.respond approval_id=<id> approve=true
 ```
 
 ## Related Documents

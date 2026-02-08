@@ -22,7 +22,7 @@ Errors were returned as JSON-RPC errors with guidance in the error data:
     "message": "Activation 'foo' not found",
     "data": {
       "try": {
-        "method": "plexus_schema",
+        "method": "substrate.schema",
         "params": []
       },
       "context": {
@@ -56,7 +56,7 @@ Errors are returned as **successful subscriptions** that yield guidance streams:
   },
   "error_kind": "activation_not_found",
   "activation": "foo",
-  "action": "call_plexus_schema"
+  "action": "call_schema"
 }
 
 // Stream event 2: Error
@@ -105,7 +105,7 @@ interface GuidanceEvent {
   method_schema?: Schema;
 
   // Flattened suggestion (one of these groups)
-  action: "call_plexus_schema" | "call_activation_schema" | "try_method" | "custom";
+  action: "call_schema" | "call_activation_schema" | "try_method" | "custom";
 }
 ```
 
@@ -120,11 +120,11 @@ Triggered when namespace doesn't exist (e.g., `foo.bar` where `foo` is unknown).
   "type": "guidance",
   "error_kind": "activation_not_found",
   "activation": "foo",
-  "action": "call_plexus_schema"
+  "action": "call_schema"
 }
 ```
 
-**Frontend action**: Suggest running `plexus_schema` to discover available activations.
+**Frontend action**: Suggest running `substrate.schema` to discover available activations.
 
 #### 2. MethodNotFound
 
@@ -182,15 +182,15 @@ Triggered when method parameters don't match schema.
 
 The `action` field tells frontends what to suggest:
 
-#### 1. CallPlexusSchema
+#### 1. CallSchema
 
 ```json
 {
-  "action": "call_plexus_schema"
+  "action": "call_schema"
 }
 ```
 
-**Meaning**: User should call `plexus_schema` to discover available activations.
+**Meaning**: User should call `substrate.schema` to discover available activations.
 
 **Example CLI output**:
 ```
@@ -343,7 +343,7 @@ function parseGuidance(event: GuidanceEvent): GuidanceInfo {
       return {
         problem: `Activation '${event.activation}' not found`,
         suggestion: "Run 'symbols-dyn --help' to see available activations",
-        nextAction: "call_plexus_schema"
+        nextAction: "call_schema"
       };
 
     case "method_not_found":
@@ -471,7 +471,7 @@ The new stream-based guidance provides **equivalent or better** functionality th
       "try": {
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "plexus_schema",
+        "method": "substrate.schema",
         "params": []
       },
       "activation": "foo",
@@ -488,7 +488,7 @@ The new stream-based guidance provides **equivalent or better** functionality th
   "type": "guidance",
   "error_kind": "activation_not_found",
   "activation": "foo",
-  "action": "call_plexus_schema"
+  "action": "call_schema"
 }
 ```
 
@@ -499,11 +499,11 @@ Frontends can reconstruct the exact `try` request from guidance:
 ```typescript
 function guidanceToTryRequest(guidance: GuidanceEvent): TryRequest {
   switch (guidance.action) {
-    case "call_plexus_schema":
+    case "call_schema":
       return {
         jsonrpc: "2.0",
         id: 1,
-        method: "plexus_schema",
+        method: "substrate.schema",
         params: []
       };
 
@@ -616,7 +616,7 @@ symbols-dyn foo bar
 **Verify**:
 - Guidance event arrives first
 - Error event includes "Activation not found"
-- Suggestion points to `plexus_schema`
+- Suggestion points to `substrate.schema`
 
 ### Test 2: Unknown Method
 
@@ -719,7 +719,7 @@ parseSuggestionAction :: Object -> Parser SuggestionAction
 parseSuggestionAction o = do
   action <- o .: "action"
   case action of
-    "call_plexus_schema" -> pure CallPlexusSchema
+    "call_schema" -> pure CallSchema
     "call_activation_schema" -> CallActivationSchema <$> o .: "namespace"
     "try_method" -> TryMethod <$> o .: "method" <*> o .:? "example_params"
     "custom" -> Custom <$> o .: "message"

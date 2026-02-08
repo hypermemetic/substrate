@@ -85,8 +85,8 @@ Every Plexus RPC activation exposes a `schema` method:
 
 ```rust
 // Query any plugin's schema
-plexus.call("echo.schema", {})
-plexus.call("arbor.schema", {})
+substrate.call("echo.schema", {})
+substrate.call("arbor.schema", {})
 ```
 
 Schemas include:
@@ -301,11 +301,11 @@ cargo run
 wscat -c ws://localhost:4444
 
 # Call Plexus RPC methods
-{"jsonrpc":"2.0","id":1,"method":"plexus_call","params":{"method":"echo.echo","params":{"message":"hello","count":3}}}
+{"jsonrpc":"2.0","id":1,"method":"substrate.call","params":{"method":"echo.echo","params":{"message":"hello","count":3}}}
 
 # Get Plexus RPC schemas
-{"jsonrpc":"2.0","id":1,"method":"plexus_schema"}
-{"jsonrpc":"2.0","id":1,"method":"plexus_call","params":{"method":"arbor.schema"}}
+{"jsonrpc":"2.0","id":1,"method":"substrate.schema"}
+{"jsonrpc":"2.0","id":1,"method":"substrate.call","params":{"method":"arbor.schema"}}
 ```
 
 ### MCP Bridge
@@ -327,7 +327,7 @@ use substrate::{DynamicHub, activations::Echo};
 
 let plexus = DynamicHub::new().register(Echo);
 
-let mut stream = plexus.call(
+let mut stream = substrate.call(
     "echo.echo",
     json!({"message": "test", "count": 1})
 ).await?;

@@ -32,9 +32,9 @@
 
 **CLI (after changes):**
 ```bash
-synapse plexus echo once --message hi      # explicit backend
-synapse plexus solar earth luna info       # nested routing
-synapse otherhub some method               # future: other backends
+synapse substrate echo once --message hi      # explicit backend
+synapse substrate solar earth luna info       # nested routing
+synapse otherhub some method                  # future: other backends
 ```
 
 **PlexusStreamItem (the universal envelope):**
@@ -89,8 +89,9 @@ Change from underscore to dot notation for consistency:
 # Before (inconsistent)
 plexus_call, plexus_schema, plexus_hash
 
-# After (consistent with plugin namespacing)
-plexus.call, plexus.schema, plexus.hash
+# After (backend-namespaced with dot notation)
+substrate.call, substrate.schema, substrate.hash
+# Or for generic documentation: {backend}.call, {backend}.schema, {backend}.hash
 ```
 
 All methods follow `namespace.method` pattern uniformly.
@@ -105,11 +106,11 @@ synapse echo once --message hi
 synapse solar earth luna info
 
 # Proposed: backend is explicit
-synapse plexus echo once --message hi
-synapse plexus solar earth luna info
+synapse substrate echo once --message hi
+synapse substrate solar earth luna info
 
 # Future: multiple backends
-synapse plexus echo once --message hi     # plexus backend on :4444
+synapse substrate echo once --message hi     # substrate backend on :4444
 synapse otherhub foo bar                   # different backend on :5555
 synapse arbor-cluster node list            # another backend
 ```
