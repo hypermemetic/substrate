@@ -55,7 +55,7 @@ wscat -c ws://localhost:4444
 Once connected, send a JSON-RPC request:
 
 ```json
-{"jsonrpc":"2.0","id":1,"method":"plexus_call","params":{"method":"echo.echo","params":{"message":"Hello Plexus!","count":3}}}
+{"jsonrpc":"2.0","id":1,"method":"substrate.call","params":{"method":"echo.echo","params":{"message":"Hello Plexus!","count":3}}}
 ```
 
 You'll receive streaming responses:
@@ -76,7 +76,7 @@ curl -X POST http://localhost:4444/rpc \
   -d '{
     "jsonrpc": "2.0",
     "id": 1,
-    "method": "plexus_call",
+    "method": "substrate.call",
     "params": {
       "method": "echo.echo",
       "params": {
@@ -93,18 +93,18 @@ Get the full schema for all activations:
 
 ```bash
 # Via wscat
-{"jsonrpc":"2.0","id":2,"method":"plexus_schema"}
+{"jsonrpc":"2.0","id":2,"method":"substrate.schema"}
 
 # Via curl
 curl -X POST http://localhost:4444/rpc \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"plexus_schema"}'
+  -d '{"jsonrpc":"2.0","id":2,"method":"substrate.schema"}'
 ```
 
 Query a specific activation's schema:
 
 ```bash
-{"jsonrpc":"2.0","id":3,"method":"plexus_call","params":{"method":"arbor.schema"}}
+{"jsonrpc":"2.0","id":3,"method":"substrate.call","params":{"method":"arbor.schema"}}
 ```
 
 The schema includes:
@@ -239,19 +239,19 @@ The Rust implementation IS the schema. There are no separate `.proto` files, YAM
 ### Check Server Health
 
 ```bash
-{"jsonrpc":"2.0","id":1,"method":"plexus_call","params":{"method":"health.check"}}
+{"jsonrpc":"2.0","id":1,"method":"substrate.call","params":{"method":"health.check"}}
 ```
 
 ### Create a Conversation Tree
 
 ```bash
-{"jsonrpc":"2.0","id":1,"method":"plexus_call","params":{"method":"arbor.tree_create","params":{"title":"My Conversation"}}}
+{"jsonrpc":"2.0","id":1,"method":"substrate.call","params":{"method":"arbor.tree_create","params":{"title":"My Conversation"}}}
 ```
 
 ### Chat with an LLM
 
 ```bash
-{"jsonrpc":"2.0","id":1,"method":"plexus_call","params":{"method":"cone.chat","params":{"name":"session1","prompt":"Hello!"}}}
+{"jsonrpc":"2.0","id":1,"method":"substrate.call","params":{"method":"cone.chat","params":{"name":"session1","prompt":"Hello!"}}}
 ```
 
 ## Troubleshooting
