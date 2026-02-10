@@ -3,7 +3,7 @@
 //! Simplified for caller-wraps streaming architecture refactor.
 //! See docs/architecture/16680179837700061695_caller-wraps-streaming.md
 
-use substrate::{
+use plexus_substrate::{
     plexus::DynamicHub,
     activations::health::Health,
 };

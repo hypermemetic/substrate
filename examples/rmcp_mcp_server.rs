@@ -24,7 +24,7 @@
 use rmcp::transport::streamable_http_server::{
     session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
 };
-use substrate::{build_plexus_rpc, PlexusMcpBridge};
+use plexus_substrate::{build_plexus_rpc, PlexusMcpBridge};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

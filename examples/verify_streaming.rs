@@ -1,4 +1,4 @@
-use substrate::activations::cone::ConeMethod;
+use plexus_substrate::activations::cone::ConeMethod;
 
 fn main() {
     let schemas = ConeMethod::method_schemas();

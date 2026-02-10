@@ -1,4 +1,4 @@
-use substrate::build_plexus_rpc;
+use plexus_substrate::build_plexus_rpc;
 use plexus_transport::TransportServer;
 use clap::Parser;
 

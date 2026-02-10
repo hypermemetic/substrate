@@ -1,17 +1,17 @@
 [package]
-name = "substrate"
+name = "plexus-substrate"
 version = "0.2.6"
 edition = "2021"
 description = "Reference Plexus RPC server with conversation trees and LLM orchestration"
 license = "AGPL-3.0-only"
-default-run = "substrate"
+default-run = "plexus-substrate"
 
 [lib]
-name = "substrate"
+name = "plexus_substrate"
 path = "src/lib.rs"
 
 [[bin]]
-name = "substrate"
+name = "plexus-substrate"
 path = "src/main.rs"
 
 [[bin]]
@@ -59,13 +59,14 @@ dialectic = { version = "0.4.1", features = ["tokio"] }
 
 # MCP server via rmcp
 rmcp = { version = "0.12", features = ["server", "transport-io", "transport-streamable-http-server"] }
-cllient = { path = "../../juggernautlabs/cllient" }
-plexus-macros = { path = "../hub-macro" }
-plexus-core = { path = "../hub-core" }
-plexus-transport = { path = "../hub-transport" }
-hyperforge = { path = "../hyperforge" }
+cllient = "0.2.0"
+plexus-macros = "0.2.1"
+plexus-core = "0.2.1"
+plexus-transport = "0.1.0"
+hyperforge = "2.0.0"
+dji-mic = "0.1.0"
 # jsexec = { path = "../jsexec" }  # temporarily disabled - needs API updates
-registry = { path = "../registry" }
+plexus-registry = "0.1.0"
 
 # Mustache templating
 mustache = "0.9"
@@ -81,3 +82,13 @@ tempfile = "3"
 [[example]]
 name = "rmcp_mcp_server"
 path = "examples/rmcp_mcp_server.rs"
+
+[patch]
+
+[patch.crates-io]
+plexus-macros = { path = "../plexus-macros" }
+plexus-core = { path = "../plexus-core" }
+plexus-transport = { path = "../plexus-transport" }
+hyperforge = { path = "../hyperforge" }
+dji-mic = { path = "../dji-mic" }
+plexus-registry = { path = "../plexus-registry" }
