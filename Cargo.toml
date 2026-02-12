@@ -63,7 +63,7 @@ cllient = { path = "../../juggernautlabs/cllient" }
 plexus-macros = "0.2.1"
 plexus-core = "0.2.1"
 plexus-transport = "0.1.0"
-hyperforge = "2.0.0"
+hyperforge = "3.3.0"
 # jsexec = "0.1.0"  # temporarily disabled - needs API updates
 registry = { package = "plexus-registry", version = "0.1.0" }
 
