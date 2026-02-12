@@ -45,3 +45,6 @@ pub mod changelog;
 
 // ClaudeCode Loopback routes tool permissions back to parent for approval
 pub mod claudecode_loopback;
+
+// Interactive demonstrates bidirectional communication patterns
+pub mod interactive;
