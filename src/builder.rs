@@ -16,7 +16,7 @@ use crate::activations::mustache::{Mustache, MustacheStorageConfig};
 use crate::activations::solar::Solar;
 use crate::plexus::DynamicHub;
 use hyperforge::HyperforgeHub;
-// use jsexec::{JsExec, JsExecConfig};  // temporarily disabled - needs API updates
+use jsexec::{JsExec, JsExecConfig};
 use registry::Registry;
 
 /// Build the Plexus RPC hub with registered activations
@@ -76,7 +76,7 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
         .expect("Failed to initialize ClaudeCodeLoopback");
 
     // Initialize JsExec for JavaScript execution in V8 isolates
-    // let jsexec = JsExec::new(JsExecConfig::default());  // temporarily disabled
+    let jsexec = JsExec::new(JsExecConfig::default());
 
     // Initialize Registry for backend discovery
     let registry = Registry::with_defaults()
@@ -103,7 +103,7 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
             .register(mustache)
             .register(changelog.clone())
             .register(loopback)
-            // .register(jsexec)  // temporarily disabled
+            .register(jsexec)
             .register(registry)
             .register_hub(Solar::new())
             .register(HyperforgeHub::new())

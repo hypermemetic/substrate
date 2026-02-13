@@ -30,9 +30,9 @@ pub struct LoopbackStorage {
 impl LoopbackStorage {
     pub async fn new(config: LoopbackStorageConfig) -> Result<Self, String> {
         let db_url = format!("sqlite:{}?mode=rwc", config.db_path.display());
-        let mut options: SqliteConnectOptions = db_url.parse()
+        let options: SqliteConnectOptions = db_url.parse()
             .map_err(|e| format!("Failed to parse DB URL: {}", e))?;
-        options.disable_statement_logging();
+        let options = options.disable_statement_logging();
 
         let pool = SqlitePool::connect_with(options)
             .await
