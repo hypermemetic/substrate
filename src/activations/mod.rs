@@ -28,5 +28,8 @@ pub mod changelog;
 // ClaudeCode Loopback routes tool permissions back to parent for approval
 pub mod claudecode_loopback;
 
+// Orcha orchestrates Claude sub-agents with approval loops and validation
+pub mod orcha;
+
 // Interactive demonstrates bidirectional communication patterns
 pub mod interactive;

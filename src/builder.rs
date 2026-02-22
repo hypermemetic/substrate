@@ -14,6 +14,7 @@ use crate::activations::echo::Echo;
 use crate::activations::health::Health;
 use crate::activations::interactive::Interactive;
 use crate::activations::mustache::{Mustache, MustacheStorageConfig};
+use crate::activations::orcha::{Orcha, OrchaStorage, OrchaStorageConfig};
 use crate::activations::solar::Solar;
 use crate::plexus::DynamicHub;
 use hyperforge::HyperforgeHub;
@@ -72,9 +73,21 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
         .expect("Failed to initialize Changelog");
 
     // Initialize ClaudeCode Loopback for tool permission routing
-    let loopback = ClaudeCodeLoopback::new(LoopbackStorageConfig::default())
-        .await
-        .expect("Failed to initialize ClaudeCodeLoopback");
+    let loopback = Arc::new(
+        ClaudeCodeLoopback::new(LoopbackStorageConfig::default())
+            .await
+            .expect("Failed to initialize ClaudeCodeLoopback")
+    );
+
+    // Initialize Orcha storage for multi-agent orchestration
+    let orcha_storage = Arc::new(
+        OrchaStorage::new(OrchaStorageConfig::default())
+            .await
+            .expect("Failed to initialize Orcha storage")
+    );
+
+    // Clone arbor_storage for Orcha (needs separate reference)
+    let arbor_storage_for_orcha = arbor.storage();
 
     // Initialize JsExec for JavaScript execution in V8 isolates
     // let jsexec = JsExec::new(JsExecConfig::default());  // temporarily disabled
@@ -93,6 +106,14 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
         cone.inject_parent(weak_hub.clone());
         claudecode.inject_parent(weak_hub.clone());
 
+        // Initialize Orcha with dependencies (needs to be inside closure to access claudecode)
+        let orcha: Orcha<Weak<DynamicHub>> = Orcha::new(
+            orcha_storage.clone(),
+            Arc::new(claudecode.clone()),
+            loopback.clone(),
+            arbor_storage_for_orcha,
+        );
+
         // Build and return the DynamicHub with "substrate" namespace
         DynamicHub::new("substrate")
             .register(Health::new())
@@ -103,7 +124,8 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
             .register(claudecode)
             .register(mustache)
             .register(changelog.clone())
-            .register(loopback)
+            .register((*loopback).clone())
+            .register(orcha)
             // .register(jsexec)  // temporarily disabled
             .register(registry)
             .register(Interactive::new())  // Bidirectional demo activation
