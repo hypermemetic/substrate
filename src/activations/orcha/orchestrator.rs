@@ -211,6 +211,7 @@ pub async fn run_orchestration_task<P: HubContext>(
                         let tool_use_id_clone = tool_use_id.clone();
                         let input_clone = input.clone();
                         let task_context = request.task.clone();
+                        let auto_approve = request.auto_approve;
 
                         tokio::spawn(async move {
                             handle_tool_approval(
@@ -221,6 +222,7 @@ pub async fn run_orchestration_task<P: HubContext>(
                                 tool_use_id_clone,
                                 input_clone,
                                 task_context,
+                                auto_approve,
                             ).await;
                         });
 
@@ -410,6 +412,7 @@ async fn handle_tool_approval<P: HubContext>(
     tool_use_id: String,
     tool_input: serde_json::Value,
     task_context: String,
+    auto_approve: bool,
 ) {
     use futures::StreamExt;
 
@@ -426,6 +429,17 @@ async fn handle_tool_approval<P: HubContext>(
         }
     };
 
+    // Manual approval mode: do nothing, wait for external approval
+    if !auto_approve {
+        tracing::info!(
+            "Auto-approval disabled for session {}. Waiting for manual approval of tool: {}",
+            orcha_session_id,
+            tool_name
+        );
+        return;
+    }
+
+    // Auto-approval mode: spawn Haiku decision agent
     // Create ephemeral session for approval decision
     let decision_session = format!("orcha-approval-{}", uuid::Uuid::new_v4());
     let mut create_stream = claudecode.create(
@@ -520,6 +534,7 @@ pub struct AgentConfig {
     pub working_directory: String,
     pub max_retries: u32,
     pub task_context: String,
+    pub auto_approve: bool,
 }
 
 /// Result of running an agent task
@@ -611,6 +626,7 @@ pub async fn run_agent_task<P: HubContext>(
                         let tool_use_id_clone = tool_use_id.clone();
                         let input_clone = input.clone();
                         let task_context = config.task_context.clone();
+                        let auto_approve = config.auto_approve;
 
                         tokio::spawn(async move {
                             handle_tool_approval(
@@ -621,6 +637,7 @@ pub async fn run_agent_task<P: HubContext>(
                                 tool_use_id_clone,
                                 input_clone,
                                 task_context,
+                                auto_approve,
                             ).await;
                         });
                     }
@@ -875,6 +892,7 @@ async fn handle_agent_spawn_request<P: HubContext>(
                 working_directory: "/workspace".to_string(),
                 max_retries: session.max_retries,
                 task_context,
+                auto_approve: true, // TODO: Store in session and retrieve
             };
 
             spawn_agent_task(

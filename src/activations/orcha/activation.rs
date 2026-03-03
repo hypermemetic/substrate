@@ -685,6 +685,7 @@ impl<P: HubContext> Orcha<P> {
                         working_directory: "/workspace".to_string(),
                         max_retries: session.max_retries,
                         task_context: request.subtask.clone(),
+                        auto_approve: true, // TODO: Store in session and retrieve
                     };
 
                     super::orchestrator::spawn_agent_task(
@@ -748,6 +749,132 @@ impl<P: HubContext> Orcha<P> {
                 Err(e) => {
                     yield GetAgentResult::Err {
                         message: format!("Agent not found: {}", e),
+                    };
+                }
+            }
+        }
+    }
+
+    /// List pending approval requests for a session
+    ///
+    /// Returns all approval requests awaiting manual approval.
+    /// Only relevant when auto_approve is disabled.
+    #[plexus_macros::hub_method]
+    async fn list_pending_approvals(
+        &self,
+        request: ListApprovalsRequest,
+    ) -> impl Stream<Item = ListApprovalsResult> + Send + 'static {
+        let loopback = self.loopback.clone();
+        let session_id = request.session_id;
+
+        stream! {
+            match loopback.storage().list_pending(Some(&session_id)).await {
+                Ok(approvals) => {
+                    let approval_infos: Vec<ApprovalInfo> = approvals
+                        .into_iter()
+                        .map(|approval| ApprovalInfo {
+                            approval_id: approval.id.to_string(),
+                            session_id: approval.session_id,
+                            tool_name: approval.tool_name,
+                            tool_use_id: approval.tool_use_id,
+                            tool_input: approval.input,
+                            created_at: chrono::DateTime::from_timestamp(approval.created_at, 0)
+                                .map(|dt| dt.to_rfc3339())
+                                .unwrap_or_else(|| approval.created_at.to_string()),
+                        })
+                        .collect();
+
+                    yield ListApprovalsResult::Ok {
+                        approvals: approval_infos,
+                    };
+                }
+                Err(e) => {
+                    yield ListApprovalsResult::Err {
+                        message: format!("Failed to list pending approvals: {}", e),
+                    };
+                }
+            }
+        }
+    }
+
+    /// Approve a pending request
+    ///
+    /// Approves a tool use request and unblocks the waiting agent.
+    /// The approval_id comes from list_pending_approvals.
+    #[plexus_macros::hub_method]
+    async fn approve_request(
+        &self,
+        request: ApproveRequest,
+    ) -> impl Stream<Item = ApprovalActionResult> + Send + 'static {
+        let loopback = self.loopback.clone();
+        let approval_id = request.approval_id.clone();
+        let message = request.message.clone();
+
+        stream! {
+            match uuid::Uuid::parse_str(&approval_id) {
+                Ok(uuid_id) => {
+                    match loopback.storage()
+                        .resolve_approval(&uuid_id, true, message.clone())
+                        .await
+                    {
+                        Ok(_) => {
+                            yield ApprovalActionResult::Ok {
+                                approval_id: approval_id.clone(),
+                                message: Some("Approved".to_string()),
+                            };
+                        }
+                        Err(e) => {
+                            yield ApprovalActionResult::Err {
+                                message: format!("Failed to approve: {}", e),
+                            };
+                        }
+                    }
+                }
+                Err(_) => {
+                    yield ApprovalActionResult::Err {
+                        message: format!("Invalid approval_id format: {}", approval_id),
+                    };
+                }
+            }
+        }
+    }
+
+    /// Deny a pending request
+    ///
+    /// Denies a tool use request. The agent will receive an error
+    /// and may adapt or fail depending on its error handling.
+    #[plexus_macros::hub_method]
+    async fn deny_request(
+        &self,
+        request: DenyRequest,
+    ) -> impl Stream<Item = ApprovalActionResult> + Send + 'static {
+        let loopback = self.loopback.clone();
+        let approval_id = request.approval_id.clone();
+        let reason = request.reason.clone();
+
+        stream! {
+            match uuid::Uuid::parse_str(&approval_id) {
+                Ok(uuid_id) => {
+                    match loopback.storage()
+                        .resolve_approval(&uuid_id, false, reason.clone())
+                        .await
+                    {
+                        Ok(_) => {
+                            yield ApprovalActionResult::Ok {
+                                approval_id: approval_id.clone(),
+                                message: reason.or(Some("Denied".to_string())),
+                            };
+                        }
+                        Err(e) => {
+                            yield ApprovalActionResult::Err {
+                                message: format!("Failed to deny: {}", e),
+                            };
+                        }
+                    }
+                }
+                Err(_) => {
+                    yield ApprovalActionResult::Err {
+                        message: format!("Invalid approval_id format: {}", approval_id),
                     };
                 }
             }

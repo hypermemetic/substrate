@@ -106,6 +106,16 @@ pub struct RunTaskRequest {
     /// Show Claude's output and tool use (default: false)
     #[serde(default)]
     pub verbose: bool,
+    /// Enable automatic approval via Haiku decision agent (default: true)
+    ///
+    /// When true, spawns ephemeral Haiku session to judge each approval.
+    /// When false, approvals must be handled manually via orcha.approve_request.
+    #[serde(default = "default_auto_approve")]
+    pub auto_approve: bool,
+}
+
+fn default_auto_approve() -> bool {
+    true
 }
 
 fn default_cwd() -> String {
@@ -179,6 +189,64 @@ pub struct RespondApprovalRequest {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RespondApprovalResult {
     Ok,
+    Err {
+        message: String,
+    },
+}
+
+/// Request to list pending approvals for a session
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ListApprovalsRequest {
+    pub session_id: SessionId,
+}
+
+/// Information about a pending approval request
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ApprovalInfo {
+    pub approval_id: String,
+    pub session_id: String,
+    pub tool_name: String,
+    pub tool_use_id: String,
+    pub tool_input: serde_json::Value,
+    pub created_at: String, // ISO 8601 timestamp
+}
+
+/// Result of listing pending approvals
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ListApprovalsResult {
+    Ok {
+        approvals: Vec<ApprovalInfo>,
+    },
+    Err {
+        message: String,
+    },
+}
+
+/// Request to approve a pending request
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ApproveRequest {
+    pub approval_id: String,
+    /// Optional message explaining approval decision
+    pub message: Option<String>,
+}
+
+/// Request to deny a pending request
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DenyRequest {
+    pub approval_id: String,
+    /// Reason for denial (shown to agent)
+    pub reason: Option<String>,
+}
+
+/// Result of approving or denying a request
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ApprovalActionResult {
+    Ok {
+        approval_id: String,
+        message: Option<String>,
+    },
     Err {
         message: String,
     },
