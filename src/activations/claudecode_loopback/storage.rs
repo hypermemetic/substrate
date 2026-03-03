@@ -5,8 +5,9 @@ use serde_json::Value;
 use sqlx::{sqlite::SqlitePool, Row};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -27,6 +28,9 @@ pub struct LoopbackStorage {
     /// Maps tool_use_id -> session_id for correlation
     /// This allows loopback_permit to find the session_id when called via MCP
     tool_session_map: RwLock<HashMap<String, String>>,
+    /// Maps session_id -> Notify for blocking wait on new approvals
+    /// Allows wait_for_approval to block until an approval arrives for that session
+    session_notifiers: Arc<RwLock<HashMap<String, Arc<Notify>>>>,
 }
 
 impl LoopbackStorage {
@@ -36,6 +40,7 @@ impl LoopbackStorage {
         let storage = Self {
             pool,
             tool_session_map: RwLock::new(HashMap::new()),
+            session_notifiers: Arc::new(RwLock::new(HashMap::new())),
         };
         storage.run_migrations().await?;
         Ok(storage)
@@ -109,6 +114,9 @@ impl LoopbackStorage {
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to create approval: {}", e))?;
+
+        // Notify any waiters that a new approval has arrived
+        self.notify_session(session_id);
 
         Ok(ApprovalRequest {
             id,
@@ -224,6 +232,32 @@ impl LoopbackStorage {
             created_at: row.get("created_at"),
             resolved_at: row.get("resolved_at"),
         })
+    }
+
+    /// Get or create a notifier for a session
+    /// This allows multiple wait_for_approval calls to wait on the same session
+    pub fn get_or_create_notifier(&self, session_id: &str) -> Arc<Notify> {
+        let mut notifiers = self.session_notifiers.write().unwrap();
+        notifiers
+            .entry(session_id.to_string())
+            .or_insert_with(|| Arc::new(Notify::new()))
+            .clone()
+    }
+
+    /// Notify all waiters on a session that a new approval has arrived
+    fn notify_session(&self, session_id: &str) {
+        if let Ok(notifiers) = self.session_notifiers.read() {
+            if let Some(notifier) = notifiers.get(session_id) {
+                notifier.notify_waiters(); // Wake all waiters
+            }
+        }
+    }
+
+    /// Clean up notifier for a session (optional, for resource cleanup)
+    pub fn remove_notifier(&self, session_id: &str) {
+        if let Ok(mut notifiers) = self.session_notifiers.write() {
+            notifiers.remove(session_id);
+        }
     }
 }
 

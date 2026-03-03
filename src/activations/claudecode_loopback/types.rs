@@ -98,3 +98,14 @@ pub enum ConfigureResult {
     #[serde(rename = "error")]
     Err { message: String },
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WaitForApprovalResult {
+    #[serde(rename = "ok")]
+    Ok { approvals: Vec<ApprovalRequest> },
+    #[serde(rename = "timeout")]
+    Timeout { message: String },
+    #[serde(rename = "error")]
+    Err { message: String },
+}

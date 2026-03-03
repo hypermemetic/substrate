@@ -212,6 +212,78 @@ impl ClaudeCodeLoopback {
         }
     }
 
+    /// Wait for a new approval request to arrive for a session
+    ///
+    /// This method blocks until a new approval arrives or the timeout is reached.
+    /// Unlike `pending` which returns a snapshot, this waits for new approvals
+    /// and returns immediately when one arrives.
+    ///
+    /// Use case: Claude Code can call this once and block, eliminating polling overhead.
+    #[plexus_macros::hub_method(params(
+        session_id = "Session ID to wait for approvals",
+        timeout_secs = "Optional timeout in seconds (default: 300 = 5 minutes)"
+    ))]
+    async fn wait_for_approval(
+        &self,
+        session_id: String,
+        timeout_secs: Option<u64>,
+    ) -> impl Stream<Item = WaitForApprovalResult> + Send + 'static {
+        let storage = self.storage.clone();
+        let timeout = Duration::from_secs(timeout_secs.unwrap_or(300));
+
+        stream! {
+            // Get or create notifier for this session
+            let notifier = storage.get_or_create_notifier(&session_id);
+
+            // Record start time for timeout
+            let start = std::time::Instant::now();
+
+            loop {
+                // First check if there are already pending approvals
+                match storage.list_pending(Some(&session_id)).await {
+                    Ok(approvals) if !approvals.is_empty() => {
+                        // Found pending approval(s), return immediately
+                        yield WaitForApprovalResult::Ok { approvals };
+                        return;
+                    }
+                    Err(e) => {
+                        yield WaitForApprovalResult::Err {
+                            message: format!("Failed to check pending approvals: {}", e)
+                        };
+                        return;
+                    }
+                    _ => {
+                        // No pending approvals, continue to wait
+                    }
+                }
+
+                // Check if we've exceeded timeout
+                if start.elapsed() >= timeout {
+                    yield WaitForApprovalResult::Timeout {
+                        message: format!("No approval received within {} seconds", timeout.as_secs())
+                    };
+                    return;
+                }
+
+                // Wait for notification or timeout
+                // Use tokio::select! to race between notification and timeout
+                tokio::select! {
+                    _ = notifier.notified() => {
+                        // New approval arrived, loop will check pending again
+                        continue;
+                    }
+                    _ = sleep(timeout.saturating_sub(start.elapsed())) => {
+                        // Timeout reached
+                        yield WaitForApprovalResult::Timeout {
+                            message: format!("No approval received within {} seconds", timeout.as_secs())
+                        };
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     /// Generate MCP configuration for a loopback session
     #[plexus_macros::hub_method(params(
         session_id = "Session ID for correlation"
