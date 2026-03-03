@@ -1,8 +1,10 @@
 use super::types::{
     ArborError, ArborId, Node, NodeId, NodeType, ResourceRefs, ResourceState, Tree, TreeId, Handle,
 };
+use crate::activations::storage::init_sqlite_pool;
+use crate::activation_db_path_from_module;
 use serde_json::Value;
-use sqlx::{sqlite::{SqliteConnectOptions, SqlitePool}, ConnectOptions, Row};
+use sqlx::{sqlite::SqlitePool, Row};
 use uuid::Uuid;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -32,7 +34,7 @@ impl Default for ArborConfig {
         Self {
             scheduled_deletion_window: 604800,  // 7 days
             archive_window: 2592000,            // 30 days
-            db_path: PathBuf::from("arbor.db"),
+            db_path: activation_db_path_from_module!("arbor.db"),
             auto_cleanup: true,
             cleanup_interval: 3600,             // 1 hour
         }
@@ -72,13 +74,7 @@ pub struct ArborStorage {
 impl ArborStorage {
     /// Create a new storage instance and run migrations
     pub async fn new(config: ArborConfig) -> Result<Self, ArborError> {
-        let db_url = format!("sqlite:{}?mode=rwc", config.db_path.display());
-        let connect_options: SqliteConnectOptions = db_url.parse()
-            .map_err(|e| format!("Failed to parse database URL: {}", e))?;
-        let connect_options = connect_options.disable_statement_logging();
-        let pool = SqlitePool::connect_with(connect_options.clone())
-            .await
-            .map_err(|e| format!("Failed to connect to database: {}", e))?;
+        let pool = init_sqlite_pool(config.db_path.clone()).await?;
 
         let storage = Self { pool, config };
         storage.run_migrations().await?;

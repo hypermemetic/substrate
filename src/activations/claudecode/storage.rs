@@ -4,8 +4,10 @@ use super::types::{
     NodeEvent, Position, StreamId, StreamInfo, StreamStatus,
 };
 use crate::activations::arbor::{ArborStorage, NodeId, NodeType, TreeId};
+use crate::activations::storage::init_sqlite_pool;
+use crate::activation_db_path_from_module;
 use serde_json::Value;
-use sqlx::{sqlite::{SqliteConnectOptions, SqlitePool}, ConnectOptions, Row};
+use sqlx::{sqlite::SqlitePool, Row};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -23,7 +25,7 @@ pub struct ClaudeCodeStorageConfig {
 impl Default for ClaudeCodeStorageConfig {
     fn default() -> Self {
         Self {
-            db_path: PathBuf::from("claudecode.db"),
+            db_path: activation_db_path_from_module!("claudecode.db"),
         }
     }
 }
@@ -51,13 +53,7 @@ impl ClaudeCodeStorage {
         config: ClaudeCodeStorageConfig,
         arbor: Arc<ArborStorage>,
     ) -> Result<Self, ClaudeCodeError> {
-        let db_url = format!("sqlite:{}?mode=rwc", config.db_path.display());
-        let connect_options: SqliteConnectOptions = db_url.parse()
-            .map_err(|e| format!("Failed to parse database URL: {}", e))?;
-        let connect_options = connect_options.disable_statement_logging();
-        let pool = SqlitePool::connect_with(connect_options.clone())
-            .await
-            .map_err(|e| format!("Failed to connect to claudecode database: {}", e))?;
+        let pool = init_sqlite_pool(config.db_path).await?;
 
         let storage = Self {
             pool,

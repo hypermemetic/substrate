@@ -1,6 +1,8 @@
 use super::types::{ChangelogEntry, QueueEntry, QueueStatus};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
-use sqlx::{ConnectOptions, Row};
+use crate::activations::storage::init_sqlite_pool;
+use crate::activation_db_path_from_module;
+use sqlx::sqlite::SqlitePool;
+use sqlx::Row;
 use std::path::PathBuf;
 
 /// Configuration for changelog storage
@@ -12,7 +14,7 @@ pub struct ChangelogStorageConfig {
 impl Default for ChangelogStorageConfig {
     fn default() -> Self {
         Self {
-            db_path: PathBuf::from("changelog.db"),
+            db_path: activation_db_path_from_module!("changelog.db"),
         }
     }
 }
@@ -24,14 +26,7 @@ pub struct ChangelogStorage {
 
 impl ChangelogStorage {
     pub async fn new(config: ChangelogStorageConfig) -> Result<Self, String> {
-        let options = SqliteConnectOptions::new()
-            .filename(&config.db_path)
-            .create_if_missing(true);
-        let options = options.disable_statement_logging();
-
-        let pool = SqlitePool::connect_with(options)
-            .await
-            .map_err(|e| format!("Failed to connect to changelog database: {}", e))?;
+        let pool = init_sqlite_pool(config.db_path).await?;
 
         let storage = Self { pool };
         storage.init_schema().await?;

@@ -1,7 +1,9 @@
 //! Mustache template storage using SQLite
 
 use super::types::{MustacheError, TemplateInfo};
-use sqlx::{sqlite::{SqliteConnectOptions, SqlitePool}, ConnectOptions, Row};
+use crate::activations::storage::init_sqlite_pool;
+use crate::activation_db_path_from_module;
+use sqlx::{sqlite::SqlitePool, Row};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
@@ -16,7 +18,7 @@ pub struct MustacheStorageConfig {
 impl Default for MustacheStorageConfig {
     fn default() -> Self {
         Self {
-            db_path: PathBuf::from("templates.db"),
+            db_path: activation_db_path_from_module!("templates.db"),
         }
     }
 }
@@ -29,13 +31,7 @@ pub struct MustacheStorage {
 impl MustacheStorage {
     /// Create a new mustache storage instance
     pub async fn new(config: MustacheStorageConfig) -> Result<Self, MustacheError> {
-        let db_url = format!("sqlite:{}?mode=rwc", config.db_path.display());
-        let connect_options: SqliteConnectOptions = db_url.parse()
-            .map_err(|e| format!("Failed to parse database URL: {}", e))?;
-        let connect_options = connect_options.disable_statement_logging();
-        let pool = SqlitePool::connect_with(connect_options.clone())
-            .await
-            .map_err(|e| format!("Failed to connect to templates database: {}", e))?;
+        let pool = init_sqlite_pool(config.db_path).await?;
 
         let storage = Self { pool };
         storage.run_migrations().await?;

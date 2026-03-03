@@ -1,5 +1,7 @@
 use super::types::{SessionId, SessionInfo, SessionState};
-use sqlx::{sqlite::{SqliteConnectOptions, SqlitePool}, ConnectOptions, Row};
+use crate::activations::storage::init_sqlite_pool;
+use crate::activation_db_path_from_module;
+use sqlx::{sqlite::SqlitePool, Row};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,7 +16,7 @@ pub struct OrchaStorageConfig {
 impl Default for OrchaStorageConfig {
     fn default() -> Self {
         Self {
-            db_path: PathBuf::from("orcha.db"),
+            db_path: activation_db_path_from_module!("orcha.db"),
         }
     }
 }
@@ -29,15 +31,8 @@ pub struct OrchaStorage {
 impl OrchaStorage {
     /// Create new storage with the given configuration
     pub async fn new(config: OrchaStorageConfig) -> Result<Self, String> {
-        let db_url = format!("sqlite://{}", config.db_path.display());
-        let options = db_url
-            .parse::<SqliteConnectOptions>()
-            .map_err(|e| format!("Failed to parse DB URL: {}", e))?;
-        let options = options.disable_statement_logging();
+        let pool = init_sqlite_pool(config.db_path).await?;
 
-        let pool = SqlitePool::connect_with(options)
-            .await
-            .map_err(|e| format!("Failed to connect: {}", e))?;
         let storage = Self {
             pool,
             sessions: Arc::new(RwLock::new(HashMap::new())),

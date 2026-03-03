@@ -1,6 +1,8 @@
 use super::types::{ApprovalId, ApprovalRequest, ApprovalStatus};
+use crate::activations::storage::init_sqlite_pool;
+use crate::activation_db_path_from_module;
 use serde_json::Value;
-use sqlx::{sqlite::{SqliteConnectOptions, SqlitePool}, ConnectOptions, Row};
+use sqlx::{sqlite::SqlitePool, Row};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::RwLock;
@@ -15,7 +17,7 @@ pub struct LoopbackStorageConfig {
 impl Default for LoopbackStorageConfig {
     fn default() -> Self {
         Self {
-            db_path: PathBuf::from("loopback.db"),
+            db_path: activation_db_path_from_module!("loopback.db"),
         }
     }
 }
@@ -29,14 +31,7 @@ pub struct LoopbackStorage {
 
 impl LoopbackStorage {
     pub async fn new(config: LoopbackStorageConfig) -> Result<Self, String> {
-        let db_url = format!("sqlite:{}?mode=rwc", config.db_path.display());
-        let options: SqliteConnectOptions = db_url.parse()
-            .map_err(|e| format!("Failed to parse DB URL: {}", e))?;
-        let options = options.disable_statement_logging();
-
-        let pool = SqlitePool::connect_with(options)
-            .await
-            .map_err(|e| format!("Failed to connect: {}", e))?;
+        let pool = init_sqlite_pool(config.db_path).await?;
 
         let storage = Self {
             pool,

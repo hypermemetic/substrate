@@ -1,3 +1,6 @@
+// Common storage utilities for activations
+pub mod storage;
+
 // Health is the reference implementation for the new architecture (manual impl)
 pub mod health;
 
