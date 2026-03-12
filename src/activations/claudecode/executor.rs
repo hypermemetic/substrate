@@ -323,7 +323,22 @@ impl ClaudeCodeExecutor {
                 }
             };
 
-            let stdout = child.stdout.take().expect("stdout");
+            let stdout = match child.stdout.take() {
+                Some(s) => s,
+                None => {
+                    yield RawClaudeEvent::Result {
+                        subtype: Some("error".to_string()),
+                        session_id: None,
+                        cost_usd: None,
+                        is_error: Some(true),
+                        duration_ms: None,
+                        num_turns: None,
+                        result: None,
+                        error: Some("Process has no stdout pipe (internal error)".to_string()),
+                    };
+                    return;
+                }
+            };
             let mut reader = BufReader::with_capacity(10 * 1024 * 1024, stdout).lines(); // 10MB buffer
 
             // Stream events from stdout
