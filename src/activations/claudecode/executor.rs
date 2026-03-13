@@ -466,6 +466,9 @@ impl ClaudeCodeExecutor {
                 match serde_json::from_str::<RawClaudeEvent>(&line) {
                     Ok(event) => {
                         let is_result = matches!(event, RawClaudeEvent::Result { .. });
+                        if is_result {
+                            got_result = true;
+                        }
                         yield event;
                         if is_result {
                             break;
