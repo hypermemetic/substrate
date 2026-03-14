@@ -1626,7 +1626,10 @@ impl<P: HubContext> Orcha<P> {
                 }
             };
             let _ = pm.save_ticket_map(&graph_id, &id_map).await;
+            let _ = pm.save_ticket_source(&graph_id, &tickets).await;
+
             yield OrchaEvent::GraphStarted { graph_id: graph_id.clone() };
+
             let model_enum = match model_str.as_str() {
                 "opus" => Model::Opus,
                 "haiku" => Model::Haiku,
@@ -1654,25 +1657,39 @@ impl<P: HubContext> Orcha<P> {
                 .map(|(ticket, node)| (node.clone(), ticket.clone()))
                 .collect();
 
+            let graph = Arc::new(graph_runtime.open_graph(graph_id.clone()));
+
             // Register a cancel token so this graph can be stopped via cancel_graph.
             let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
             cancel_registry.lock().await.insert(graph_id.clone(), cancel_tx);
 
-            let execution = graph_runner::run_graph_execution(
-                Arc::new(graph_runtime.open_graph(graph_id.clone())),
-                claudecode,
-                arbor_storage,
-                loopback_storage,
-                model_enum,
-                wd,
-                cancel_rx,
-                node_to_ticket,
-            );
-            tokio::pin!(execution);
-            while let Some(event) = execution.next().await {
-                yield event;
-            }
-            cancel_registry.lock().await.remove(&graph_id);
+            // Spawn execution in background — caller can disconnect safely and use
+            // subscribe_graph(graph_id) to re-attach at any time.
+            tokio::spawn(async move {
+                let execution = graph_runner::run_graph_execution(
+                    graph,
+                    claudecode,
+                    arbor_storage,
+                    loopback_storage,
+                    model_enum,
+                    wd,
+                    cancel_rx,
+                    node_to_ticket,
+                );
+                tokio::pin!(execution);
+                while let Some(event) = execution.next().await {
+                    match &event {
+                        OrchaEvent::Failed { error, .. } => {
+                            tracing::error!("run_tickets graph {} failed: {}", graph_id, error);
+                        }
+                        OrchaEvent::Complete { .. } => {
+                            tracing::info!("run_tickets graph {} complete", graph_id);
+                        }
+                        _ => {}
+                    }
+                }
+                cancel_registry.lock().await.remove(&graph_id);
+            });
         }
     }
 
@@ -1757,6 +1774,7 @@ impl<P: HubContext> Orcha<P> {
             };
 
             let _ = pm.save_ticket_map(&graph_id, &id_map).await;
+            let _ = pm.save_ticket_source(&graph_id, &tickets).await;
 
             yield OrchaEvent::GraphStarted { graph_id: graph_id.clone() };
 
@@ -1874,6 +1892,7 @@ async fn build_graph_from_definition(
             OrchaNodeSpec::Validate { command, cwd } => graph.add_validate(command, cwd).await,
             OrchaNodeSpec::Gather { strategy } => graph.add_gather(strategy).await,
             OrchaNodeSpec::Review { prompt } => graph.add_review(prompt).await,
+            OrchaNodeSpec::Plan { task } => graph.add_plan(task).await,
         };
         let lattice_id = match result {
             Ok(lid) => lid,

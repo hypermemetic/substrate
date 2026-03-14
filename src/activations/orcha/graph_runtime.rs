@@ -121,6 +121,19 @@ impl OrchaGraph {
         OrchaGraph { graph_id: graph_id.into(), storage: self.storage.clone() }
     }
 
+    /// Add a plan node.
+    ///
+    /// When dispatched, runs Claude to produce a ticket file, compiles it into
+    /// a child graph, and executes the child graph inline.
+    pub async fn add_plan(&self, task: impl Into<String>) -> Result<String, String> {
+        let kind = OrchaNodeKind::Plan { task: task.into() };
+        self.add_spec(NodeSpec::Task {
+            data: serde_json::to_value(&kind).map_err(|e| e.to_string())?,
+            handle: None,
+        })
+        .await
+    }
+
     /// Add a review node.
     pub async fn add_review(&self, prompt: impl Into<String>) -> Result<String, String> {
         let kind = OrchaNodeKind::Review { prompt: prompt.into() };
@@ -212,6 +225,16 @@ impl OrchaGraph {
     /// Count the total number of nodes in this graph.
     pub async fn count_nodes(&self) -> Result<usize, String> {
         self.storage.count_nodes(&self.graph_id).await
+    }
+
+    /// Get the IDs of nodes that have already reached a terminal state (Complete or Failed).
+    /// Used by run_graph_execution to pre-populate the dispatched set on reconnect.
+    pub async fn get_terminal_node_ids(&self) -> Result<Vec<String>, String> {
+        let nodes = self.storage.get_nodes(&self.graph_id).await?;
+        Ok(nodes.into_iter()
+            .filter(|n| n.status == NodeStatus::Complete || n.status == NodeStatus::Failed)
+            .map(|n| n.id)
+            .collect())
     }
 
     /// Get raw input tokens for a node (what arrived on all inbound edges).

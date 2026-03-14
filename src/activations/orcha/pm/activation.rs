@@ -139,6 +139,16 @@ impl Pm {
         let entries = self.pm_storage.list_ticket_maps(usize::MAX).await?;
         Ok(entries.into_iter().map(|(id, _)| id).collect())
     }
+
+    /// Save the raw ticket source for a graph (called by run_tickets / run_tickets_async).
+    pub async fn save_ticket_source(&self, graph_id: &str, source: &str) -> Result<(), String> {
+        self.pm_storage.save_ticket_source(graph_id, source).await
+    }
+
+    /// Fetch the raw ticket source for a graph.
+    pub async fn get_ticket_source_raw(&self, graph_id: &str) -> Result<Option<String>, String> {
+        self.pm_storage.get_ticket_source(graph_id).await
+    }
 }
 
 #[async_trait]
@@ -191,6 +201,10 @@ fn extract_kind_and_label(spec: &NodeSpec) -> (String, Option<String>) {
                 Ok(OrchaNodeKind::Review { prompt }) => {
                     let label = prompt.chars().take(80).collect::<String>();
                     ("review".to_string(), Some(label))
+                }
+                Ok(OrchaNodeKind::Plan { task }) => {
+                    let label = task.chars().take(80).collect::<String>();
+                    ("plan".to_string(), Some(label))
                 }
                 Err(_) => ("task".to_string(), None),
             }
@@ -396,6 +410,13 @@ impl Pm {
                                 task: Some(prompt), command: None, output, error,
                             };
                         }
+                        Ok(OrchaNodeKind::Plan { task }) => {
+                            yield PmInspectResult::Ok {
+                                ticket_id, node_id, status,
+                                kind: "plan".to_string(),
+                                task: Some(task), command: None, output, error,
+                            };
+                        }
                         Err(_) => {
                             yield PmInspectResult::Ok {
                                 ticket_id, node_id, status,
@@ -493,6 +514,24 @@ impl Pm {
                 yield PmWhyBlockedResult::NotBlocked { ticket_id };
             } else {
                 yield PmWhyBlockedResult::Ok { ticket_id, blocked_by };
+            }
+        }
+    }
+
+    /// Get the raw ticket source for a graph.
+    #[plexus_macros::hub_method(params(
+        graph_id = "The lattice graph ID"
+    ))]
+    async fn get_ticket_source(
+        &self,
+        graph_id: String,
+    ) -> impl Stream<Item = Value> + Send + 'static {
+        let pm_storage = self.pm_storage.clone();
+        stream! {
+            match pm_storage.get_ticket_source(&graph_id).await {
+                Ok(Some(source)) => yield serde_json::json!({ "type": "ok", "source": source }),
+                Ok(None) => yield serde_json::json!({ "type": "not_found", "graph_id": graph_id }),
+                Err(e) => yield serde_json::json!({ "type": "err", "message": e }),
             }
         }
     }

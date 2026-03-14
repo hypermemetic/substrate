@@ -44,6 +44,19 @@ impl PmStorage {
         .await
         .map_err(|e| format!("Failed to create orcha_ticket_maps table: {}", e))?;
 
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS orcha_ticket_sources (
+                graph_id   TEXT PRIMARY KEY,
+                source     TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to create orcha_ticket_sources table: {}", e))?;
+
         // Migrate: add created_at column if it doesn't exist yet (idempotent).
         let _ = sqlx::query(
             "ALTER TABLE orcha_ticket_maps ADD COLUMN created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))",
@@ -132,6 +145,31 @@ impl PmStorage {
             .collect();
 
         Ok(result)
+    }
+
+    /// Save the raw ticket source for a graph.
+    pub async fn save_ticket_source(&self, graph_id: &str, source: &str) -> Result<(), String> {
+        sqlx::query(
+            "INSERT OR REPLACE INTO orcha_ticket_sources (graph_id, source) VALUES (?, ?)",
+        )
+        .bind(graph_id)
+        .bind(source)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to save ticket source: {}", e))?;
+        Ok(())
+    }
+
+    /// Fetch the raw ticket source for a graph.
+    pub async fn get_ticket_source(&self, graph_id: &str) -> Result<Option<String>, String> {
+        let row = sqlx::query(
+            "SELECT source FROM orcha_ticket_sources WHERE graph_id = ?",
+        )
+        .bind(graph_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to fetch ticket source: {}", e))?;
+        Ok(row.map(|r| r.get("source")))
     }
 
     /// Reverse lookup: node_id → ticket_id.

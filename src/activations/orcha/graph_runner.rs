@@ -41,8 +41,13 @@ pub fn run_graph_execution<P: HubContext + 'static>(
         // The receiver is drained in the select! loop below alongside the lattice event stream.
         let (node_event_tx, mut output_rx) = tokio::sync::mpsc::unbounded_channel::<OrchaEvent>();
 
-        // Track dispatched nodes to prevent double-dispatch on reconnect
-        let mut dispatched: HashSet<String> = HashSet::new();
+        // Pre-populate dispatched from nodes already complete/failed (recovery safety).
+        // On reconnect, the event log replays NodeReady for every node that was ever ready;
+        // without this, already-finished nodes would be re-dispatched.
+        let mut dispatched: HashSet<String> = graph.get_terminal_node_ids().await
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<HashSet<String>>();
 
         // Progress tracking: count nodes once at graph start, then track completions.
         let total_nodes: usize = graph.count_nodes().await.unwrap_or(0);
@@ -198,6 +203,9 @@ async fn dispatch_node<P: HubContext + 'static>(
         }
         OrchaNodeKind::Review { prompt } => {
             dispatch_review(loopback_storage, &graph.graph_id, prompt, output_tx, cancel_rx).await
+        }
+        OrchaNodeKind::Plan { .. } => {
+            Err("Plan nodes are not yet implemented in this build".to_string())
         }
     }
 }
