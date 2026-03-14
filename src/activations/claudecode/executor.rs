@@ -6,7 +6,55 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::net::TcpStream;
 use tokio::process::Command;
+
+// ─── MCP Reachability Check ───────────────────────────────────────────────────
+
+/// Extract `host:port` from a URL like `http://127.0.0.1:4444/mcp`.
+fn mcp_host_port_from_url(url: &str) -> String {
+    let without_scheme = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    let host_port = without_scheme.split('/').next().unwrap_or("127.0.0.1:4444");
+    if host_port.contains(':') {
+        host_port.to_string()
+    } else {
+        format!("{}:4444", host_port)
+    }
+}
+
+/// Check that the Plexus MCP server is reachable via TCP.
+///
+/// Reads `PLEXUS_MCP_URL` (default `http://127.0.0.1:4444/mcp`) to determine
+/// the host:port.  Attempts a TCP connect with a 2-second timeout.
+///
+/// Returns an actionable error message if the server is not reachable, so
+/// callers can fail fast before spawning Claude with a broken MCP config.
+pub async fn check_mcp_reachable() -> Result<(), String> {
+    let url = std::env::var("PLEXUS_MCP_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:4444/mcp".to_string());
+    let addr = mcp_host_port_from_url(&url);
+
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        TcpStream::connect(&addr),
+    )
+    .await
+    {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(e)) => Err(format!(
+            "MCP server not reachable at {} ({}). \
+             Start the substrate without --no-mcp so the permission-prompt tool is available.",
+            url, e
+        )),
+        Err(_) => Err(format!(
+            "MCP server connection timed out at {}. \
+             Start the substrate without --no-mcp so the permission-prompt tool is available.",
+            url
+        )),
+    }
+}
 
 /// Configuration for a Claude Code session launch
 #[derive(Debug, Clone)]
@@ -257,6 +305,25 @@ impl ClaudeCodeExecutor {
         };
 
         Box::pin(stream! {
+            // Fail fast if loopback is enabled but the MCP server is not reachable.
+            // Without a live MCP server Claude cannot call the permission-prompt tool
+            // and will return empty output (silent failure).
+            if loopback_enabled {
+                if let Err(e) = check_mcp_reachable().await {
+                    yield RawClaudeEvent::Result {
+                        subtype: Some("error".to_string()),
+                        session_id: None,
+                        cost_usd: None,
+                        is_error: Some(true),
+                        duration_ms: None,
+                        num_turns: None,
+                        result: None,
+                        error: Some(e),
+                    };
+                    return;
+                }
+            }
+
             // Handle MCP config if present
             let mcp_path = if let Some(ref mcp) = mcp_config {
                 match Self::write_mcp_config_sync(mcp) {

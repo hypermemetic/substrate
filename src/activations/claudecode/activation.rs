@@ -177,6 +177,16 @@ impl<P: HubContext> ClaudeCode<P> {
         let loopback = loopback_enabled.unwrap_or(false);
 
         stream! {
+            // Fail fast: if loopback is requested, the MCP server must be reachable.
+            // Without it Claude cannot resolve the permission-prompt tool and will
+            // return empty output instead of an error.
+            if loopback {
+                if let Err(e) = super::executor::check_mcp_reachable().await {
+                    yield CreateResult::Err { message: e };
+                    return;
+                }
+            }
+
             // claude_session_id is None initially; populated after first chat with real Claude UUID
             match storage.session_create(name, working_dir, model, system_prompt, None, loopback, None, loopback_session_id, None).await {
                 Ok(config) => {
