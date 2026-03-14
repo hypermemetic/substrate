@@ -5,9 +5,10 @@ use crate::activations::lattice::{
 };
 use futures::Stream;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::types::OrchaNodeKind;
+use super::types::{OrchaEdgeDef, OrchaNodeDef, OrchaNodeKind, OrchaNodeSpec};
 
 // ─── GraphRuntime (factory) ───────────────────────────────────────────────────
 
@@ -50,6 +51,52 @@ impl GraphRuntime {
             graph_id,
             storage: self.storage.clone(),
         })
+    }
+
+    /// Build a child graph from node+edge definitions.
+    ///
+    /// Creates the child graph under `parent_id`, adds all nodes, and wires all edges.
+    /// Returns `(child_graph_id, ticket_id→lattice_node_id map)` on success.
+    pub async fn build_child_graph(
+        &self,
+        parent_id: &str,
+        metadata: Value,
+        nodes: Vec<OrchaNodeDef>,
+        edges: Vec<OrchaEdgeDef>,
+    ) -> Result<(String, HashMap<String, String>), String> {
+        let graph = self.create_child_graph(parent_id, metadata).await?;
+        let graph_id = graph.graph_id.clone();
+
+        let mut id_map: HashMap<String, String> = HashMap::new();
+        for OrchaNodeDef { id, spec } in nodes {
+            let result = match spec {
+                OrchaNodeSpec::Task { task } => graph.add_task(task).await,
+                OrchaNodeSpec::Synthesize { task } => graph.add_synthesize(task).await,
+                OrchaNodeSpec::Validate { command, cwd } => graph.add_validate(command, cwd).await,
+                OrchaNodeSpec::Gather { strategy } => graph.add_gather(strategy).await,
+                OrchaNodeSpec::Review { prompt } => graph.add_review(prompt).await,
+                OrchaNodeSpec::Plan { task } => graph.add_plan(task).await,
+            };
+            let lattice_id = result.map_err(|e| format!("Failed to add node '{}': {}", id, e))?;
+            id_map.insert(id, lattice_id);
+        }
+
+        for OrchaEdgeDef { from, to } in edges {
+            let dep_id = id_map
+                .get(&from)
+                .ok_or_else(|| format!("Unknown node id in edge.from: '{}'", from))?
+                .clone();
+            let node_id = id_map
+                .get(&to)
+                .ok_or_else(|| format!("Unknown node id in edge.to: '{}'", to))?
+                .clone();
+            graph
+                .depends_on(&node_id, &dep_id)
+                .await
+                .map_err(|e| format!("Failed to add edge {} → {}: {}", from, to, e))?;
+        }
+
+        Ok((graph_id, id_map))
     }
 
     /// Open an existing graph by ID.

@@ -201,6 +201,7 @@ impl<P: HubContext> Orcha<P> {
             let lb = self.loopback.storage();
             let cancel_registry = self.cancel_registry.clone();
             let pm_for_recovery = self.pm.clone();
+            let graph_runtime_recovery = self.graph_runtime.clone();
 
             // Load persisted run config from graph metadata.
             let graph_meta = lattice_storage.get_graph(&graph_id_clone).await.ok()
@@ -243,6 +244,8 @@ impl<P: HubContext> Orcha<P> {
                     arbor,
                     lb,
                     pm_for_recovery,
+                    graph_runtime_recovery,
+                    cancel_registry.clone(),
                     model_enum,
                     working_directory,
                     cancel_rx,
@@ -1233,6 +1236,7 @@ impl<P: HubContext> Orcha<P> {
         let arbor_storage = self.arbor_storage.clone();
         let loopback_storage = self.loopback.storage();
         let pm = self.pm.clone();
+        let graph_runtime = self.graph_runtime.clone();
         stream! {
             let execution = graph_runner::run_graph_execution(
                 graph,
@@ -1240,6 +1244,8 @@ impl<P: HubContext> Orcha<P> {
                 arbor_storage,
                 loopback_storage,
                 pm,
+                graph_runtime,
+                cancel_registry.clone(),
                 model_enum,
                 wd,
                 cancel_rx,
@@ -1695,6 +1701,8 @@ impl<P: HubContext> Orcha<P> {
                     arbor_storage,
                     loopback_storage,
                     pm,
+                    graph_runtime,
+                    cancel_registry.clone(),
                     model_enum,
                     wd,
                     cancel_rx,
@@ -1827,6 +1835,8 @@ impl<P: HubContext> Orcha<P> {
                     arbor_storage,
                     loopback_storage,
                     pm,
+                    graph_runtime,
+                    cancel_registry.clone(),
                     model_enum,
                     wd,
                     cancel_rx,
@@ -1996,6 +2006,8 @@ fn build_and_run_graph_definition<P: HubContext + 'static>(
             arbor_storage,
             loopback_storage,
             pm,
+            graph_runtime,
+            cancel_registry.clone(),
             model_enum,
             wd,
             cancel_rx,

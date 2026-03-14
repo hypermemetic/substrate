@@ -8,9 +8,11 @@ use futures::{Stream, StreamExt};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-use super::graph_runtime::OrchaGraph;
+use super::graph_runtime::{GraphRuntime, OrchaGraph};
 use super::pm::Pm;
 use super::types::{OrchaEvent, OrchaNodeKind};
+
+type CancelRegistry = Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>>;
 
 /// Run a DAG graph with Orcha's node dispatch logic.
 ///
@@ -30,6 +32,8 @@ pub fn run_graph_execution<P: HubContext + 'static>(
     arbor_storage: Arc<ArborStorage>,
     loopback_storage: Arc<LoopbackStorage>,
     pm: Arc<Pm>,
+    graph_runtime: Arc<GraphRuntime>,
+    cancel_registry: CancelRegistry,
     model: Model,
     working_directory: String,
     cancel_rx: tokio::sync::watch::Receiver<bool>,
@@ -88,6 +92,8 @@ pub fn run_graph_execution<P: HubContext + 'static>(
                             let arbor = arbor_storage.clone();
                             let lb = loopback_storage.clone();
                             let pm_log = pm.clone();
+                            let gr = graph_runtime.clone();
+                            let cr = cancel_registry.clone();
                             let nid = node_id.clone();
                             let wd = working_directory.clone();
                             let tx = node_event_tx.clone();
@@ -97,7 +103,7 @@ pub fn run_graph_execution<P: HubContext + 'static>(
                                 // Emit NodeStarted before executing
                                 let _ = g.start_node(&nid).await;
 
-                                let result = dispatch_node(cc, arbor, lb, pm_log, &g, &spec, &nid, model, wd, tx, cancel, ticket_id).await;
+                                let result = dispatch_node(cc, arbor, lb, pm_log, gr, cr, &g, &spec, &nid, model, wd, tx, cancel, ticket_id).await;
                                 match result {
                                     Ok(output) => {
                                         if let Err(e) = g.complete_node(&nid, output).await {
@@ -172,6 +178,8 @@ async fn dispatch_node<P: HubContext + 'static>(
     arbor: Arc<ArborStorage>,
     loopback_storage: Arc<LoopbackStorage>,
     pm: Arc<Pm>,
+    graph_runtime: Arc<GraphRuntime>,
+    cancel_registry: CancelRegistry,
     graph: &OrchaGraph,
     spec: &NodeSpec,
     node_id: &str,
@@ -183,7 +191,7 @@ async fn dispatch_node<P: HubContext + 'static>(
 ) -> Result<Option<NodeOutput>, String> {
     // Early-return for SubGraph — raw NodeSpec variant, not OrchaNodeKind
     if let NodeSpec::SubGraph { graph_id } = spec {
-        return dispatch_subgraph(claudecode, arbor, loopback_storage, pm, graph, graph_id.clone(), node_id, model, working_directory, cancel_rx).await;
+        return dispatch_subgraph(claudecode, arbor, loopback_storage, pm, graph_runtime, cancel_registry, graph, graph_id.clone(), node_id, model, working_directory, cancel_rx).await;
     }
 
     let data = match spec {
@@ -210,8 +218,8 @@ async fn dispatch_node<P: HubContext + 'static>(
         OrchaNodeKind::Review { prompt } => {
             dispatch_review(loopback_storage, &graph.graph_id, prompt, output_tx, cancel_rx).await
         }
-        OrchaNodeKind::Plan { .. } => {
-            Err("Plan nodes are not yet implemented in this build".to_string())
+        OrchaNodeKind::Plan { task } => {
+            dispatch_plan(claudecode, arbor, loopback_storage, pm, graph_runtime, cancel_registry, graph, task, resolved_inputs, node_id, model, working_directory, output_tx, cancel_rx, ticket_id).await
         }
     }
 }
@@ -574,6 +582,8 @@ async fn dispatch_subgraph<P: HubContext + 'static>(
     arbor: Arc<ArborStorage>,
     loopback_storage: Arc<LoopbackStorage>,
     pm: Arc<Pm>,
+    graph_runtime: Arc<GraphRuntime>,
+    cancel_registry: CancelRegistry,
     graph: &OrchaGraph,
     child_graph_id: String,
     _node_id: &str,
@@ -583,7 +593,7 @@ async fn dispatch_subgraph<P: HubContext + 'static>(
 ) -> Result<Option<NodeOutput>, String> {
     let child = Arc::new(graph.open_child_graph(child_graph_id.clone()));
     // Child graphs don't have a ticket map — pass an empty map.
-    let events = run_graph_execution(child, claudecode, arbor, loopback_storage, pm, model, working_directory, cancel_rx, HashMap::new());
+    let events = run_graph_execution(child, claudecode, arbor, loopback_storage, pm, graph_runtime, cancel_registry, model, working_directory, cancel_rx, HashMap::new());
     tokio::pin!(events);
 
     while let Some(event) = events.next().await {
@@ -601,6 +611,138 @@ async fn dispatch_subgraph<P: HubContext + 'static>(
     }
 
     Err("Child graph stream ended without completion".to_string())
+}
+
+/// Dispatch a "plan" node — uses Claude to generate a ticket file, compiles it
+/// into a child graph, executes that child graph, and streams its events.
+///
+/// Phases:
+/// 1. Run Claude with the plan prompt → ticket source (raw text)
+/// 2. Compile the ticket source into nodes + edges
+/// 3. Build a child graph under the current graph
+/// 4. Execute the child graph, forwarding events to the parent stream
+async fn dispatch_plan<P: HubContext + 'static>(
+    claudecode: Arc<ClaudeCode<P>>,
+    arbor: Arc<ArborStorage>,
+    loopback_storage: Arc<LoopbackStorage>,
+    pm: Arc<Pm>,
+    graph_runtime: Arc<GraphRuntime>,
+    cancel_registry: CancelRegistry,
+    graph: &OrchaGraph,
+    task: String,
+    resolved_inputs: Vec<crate::activations::lattice::ResolvedToken>,
+    node_id: &str,
+    model: Model,
+    working_directory: String,
+    output_tx: tokio::sync::mpsc::UnboundedSender<OrchaEvent>,
+    cancel_rx: tokio::sync::watch::Receiver<bool>,
+    ticket_id: Option<String>,
+) -> Result<Option<NodeOutput>, String> {
+    // Phase 1 — run Claude to generate ticket source
+    let ticket_result = dispatch_task(
+        claudecode.clone(),
+        loopback_storage.clone(),
+        pm.clone(),
+        task,
+        resolved_inputs,
+        node_id,
+        model,
+        working_directory.clone(),
+        &graph.graph_id,
+        output_tx.clone(),
+        cancel_rx.clone(),
+        ticket_id,
+    )
+    .await?;
+
+    let ticket_source = match ticket_result {
+        Some(NodeOutput::Single(ref token)) => {
+            token
+                .payload
+                .as_ref()
+                .and_then(|p| match p {
+                    TokenPayload::Data { value } => {
+                        value.get("text").and_then(|v| v.as_str()).map(|s| s.to_string())
+                    }
+                    _ => None,
+                })
+                .ok_or_else(|| "Plan task produced no text output".to_string())?
+        }
+        _ => return Err("Plan task produced no output".to_string()),
+    };
+
+    // Phase 2 — compile ticket source
+    let compiled = crate::activations::orcha::ticket_compiler::compile_tickets(&ticket_source)
+        .map_err(|e| format!("Plan ticket compile error: {}", e))?;
+
+    // Phase 3 — build child graph
+    let child_metadata = serde_json::json!({
+        "_plexus_run_config": {
+            "model": format!("{:?}", model).to_lowercase(),
+            "working_directory": working_directory,
+        },
+        "parent_graph_id": graph.graph_id,
+        "plan_node_id": node_id,
+    });
+
+    let (child_graph_id, id_map) = graph_runtime
+        .build_child_graph(&graph.graph_id, child_metadata, compiled.nodes, compiled.edges)
+        .await?;
+
+    let node_to_ticket: HashMap<String, String> = id_map
+        .iter()
+        .map(|(ticket, node)| (node.clone(), ticket.clone()))
+        .collect();
+
+    pm.save_ticket_map(&child_graph_id, &id_map)
+        .await
+        .map_err(|e| format!("Failed to save ticket map: {}", e))?;
+    pm.save_ticket_source(&child_graph_id, &ticket_source)
+        .await
+        .map_err(|e| format!("Failed to save ticket source: {}", e))?;
+
+    // Phase 4 — execute child graph
+    // Register a cancel token so the child can be cancelled via cancel_graph.
+    let (child_cancel_tx, _child_cancel_rx) = tokio::sync::watch::channel(false);
+    cancel_registry.lock().await.insert(child_graph_id.clone(), child_cancel_tx);
+
+    let child_arc = Arc::new(graph_runtime.open_graph(child_graph_id.clone()));
+    // Pass the parent cancel_rx — if the parent is cancelled, the child stops too.
+    let events = run_graph_execution(
+        child_arc,
+        claudecode,
+        arbor,
+        loopback_storage,
+        pm,
+        graph_runtime,
+        cancel_registry.clone(),
+        model,
+        working_directory,
+        cancel_rx,
+        node_to_ticket,
+    );
+    tokio::pin!(events);
+
+    while let Some(event) = events.next().await {
+        match event {
+            OrchaEvent::Complete { .. } => {
+                cancel_registry.lock().await.remove(&child_graph_id);
+                return Ok(Some(NodeOutput::Single(Token::ok_data(
+                    serde_json::json!({ "child_graph_id": child_graph_id }),
+                ))));
+            }
+            OrchaEvent::Failed { error, .. } => {
+                cancel_registry.lock().await.remove(&child_graph_id);
+                return Err(format!("Plan child graph failed: {}", error));
+            }
+            evt => {
+                let _ = output_tx.send(evt);
+            }
+        }
+    }
+
+    cancel_registry.lock().await.remove(&child_graph_id);
+    Err("Plan child graph stream ended without completion".to_string())
 }
 
 /// Dispatch a "validate" node — runs a shell command and checks the exit code.
