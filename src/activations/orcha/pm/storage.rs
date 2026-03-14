@@ -78,6 +78,31 @@ impl PmStorage {
         .await
         .map_err(|e| format!("Failed to create node index: {}", e))?;
 
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS orcha_node_logs (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                graph_id   TEXT NOT NULL,
+                node_id    TEXT NOT NULL,
+                ticket_id  TEXT,
+                seq        INTEGER NOT NULL,
+                event_type TEXT NOT NULL,
+                event_data TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to create orcha_node_logs table: {}", e))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_node_logs ON orcha_node_logs(graph_id, node_id, seq)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to create node logs index: {}", e))?;
+
         Ok(())
     }
 
@@ -189,4 +214,74 @@ impl PmStorage {
 
         Ok(row.map(|r| r.get("ticket_id")))
     }
+
+    /// Append a single log entry for a node execution event.
+    ///
+    /// `event_type` is one of: "prompt", "start", "tool_use", "tool_result",
+    /// "complete", "error", "passthrough", "outcome".
+    /// `event_data` is a JSON string.
+    pub async fn append_node_log(
+        &self,
+        graph_id: &str,
+        node_id: &str,
+        ticket_id: Option<&str>,
+        seq: i64,
+        event_type: &str,
+        event_data: &str,
+    ) -> Result<(), String> {
+        sqlx::query(
+            "INSERT INTO orcha_node_logs (graph_id, node_id, ticket_id, seq, event_type, event_data) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(graph_id)
+        .bind(node_id)
+        .bind(ticket_id)
+        .bind(seq)
+        .bind(event_type)
+        .bind(event_data)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to append node log: {}", e))?;
+        Ok(())
+    }
+
+    /// Fetch all log entries for a (graph_id, node_id) pair, ordered by seq.
+    pub async fn get_node_log(
+        &self,
+        graph_id: &str,
+        node_id: &str,
+    ) -> Result<Vec<NodeLogEntry>, String> {
+        let rows = sqlx::query(
+            "SELECT seq, event_type, event_data, created_at \
+             FROM orcha_node_logs \
+             WHERE graph_id = ? AND node_id = ? \
+             ORDER BY seq ASC",
+        )
+        .bind(graph_id)
+        .bind(node_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to fetch node log: {}", e))?;
+
+        let entries = rows
+            .into_iter()
+            .map(|row| NodeLogEntry {
+                seq: row.get("seq"),
+                event_type: row.get("event_type"),
+                event_data: row.get("event_data"),
+                created_at: row.get("created_at"),
+            })
+            .collect();
+        Ok(entries)
+    }
+}
+
+/// A single entry in the node execution log.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NodeLogEntry {
+    pub seq: i64,
+    pub event_type: String,
+    /// Raw JSON string for the event payload.
+    pub event_data: String,
+    pub created_at: i64,
 }

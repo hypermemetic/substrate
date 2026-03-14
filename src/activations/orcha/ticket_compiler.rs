@@ -194,6 +194,12 @@ fn build_graph(sections: Vec<RawSection>) -> Result<CompiledGraph, String> {
                 })?;
                 OrchaNodeSpec::Review { prompt }
             }
+            "planner" => {
+                let task = t.task.clone().ok_or_else(|| {
+                    format!("Ticket '{}' [planner] has no body text", t.id)
+                })?;
+                OrchaNodeSpec::Plan { task }
+            }
             other => {
                 return Err(format!(
                     "Unknown ticket type [{}] in ticket '{}'",

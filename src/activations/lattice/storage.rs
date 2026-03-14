@@ -109,6 +109,12 @@ impl LatticeStorage {
             .execute(&self.pool).await;
         let _ = sqlx::query("ALTER TABLE lattice_nodes ADD COLUMN join_type TEXT NOT NULL DEFAULT 'all'")
             .execute(&self.pool).await;
+        let _ = sqlx::query(
+            "ALTER TABLE lattice_graphs ADD COLUMN parent_graph_id TEXT NULL REFERENCES lattice_graphs(id)"
+        ).execute(&self.pool).await;
+        let _ = sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_lattice_graphs_parent ON lattice_graphs(parent_graph_id)"
+        ).execute(&self.pool).await;
 
         Ok(())
     }
@@ -134,6 +140,63 @@ impl LatticeStorage {
         Ok(id)
     }
 
+    pub async fn create_child_graph(
+        &self,
+        parent_id: &str,
+        metadata: Value,
+    ) -> Result<String, String> {
+        let id = format!("lattice-{}", Uuid::new_v4());
+        let now = current_timestamp();
+        let metadata_json = serde_json::to_string(&metadata)
+            .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
+
+        sqlx::query(
+            "INSERT INTO lattice_graphs (id, metadata, status, created_at, parent_graph_id) VALUES (?, ?, 'pending', ?, ?)"
+        )
+        .bind(&id)
+        .bind(&metadata_json)
+        .bind(now)
+        .bind(parent_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to create child graph: {}", e))?;
+
+        Ok(id)
+    }
+
+    pub async fn get_child_graphs(&self, parent_id: &str) -> Result<Vec<LatticeGraph>, String> {
+        let rows = sqlx::query(
+            "SELECT id, metadata, status, created_at, parent_graph_id FROM lattice_graphs WHERE parent_graph_id = ? ORDER BY created_at"
+        )
+        .bind(parent_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to fetch child graphs: {}", e))?;
+
+        let mut graphs = Vec::new();
+        for row in rows {
+            let graph_id: String = row.get("id");
+            let node_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM lattice_nodes WHERE graph_id = ?"
+            )
+            .bind(&graph_id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| format!("Failed to count nodes: {}", e))?;
+
+            let edge_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM lattice_edges WHERE graph_id = ?"
+            )
+            .bind(&graph_id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| format!("Failed to count edges: {}", e))?;
+
+            graphs.push(self.row_to_graph(row, node_count as usize, edge_count as usize)?);
+        }
+        Ok(graphs)
+    }
+
     pub async fn add_node(
         &self,
         graph_id: &GraphId,
@@ -155,6 +218,12 @@ impl LatticeStorage {
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to add node: {}", e))?;
+
+        if let Ok(graph_status) = self.get_graph_status(graph_id).await {
+            if graph_status == GraphStatus::Running {
+                let _ = self.check_and_ready(graph_id, &id).await;
+            }
+        }
 
         Ok(id)
     }
@@ -209,12 +278,35 @@ impl LatticeStorage {
         .await
         .map_err(|e| format!("Failed to add edge: {}", e))?;
 
+        if let Ok(graph_status) = self.get_graph_status(graph_id).await {
+            if graph_status == GraphStatus::Running {
+                if let Ok(src_node) = self.get_node(from_node_id).await {
+                    if src_node.status == NodeStatus::Complete {
+                        let tokens: Vec<Token> = src_node.output.as_ref()
+                            .map(|o| o.tokens().into_iter().cloned().collect())
+                            .unwrap_or_else(|| vec![Token::ok()]);
+                        for token in &tokens {
+                            let matches = condition
+                                .map(|c| c.matches(&token.color))
+                                .unwrap_or(true);
+                            if matches {
+                                let seq = self.count_tokens_on_edge(&edge_id).await? + 1;
+                                self.deliver_token(&edge_id, graph_id, token, seq).await?;
+                            }
+                        }
+                        let _ = self.check_and_ready(graph_id, to_node_id).await;
+                        self.notify_graph(graph_id);
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
     pub async fn get_graph(&self, graph_id: &GraphId) -> Result<LatticeGraph, String> {
         let row = sqlx::query(
-            "SELECT id, metadata, status, created_at FROM lattice_graphs WHERE id = ?"
+            "SELECT id, metadata, status, created_at, parent_graph_id FROM lattice_graphs WHERE id = ?"
         )
         .bind(graph_id)
         .fetch_optional(&self.pool)
@@ -406,7 +498,7 @@ impl LatticeStorage {
 
     pub async fn list_graphs(&self) -> Result<Vec<LatticeGraph>, String> {
         let rows = sqlx::query(
-            "SELECT id, metadata, status, created_at FROM lattice_graphs ORDER BY created_at DESC"
+            "SELECT id, metadata, status, created_at, parent_graph_id FROM lattice_graphs ORDER BY created_at DESC"
         )
         .fetch_all(&self.pool)
         .await
@@ -856,6 +948,16 @@ impl LatticeStorage {
         }
     }
 
+    async fn get_graph_status(&self, graph_id: &str) -> Result<GraphStatus, String> {
+        let row = sqlx::query("SELECT status FROM lattice_graphs WHERE id = ?")
+            .bind(graph_id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        let s: String = row.try_get("status").map_err(|e| e.to_string())?;
+        s.parse::<GraphStatus>()
+    }
+
     // ─── Execute Stream ──────────────────────────────────────────────────────
 
     /// Long-lived stream of sequenced events for a graph.
@@ -961,6 +1063,7 @@ impl LatticeStorage {
             created_at: row.get("created_at"),
             node_count,
             edge_count,
+            parent_graph_id: row.try_get::<Option<String>, _>("parent_graph_id").unwrap_or(None),
         })
     }
 

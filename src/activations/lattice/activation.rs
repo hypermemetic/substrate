@@ -256,4 +256,43 @@ impl Lattice {
             }
         }
     }
+
+    /// Add a SubGraph node — when dispatched, runs the child graph to completion.
+    ///
+    /// On child success, the parent node receives `{"child_graph_id": "..."}` as output.
+    /// On child failure, the parent node is failed (error edge fires if present).
+    #[plexus_macros::hub_method(params(
+        parent_id = "ID of the parent graph",
+        metadata = "Arbitrary JSON metadata attached to the graph"
+    ))]
+    async fn create_child_graph(
+        &self,
+        parent_id: String,
+        metadata: Value,
+    ) -> impl Stream<Item = CreateChildGraphResult> + Send + 'static {
+        let storage = self.storage.clone();
+        stream! {
+            match storage.create_child_graph(&parent_id, metadata).await {
+                Ok(graph_id) => yield CreateChildGraphResult::Ok { graph_id },
+                Err(e) => yield CreateChildGraphResult::Err { message: e },
+            }
+        }
+    }
+
+    /// List all child graphs of a parent graph
+    #[plexus_macros::hub_method(params(
+        parent_id = "ID of the parent graph"
+    ))]
+    async fn get_child_graphs(
+        &self,
+        parent_id: String,
+    ) -> impl Stream<Item = GetChildGraphsResult> + Send + 'static {
+        let storage = self.storage.clone();
+        stream! {
+            match storage.get_child_graphs(&parent_id).await {
+                Ok(graphs) => yield GetChildGraphsResult::Ok { graphs },
+                Err(e) => yield GetChildGraphsResult::Err { message: e },
+            }
+        }
+    }
 }

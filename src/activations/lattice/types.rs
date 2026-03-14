@@ -246,6 +246,7 @@ pub struct LatticeGraph {
     pub created_at: i64,
     pub node_count: usize,
     pub edge_count: usize,
+    pub parent_graph_id: Option<String>,
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────
@@ -329,5 +330,19 @@ pub enum ListGraphsResult {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum GetNodeInputsResult {
     Ok { inputs: Vec<Token> },
+    Err { message: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum CreateChildGraphResult {
+    Ok { graph_id: GraphId },
+    Err { message: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum GetChildGraphsResult {
+    Ok { graphs: Vec<LatticeGraph> },
     Err { message: String },
 }

@@ -22,6 +22,7 @@ pub struct PmTicketStatus {
     pub status: String,
     pub kind: String,
     pub label: Option<String>,
+    pub child_graph_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -61,6 +62,7 @@ pub enum PmInspectResult {
         command: Option<String>,
         output: Option<Value>,
         error: Option<String>,
+        child_graph_id: Option<String>,
     },
     NotFound {
         ticket_id: String,
@@ -149,6 +151,27 @@ impl Pm {
     pub async fn get_ticket_source_raw(&self, graph_id: &str) -> Result<Option<String>, String> {
         self.pm_storage.get_ticket_source(graph_id).await
     }
+
+    /// Append a single event to the node execution log.
+    ///
+    /// Called from `dispatch_task` for each ChatEvent and the final outcome.
+    pub async fn log_node_event(
+        &self,
+        graph_id: &str,
+        node_id: &str,
+        ticket_id: Option<&str>,
+        seq: i64,
+        event_type: &str,
+        event_data: serde_json::Value,
+    ) {
+        let data_str = serde_json::to_string(&event_data).unwrap_or_default();
+        if let Err(e) = self.pm_storage
+            .append_node_log(graph_id, node_id, ticket_id, seq, event_type, &data_str)
+            .await
+        {
+            tracing::warn!("log_node_event failed for {}/{}: {}", graph_id, node_id, e);
+        }
+    }
 }
 
 #[async_trait]
@@ -225,11 +248,13 @@ fn extract_kind_and_label(spec: &NodeSpec) -> (String, Option<String>) {
 impl Pm {
     /// Get the status of all tickets in a graph.
     #[plexus_macros::hub_method(params(
-        graph_id = "The lattice graph ID returned by build_tickets or run_tickets"
+        graph_id   = "The lattice graph ID returned by build_tickets or run_tickets",
+        recursive  = "Optional: when true, include child_graph_id from completed node outputs (default false)"
     ))]
     async fn graph_status(
         &self,
         graph_id: String,
+        recursive: Option<bool>,
     ) -> impl Stream<Item = PmGraphStatusResult> + Send + 'static {
         let pm_storage = self.pm_storage.clone();
         let lattice_storage = self.lattice_storage.clone();
@@ -258,12 +283,24 @@ impl Pm {
                             NodeStatus::Complete => {}
                         }
                         let (kind, label) = extract_kind_and_label(&node.spec);
+                        let child_graph_id = if recursive.unwrap_or(false) && node.status == NodeStatus::Complete {
+                            node.output.as_ref().and_then(|o| {
+                                if let crate::activations::lattice::NodeOutput::Single(token) = o {
+                                    if let Some(crate::activations::lattice::TokenPayload::Data { value }) = &token.payload {
+                                        value.get("child_graph_id").and_then(|v| v.as_str()).map(|s| s.to_string())
+                                    } else { None }
+                                } else { None }
+                            })
+                        } else {
+                            None
+                        };
                         tickets.push(PmTicketStatus {
                             ticket_id: ticket_id.clone(),
                             node_id: node_id.clone(),
                             status: node_status_str(&node.status).to_string(),
                             kind,
                             label,
+                            child_graph_id,
                         });
                     }
                     Err(e) => {
@@ -324,6 +361,7 @@ impl Pm {
                                 status: node_status_str(&node.status).to_string(),
                                 kind,
                                 label,
+                                child_graph_id: None,
                             });
                         }
                     }
@@ -379,6 +417,13 @@ impl Pm {
                 .map(|o| serde_json::to_value(o).unwrap_or(Value::Null));
             let error = node.error.clone();
 
+            let child_graph_id = output.as_ref()
+                .and_then(|o| o.get("payload"))
+                .and_then(|p| p.get("value"))
+                .and_then(|v| v.get("child_graph_id"))
+                .and_then(|id| id.as_str())
+                .map(|s| s.to_string());
+
             match &node.spec {
                 NodeSpec::Task { data, .. } => {
                     match serde_json::from_value::<OrchaNodeKind>(data.clone()) {
@@ -387,6 +432,7 @@ impl Pm {
                                 ticket_id, node_id, status,
                                 kind: "task".to_string(),
                                 task: Some(task), command: None, output, error,
+                                child_graph_id,
                             };
                         }
                         Ok(OrchaNodeKind::Synthesize { task }) => {
@@ -394,6 +440,7 @@ impl Pm {
                                 ticket_id, node_id, status,
                                 kind: "synthesize".to_string(),
                                 task: Some(task), command: None, output, error,
+                                child_graph_id,
                             };
                         }
                         Ok(OrchaNodeKind::Validate { command, .. }) => {
@@ -401,6 +448,7 @@ impl Pm {
                                 ticket_id, node_id, status,
                                 kind: "validate".to_string(),
                                 task: None, command: Some(command), output, error,
+                                child_graph_id,
                             };
                         }
                         Ok(OrchaNodeKind::Review { prompt }) => {
@@ -408,6 +456,7 @@ impl Pm {
                                 ticket_id, node_id, status,
                                 kind: "review".to_string(),
                                 task: Some(prompt), command: None, output, error,
+                                child_graph_id,
                             };
                         }
                         Ok(OrchaNodeKind::Plan { task }) => {
@@ -415,6 +464,7 @@ impl Pm {
                                 ticket_id, node_id, status,
                                 kind: "plan".to_string(),
                                 task: Some(task), command: None, output, error,
+                                child_graph_id,
                             };
                         }
                         Err(_) => {
@@ -422,6 +472,7 @@ impl Pm {
                                 ticket_id, node_id, status,
                                 kind: "task".to_string(),
                                 task: None, command: None, output, error,
+                                child_graph_id,
                             };
                         }
                     }
@@ -431,6 +482,7 @@ impl Pm {
                         ticket_id, node_id, status,
                         kind: "gather".to_string(),
                         task: None, command: None, output, error,
+                        child_graph_id,
                     };
                 }
                 _ => {
@@ -438,6 +490,7 @@ impl Pm {
                         ticket_id, node_id, status,
                         kind: "other".to_string(),
                         task: None, command: None, output, error,
+                        child_graph_id,
                     };
                 }
             }
@@ -507,6 +560,7 @@ impl Pm {
                     status: node_status_str(&pred_node.status).to_string(),
                     kind,
                     label,
+                    child_graph_id: None,
                 });
             }
 
@@ -538,13 +592,15 @@ impl Pm {
 
     /// List graphs tracked by the pm layer, optionally filtered by project metadata.
     #[plexus_macros::hub_method(params(
-        project = "Optional: filter by metadata.project string",
-        limit   = "Optional: max results (default 20)"
+        project   = "Optional: filter by metadata.project string",
+        limit     = "Optional: max results (default 20)",
+        root_only = "Optional: when true (default), only return root graphs (no parent); set false to include subgraphs"
     ))]
     async fn list_graphs(
         &self,
         project: Option<String>,
         limit: Option<usize>,
+        root_only: Option<bool>,
     ) -> impl Stream<Item = PmListGraphsResult> + Send + 'static {
         let pm_storage = self.pm_storage.clone();
         let lattice_storage = self.lattice_storage.clone();
@@ -567,6 +623,11 @@ impl Pm {
                     Ok(g) => g,
                     Err(_) => continue,
                 };
+
+                // Apply root_only filter (default true — skip child graphs).
+                if root_only.unwrap_or(true) && lattice_graph.parent_graph_id.is_some() {
+                    continue;
+                }
 
                 // Apply optional project filter.
                 if let Some(ref project_filter) = project {
@@ -595,6 +656,44 @@ impl Pm {
             }
 
             yield PmListGraphsResult::Ok { graphs };
+        }
+    }
+
+    /// Retrieve the full execution log for a node.
+    ///
+    /// Returns all events recorded by `dispatch_task` in sequence order:
+    /// "prompt" (task sent to Claude), "start" (session created), "tool_use",
+    /// "tool_result", "complete", "error", "passthrough", "outcome" (final result).
+    ///
+    /// Use this to diagnose why a node failed or produced unexpected output.
+    #[plexus_macros::hub_method(params(
+        graph_id = "Graph ID (from GraphStarted event or pm.list_graphs)",
+        node_id  = "Lattice node ID (from NodeStarted event or pm.graph_status)"
+    ))]
+    async fn get_node_log(
+        &self,
+        graph_id: String,
+        node_id: String,
+    ) -> impl Stream<Item = Value> + Send + 'static {
+        let pm_storage = self.pm_storage.clone();
+        stream! {
+            match pm_storage.get_node_log(&graph_id, &node_id).await {
+                Ok(entries) => {
+                    for entry in entries {
+                        let data: Value = serde_json::from_str(&entry.event_data)
+                            .unwrap_or(serde_json::json!({ "raw": entry.event_data }));
+                        yield serde_json::json!({
+                            "seq": entry.seq,
+                            "event_type": entry.event_type,
+                            "data": data,
+                            "created_at": entry.created_at,
+                        });
+                    }
+                }
+                Err(e) => {
+                    yield serde_json::json!({ "type": "err", "message": e });
+                }
+            }
         }
     }
 }

@@ -15,6 +15,7 @@ pub enum OrchaNodeKind {
     Synthesize { task: String },
     Validate { command: String, cwd: Option<String> },
     Review { prompt: String },
+    Plan { task: String },
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -759,6 +760,7 @@ pub enum OrchaNodeSpec {
     Validate { command: String, cwd: Option<String> },
     Gather { strategy: GatherStrategy },
     Review { prompt: String },
+    Plan { task: String },
 }
 
 /// One node in an inline graph definition.

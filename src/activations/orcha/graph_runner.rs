@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use super::graph_runtime::OrchaGraph;
+use super::pm::Pm;
 use super::types::{OrchaEvent, OrchaNodeKind};
 
 /// Run a DAG graph with Orcha's node dispatch logic.
@@ -28,6 +29,7 @@ pub fn run_graph_execution<P: HubContext + 'static>(
     claudecode: Arc<ClaudeCode<P>>,
     arbor_storage: Arc<ArborStorage>,
     loopback_storage: Arc<LoopbackStorage>,
+    pm: Arc<Pm>,
     model: Model,
     working_directory: String,
     cancel_rx: tokio::sync::watch::Receiver<bool>,
@@ -49,8 +51,8 @@ pub fn run_graph_execution<P: HubContext + 'static>(
             .into_iter()
             .collect::<HashSet<String>>();
 
-        // Progress tracking: count nodes once at graph start, then track completions.
-        let total_nodes: usize = graph.count_nodes().await.unwrap_or(0);
+        // Progress tracking: re-fetched on each completion to stay accurate for live graphs.
+        let mut total_nodes: usize = graph.count_nodes().await.unwrap_or(0);
         let mut complete_nodes: usize = 0;
 
         /// Compute percentage as integer 0–100.
@@ -85,6 +87,7 @@ pub fn run_graph_execution<P: HubContext + 'static>(
                             let cc = claudecode.clone();
                             let arbor = arbor_storage.clone();
                             let lb = loopback_storage.clone();
+                            let pm_log = pm.clone();
                             let nid = node_id.clone();
                             let wd = working_directory.clone();
                             let tx = node_event_tx.clone();
@@ -94,7 +97,7 @@ pub fn run_graph_execution<P: HubContext + 'static>(
                                 // Emit NodeStarted before executing
                                 let _ = g.start_node(&nid).await;
 
-                                let result = dispatch_node(cc, arbor, lb, &g, &spec, &nid, model, wd, tx, cancel, ticket_id).await;
+                                let result = dispatch_node(cc, arbor, lb, pm_log, &g, &spec, &nid, model, wd, tx, cancel, ticket_id).await;
                                 match result {
                                     Ok(output) => {
                                         if let Err(e) = g.complete_node(&nid, output).await {
@@ -110,6 +113,7 @@ pub fn run_graph_execution<P: HubContext + 'static>(
 
                         LatticeEvent::NodeDone { node_id, output } => {
                             complete_nodes += 1;
+                            total_nodes = graph.count_nodes().await.unwrap_or(total_nodes);
                             let ticket_id = node_to_ticket.get(&node_id).cloned();
                             let summary = output.as_ref().and_then(|o| {
                                 output_text(o).map(|s| s.chars().take(200).collect::<String>())
@@ -125,6 +129,7 @@ pub fn run_graph_execution<P: HubContext + 'static>(
 
                         LatticeEvent::NodeFailed { node_id, error } => {
                             complete_nodes += 1;
+                            total_nodes = graph.count_nodes().await.unwrap_or(total_nodes);
                             let ticket_id = node_to_ticket.get(&node_id).cloned();
                             yield OrchaEvent::NodeFailed {
                                 node_id,
@@ -166,6 +171,7 @@ async fn dispatch_node<P: HubContext + 'static>(
     claudecode: Arc<ClaudeCode<P>>,
     arbor: Arc<ArborStorage>,
     loopback_storage: Arc<LoopbackStorage>,
+    pm: Arc<Pm>,
     graph: &OrchaGraph,
     spec: &NodeSpec,
     node_id: &str,
@@ -177,7 +183,7 @@ async fn dispatch_node<P: HubContext + 'static>(
 ) -> Result<Option<NodeOutput>, String> {
     // Early-return for SubGraph — raw NodeSpec variant, not OrchaNodeKind
     if let NodeSpec::SubGraph { graph_id } = spec {
-        return dispatch_subgraph(claudecode, arbor, loopback_storage, graph, graph_id.clone(), node_id, model, working_directory, cancel_rx).await;
+        return dispatch_subgraph(claudecode, arbor, loopback_storage, pm, graph, graph_id.clone(), node_id, model, working_directory, cancel_rx).await;
     }
 
     let data = match spec {
@@ -193,13 +199,13 @@ async fn dispatch_node<P: HubContext + 'static>(
 
     match kind {
         OrchaNodeKind::Task { task } => {
-            dispatch_task(claudecode, loopback_storage, task, resolved_inputs, node_id, model, working_directory, &graph.graph_id, output_tx, cancel_rx, ticket_id).await
+            dispatch_task(claudecode, loopback_storage, pm, task, resolved_inputs, node_id, model, working_directory, &graph.graph_id, output_tx, cancel_rx, ticket_id).await
         }
         OrchaNodeKind::Synthesize { task } => {
-            dispatch_synthesize(claudecode, arbor, loopback_storage, graph, task, resolved_inputs, node_id, model, working_directory, output_tx, cancel_rx, ticket_id).await
+            dispatch_synthesize(claudecode, arbor, loopback_storage, pm, graph, task, resolved_inputs, node_id, model, working_directory, output_tx, cancel_rx, ticket_id).await
         }
         OrchaNodeKind::Validate { command, cwd } => {
-            dispatch_validate_with_retry(claudecode, arbor, loopback_storage, graph, node_id, command, cwd, model, working_directory, output_tx, cancel_rx).await
+            dispatch_validate_with_retry(claudecode, arbor, loopback_storage, pm, graph, node_id, command, cwd, model, working_directory, output_tx, cancel_rx).await
         }
         OrchaNodeKind::Review { prompt } => {
             dispatch_review(loopback_storage, &graph.graph_id, prompt, output_tx, cancel_rx).await
@@ -281,6 +287,7 @@ async fn dispatch_review(
 async fn dispatch_task<P: HubContext + 'static>(
     claudecode: Arc<ClaudeCode<P>>,
     loopback_storage: Arc<LoopbackStorage>,
+    pm: Arc<Pm>,
     task: String,
     resolved_inputs: Vec<crate::activations::lattice::ResolvedToken>,
     node_id: &str,
@@ -323,6 +330,20 @@ async fn dispatch_task<P: HubContext + 'static>(
     if *cancel_rx.borrow() {
         return Err("Graph cancelled".to_string());
     }
+
+    // Log the prompt and invocation context — seq 0.
+    let model_str = format!("{:?}", model).to_lowercase();
+    pm.log_node_event(
+        graph_id, node_id, ticket_id.as_deref(), 0, "prompt",
+        serde_json::json!({
+            "task": prompt,
+            "model": model_str,
+            "working_directory": working_directory,
+            "prior_work_count": prior_work.len(),
+        }),
+    ).await;
+
+    let mut log_seq: i64 = 1;
 
     let session_name = format!("lattice-node-{}", node_id);
 
@@ -392,10 +413,64 @@ async fn dispatch_task<P: HubContext + 'static>(
                         });
                         output_text.push_str(&text);
                     }
-                    Some(ChatEvent::Complete { .. }) => break,
+                    Some(ChatEvent::Start { id, user_position }) => {
+                        pm.log_node_event(
+                            graph_id, node_id, ticket_id.as_deref(), log_seq, "start",
+                            serde_json::json!({ "session_id": id, "user_position": user_position }),
+                        ).await;
+                        log_seq += 1;
+                    }
+                    Some(ChatEvent::ToolUse { tool_name, tool_use_id, input }) => {
+                        pm.log_node_event(
+                            graph_id, node_id, ticket_id.as_deref(), log_seq, "tool_use",
+                            serde_json::json!({
+                                "tool_name": tool_name,
+                                "tool_use_id": tool_use_id,
+                                "input": input,
+                            }),
+                        ).await;
+                        log_seq += 1;
+                    }
+                    Some(ChatEvent::ToolResult { tool_use_id, output, is_error }) => {
+                        pm.log_node_event(
+                            graph_id, node_id, ticket_id.as_deref(), log_seq, "tool_result",
+                            serde_json::json!({
+                                "tool_use_id": tool_use_id,
+                                "is_error": is_error,
+                                // Truncate to avoid huge log entries for file reads etc.
+                                "output_preview": output.chars().take(500).collect::<String>(),
+                                "output_length": output.len(),
+                            }),
+                        ).await;
+                        log_seq += 1;
+                    }
+                    Some(ChatEvent::Complete { claude_session_id, usage, .. }) => {
+                        pm.log_node_event(
+                            graph_id, node_id, ticket_id.as_deref(), log_seq, "complete",
+                            serde_json::json!({
+                                "claude_session_id": claude_session_id,
+                                "output_length": output_text.len(),
+                                "usage": usage,
+                            }),
+                        ).await;
+                        log_seq += 1;
+                        break;
+                    }
                     Some(ChatEvent::Err { message }) => {
+                        pm.log_node_event(
+                            graph_id, node_id, ticket_id.as_deref(), log_seq, "error",
+                            serde_json::json!({ "message": message }),
+                        ).await;
+                        log_seq += 1;
                         chat_error = Some(message);
                         break;
+                    }
+                    Some(ChatEvent::Passthrough { event_type, data, .. }) => {
+                        pm.log_node_event(
+                            graph_id, node_id, ticket_id.as_deref(), log_seq, "passthrough",
+                            serde_json::json!({ "event_type": event_type, "data": data }),
+                        ).await;
+                        log_seq += 1;
                     }
                     Some(_) => {}
                 }
@@ -406,8 +481,30 @@ async fn dispatch_task<P: HubContext + 'static>(
     let _ = approver_stop_tx.send(());
 
     if let Some(e) = chat_error {
+        pm.log_node_event(
+            graph_id, node_id, ticket_id.as_deref(), log_seq, "outcome",
+            serde_json::json!({ "status": "error", "error": e }),
+        ).await;
         return Err(e);
     }
+
+    if output_text.is_empty() {
+        let msg = "Task produced no output — Claude session returned empty text".to_string();
+        pm.log_node_event(
+            graph_id, node_id, ticket_id.as_deref(), log_seq, "outcome",
+            serde_json::json!({ "status": "error", "error": msg }),
+        ).await;
+        return Err(msg);
+    }
+
+    pm.log_node_event(
+        graph_id, node_id, ticket_id.as_deref(), log_seq, "outcome",
+        serde_json::json!({
+            "status": "ok",
+            "output_length": output_text.len(),
+            "output_preview": output_text.chars().take(500).collect::<String>(),
+        }),
+    ).await;
 
     Ok(Some(NodeOutput::Single(Token::ok_data(
         serde_json::json!({ "text": output_text }),
@@ -421,6 +518,7 @@ async fn dispatch_synthesize<P: HubContext + 'static>(
     claudecode: Arc<ClaudeCode<P>>,
     arbor: Arc<ArborStorage>,
     loopback_storage: Arc<LoopbackStorage>,
+    pm: Arc<Pm>,
     graph: &OrchaGraph,
     task: String,
     resolved_inputs: Vec<crate::activations::lattice::ResolvedToken>,
@@ -464,7 +562,7 @@ async fn dispatch_synthesize<P: HubContext + 'static>(
     };
 
     let prompt = format!("{}{}", join_context, task);
-    dispatch_task(claudecode, loopback_storage, prompt, resolved_inputs, node_id, model, working_directory, &graph.graph_id, output_tx, cancel_rx, ticket_id).await
+    dispatch_task(claudecode, loopback_storage, pm, prompt, resolved_inputs, node_id, model, working_directory, &graph.graph_id, output_tx, cancel_rx, ticket_id).await
 }
 
 /// Dispatch a "subgraph" node — runs the child graph to completion.
@@ -475,6 +573,7 @@ async fn dispatch_subgraph<P: HubContext + 'static>(
     claudecode: Arc<ClaudeCode<P>>,
     arbor: Arc<ArborStorage>,
     loopback_storage: Arc<LoopbackStorage>,
+    pm: Arc<Pm>,
     graph: &OrchaGraph,
     child_graph_id: String,
     _node_id: &str,
@@ -484,7 +583,7 @@ async fn dispatch_subgraph<P: HubContext + 'static>(
 ) -> Result<Option<NodeOutput>, String> {
     let child = Arc::new(graph.open_child_graph(child_graph_id.clone()));
     // Child graphs don't have a ticket map — pass an empty map.
-    let events = run_graph_execution(child, claudecode, arbor, loopback_storage, model, working_directory, cancel_rx, HashMap::new());
+    let events = run_graph_execution(child, claudecode, arbor, loopback_storage, pm, model, working_directory, cancel_rx, HashMap::new());
     tokio::pin!(events);
 
     while let Some(event) = events.next().await {
@@ -608,6 +707,7 @@ async fn dispatch_validate_with_retry<P: HubContext + 'static>(
     claudecode: Arc<ClaudeCode<P>>,
     arbor: Arc<ArborStorage>,
     loopback_storage: Arc<LoopbackStorage>,
+    pm: Arc<Pm>,
     graph: &OrchaGraph,
     validate_node_id: &str,
     command: String,
@@ -676,7 +776,7 @@ async fn dispatch_validate_with_retry<P: HubContext + 'static>(
                 );
 
                 match dispatch_task(
-                    claudecode.clone(), loopback_storage.clone(), retry_prompt, resolved,
+                    claudecode.clone(), loopback_storage.clone(), pm.clone(), retry_prompt, resolved,
                     tid, model, working_directory.clone(), &graph.graph_id, output_tx.clone(), cancel_rx.clone(), None,
                 ).await {
                     Ok(Some(ref output)) => {

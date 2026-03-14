@@ -242,6 +242,7 @@ impl<P: HubContext> Orcha<P> {
                     cc,
                     arbor,
                     lb,
+                    pm_for_recovery,
                     model_enum,
                     working_directory,
                     cancel_rx,
@@ -1231,12 +1232,14 @@ impl<P: HubContext> Orcha<P> {
         let claudecode = self.claudecode.clone();
         let arbor_storage = self.arbor_storage.clone();
         let loopback_storage = self.loopback.storage();
+        let pm = self.pm.clone();
         stream! {
             let execution = graph_runner::run_graph_execution(
                 graph,
                 claudecode,
                 arbor_storage,
                 loopback_storage,
+                pm,
                 model_enum,
                 wd,
                 cancel_rx,
@@ -1266,11 +1269,31 @@ impl<P: HubContext> Orcha<P> {
         graph_id: String,
     ) -> impl Stream<Item = OrchaEvent> + Send + 'static {
         let cancel_registry = self.cancel_registry.clone();
+        let lattice_storage = self.graph_runtime.storage();
         stream! {
+            // BFS to collect the root graph and all descendant graph IDs.
+            let mut all_graph_ids: Vec<String> = Vec::new();
+            let mut to_visit: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+            to_visit.push_back(graph_id.clone());
+            while let Some(gid) = to_visit.pop_front() {
+                all_graph_ids.push(gid.clone());
+                if let Ok(children) = lattice_storage.get_child_graphs(&gid).await {
+                    for child in children {
+                        to_visit.push_back(child.id);
+                    }
+                }
+            }
+
+            // Lock the registry once and cancel all collected graphs.
             let mut registry = cancel_registry.lock().await;
-            if let Some(cancel_tx) = registry.remove(&graph_id) {
-                // Broadcast cancellation to all running node tasks.
-                let _ = cancel_tx.send(true);
+            let root_cancelled = registry.contains_key(&graph_id);
+            for gid in all_graph_ids {
+                if let Some(cancel_tx) = registry.remove(&gid) {
+                    let _ = cancel_tx.send(true);
+                }
+            }
+
+            if root_cancelled {
                 yield OrchaEvent::Cancelled { graph_id };
             } else {
                 yield OrchaEvent::Failed {
@@ -1671,6 +1694,7 @@ impl<P: HubContext> Orcha<P> {
                     claudecode,
                     arbor_storage,
                     loopback_storage,
+                    pm,
                     model_enum,
                     wd,
                     cancel_rx,
@@ -1802,6 +1826,7 @@ impl<P: HubContext> Orcha<P> {
                     claudecode,
                     arbor_storage,
                     loopback_storage,
+                    pm,
                     model_enum,
                     wd,
                     cancel_rx,
@@ -1852,6 +1877,7 @@ impl<P: HubContext> Orcha<P> {
             self.arbor_storage.clone(),
             self.loopback.storage(),
             self.cancel_registry.clone(),
+            self.pm.clone(),
             metadata,
             model,
             working_directory,
@@ -1927,6 +1953,7 @@ fn build_and_run_graph_definition<P: HubContext + 'static>(
     arbor_storage: Arc<crate::activations::arbor::ArborStorage>,
     loopback_storage: Arc<crate::activations::claudecode_loopback::LoopbackStorage>,
     cancel_registry: CancelRegistry,
+    pm: Arc<super::pm::Pm>,
     metadata: Value,
     model: Option<String>,
     working_directory: Option<String>,
@@ -1968,6 +1995,7 @@ fn build_and_run_graph_definition<P: HubContext + 'static>(
             claudecode,
             arbor_storage,
             loopback_storage,
+            pm,
             model_enum,
             wd,
             cancel_rx,

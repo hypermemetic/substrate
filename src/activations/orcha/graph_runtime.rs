@@ -39,6 +39,19 @@ impl GraphRuntime {
         })
     }
 
+    /// Create a new execution graph as a child of an existing graph.
+    pub async fn create_child_graph(
+        &self,
+        parent_id: &str,
+        metadata: Value,
+    ) -> Result<OrchaGraph, String> {
+        let graph_id = self.storage.create_child_graph(parent_id, metadata).await?;
+        Ok(OrchaGraph {
+            graph_id,
+            storage: self.storage.clone(),
+        })
+    }
+
     /// Open an existing graph by ID.
     pub fn open_graph(&self, graph_id: String) -> OrchaGraph {
         OrchaGraph {
