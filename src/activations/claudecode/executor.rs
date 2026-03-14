@@ -196,7 +196,7 @@ impl ClaudeCodeExecutor {
         // Build MCP config - merge loopback config if enabled
         let mcp_config = if loopback_enabled {
             let base_url = std::env::var("PLEXUS_MCP_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:4445/mcp".to_string());
+                .unwrap_or_else(|_| "http://127.0.0.1:4444/mcp".to_string());
 
             // Include session_id in URL for correlation when loopback_permit is called
             let plexus_url = if let Some(ref sid) = loopback_session_id {
@@ -205,14 +205,28 @@ impl ClaudeCodeExecutor {
                 base_url
             };
 
-            let loopback_mcp = serde_json::json!({
-                "mcpServers": {
-                    "plexus": {
-                        "type": "http",
-                        "url": plexus_url
+            let loopback_mcp = if let Some(ref sid) = loopback_session_id {
+                serde_json::json!({
+                    "mcpServers": {
+                        "plexus": {
+                            "type": "http",
+                            "url": plexus_url
+                        }
+                    },
+                    "env": {
+                        "PLEXUS_SESSION_ID": sid
                     }
-                }
-            });
+                })
+            } else {
+                serde_json::json!({
+                    "mcpServers": {
+                        "plexus": {
+                            "type": "http",
+                            "url": plexus_url
+                        }
+                    }
+                })
+            };
 
             // Merge with existing config if present
             match config.mcp_config {
@@ -288,21 +302,24 @@ impl ClaudeCodeExecutor {
                     .join(" ")
             );
 
-            // Debug: log the command being executed
             tracing::debug!(cmd = %shell_cmd, "Launching Claude Code");
-            eprintln!("[DEBUG] Claude command: {}", shell_cmd);
+
+            // Emit the launch command as an event (captured in arbor for debugging)
+            yield RawClaudeEvent::LaunchCommand { command: shell_cmd.clone() };
 
             let mut cmd = Command::new("bash");
             cmd.args(&["-c", &shell_cmd])
                 .current_dir(&working_dir)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .stdin(Stdio::null());
+                .stdin(Stdio::null())
+                // Unset CLAUDECODE so nested Claude sessions are allowed
+                .env_remove("CLAUDECODE");
 
             // Set loopback session ID env var if loopback is enabled
             if loopback_enabled {
                 if let Some(ref session_id) = loopback_session_id {
-                    cmd.env("LOOPBACK_SESSION_ID", session_id);
+                    cmd.env("PLEXUS_SESSION_ID", session_id);
                 }
             }
 
@@ -358,6 +375,16 @@ impl ClaudeCodeExecutor {
                                 data: serde_json::Value::String(line),
                             };
                         }
+                    }
+                }
+            }
+
+            // Drain stderr and emit as events (captures error messages from Claude)
+            if let Some(stderr) = child.stderr.take() {
+                let mut stderr_reader = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = stderr_reader.next_line().await {
+                    if !line.trim().is_empty() {
+                        yield RawClaudeEvent::Stderr { text: line };
                     }
                 }
             }

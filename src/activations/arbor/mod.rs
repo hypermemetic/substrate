@@ -8,7 +8,7 @@ pub use activation::{Arbor, ArborMethod};
 // Keep methods module for any helper types if needed
 pub use storage::{ArborConfig, ArborStorage};
 pub use types::{
-    ArborError, ArborEvent, Node, NodeId, NodeType, ResourceRefs, ResourceState, Tree,
+    ArborError, ArborEvent, ArborId, Node, NodeId, NodeType, ResourceRefs, ResourceState, Tree,
     TreeId, TreeSkeleton,
 };
 pub use views::{

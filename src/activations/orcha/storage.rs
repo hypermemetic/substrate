@@ -96,6 +96,14 @@ impl OrchaStorage {
                 .map_err(|e| format!("Failed to add primary_agent_id column: {}", e))?;
         }
 
+        let has_tree_id = column_names.iter().any(|name| name == "tree_id");
+        if !has_tree_id {
+            sqlx::query("ALTER TABLE orcha_sessions ADD COLUMN tree_id TEXT")
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("Failed to add tree_id column: {}", e))?;
+        }
+
         // Create orcha_agents table
         sqlx::query(
             r#"
@@ -161,6 +169,7 @@ impl OrchaStorage {
                 .unwrap_or(super::types::AgentMode::Single);
 
             let primary_agent_id: Option<String> = row.try_get("primary_agent_id").ok().flatten();
+            let tree_id: Option<String> = row.try_get("tree_id").ok().flatten();
 
             let state = self.deserialize_state(&state_type, state_data.as_deref())?;
 
@@ -174,6 +183,7 @@ impl OrchaStorage {
                 max_retries: max_retries as u32,
                 agent_mode,
                 primary_agent_id,
+                tree_id,
             };
 
             sessions.insert(session_id, info);
@@ -191,6 +201,7 @@ impl OrchaStorage {
         rules: Option<String>,
         max_retries: u32,
         agent_mode: super::types::AgentMode,
+        tree_id: Option<String>,
     ) -> Result<SessionInfo, String> {
         let now = chrono::Utc::now().timestamp();
 
@@ -209,6 +220,7 @@ impl OrchaStorage {
             max_retries,
             agent_mode,
             primary_agent_id: None,
+            tree_id: tree_id.clone(),
         };
 
         // Insert into database
@@ -217,8 +229,8 @@ impl OrchaStorage {
             INSERT INTO orcha_sessions (
                 session_id, model, working_directory, rules, max_retries,
                 retry_count, created_at, last_activity, state_type, state_data,
-                agent_mode, primary_agent_id
-            ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'idle', NULL, ?, NULL)
+                agent_mode, primary_agent_id, tree_id
+            ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'idle', NULL, ?, NULL, ?)
             "#,
         )
         .bind(&session_id)
@@ -229,6 +241,7 @@ impl OrchaStorage {
         .bind(now)
         .bind(now)
         .bind(agent_mode_str)
+        .bind(&tree_id)
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to create session: {}", e))?;

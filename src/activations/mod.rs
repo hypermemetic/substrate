@@ -36,3 +36,6 @@ pub mod orcha;
 
 // Interactive demonstrates bidirectional communication patterns
 pub mod interactive;
+
+// Lattice is a DAG execution engine for multi-agent orchestration
+pub mod lattice;

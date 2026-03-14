@@ -38,6 +38,8 @@ use rmcp::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
+use form_urlencoded;
+use http::request::Parts;
 
 /// CLI arguments for MCP gateway
 #[derive(Parser, Debug)]
@@ -191,7 +193,7 @@ impl PlexusClient {
         let client = self.client.read().await;
         let client = client.as_ref().ok_or("Not connected")?;
 
-        // Route through plexus.call to get child schemas
+        // Route through substrate.call to get child schemas
         let method = format!("{}.schema", namespace);
 
         // Use ObjectParams for named params (object), not positional (array)
@@ -200,9 +202,9 @@ impl PlexusClient {
 
         let mut sub = client
             .subscribe::<PlexusStreamItem, _>(
-                "plexus.call",
+                "substrate.call",
                 params,
-                "plexus.call_unsub",
+                "substrate.call_unsub",
             )
             .await
             .map_err(|e| format!("Failed to call {}: {}", method, e))?;
@@ -232,12 +234,12 @@ impl PlexusClient {
 
         let mut sub = client
             .subscribe::<PlexusStreamItem, _>(
-                "plexus.schema",
+                "substrate.schema",
                 jsonrpsee::rpc_params![],
-                "plexus.schema_unsub",
+                "substrate.schema_unsub",
             )
             .await
-            .map_err(|e| format!("Failed to subscribe to plexus.schema: {}", e))?;
+            .map_err(|e| format!("Failed to subscribe to substrate.schema: {}", e))?;
 
         while let Some(result) = sub.next().await {
             match result {
@@ -248,7 +250,7 @@ impl PlexusClient {
                 }
                 Ok(PlexusStreamItem::Done) => break,
                 Ok(PlexusStreamItem::Error { message, .. }) => {
-                    tracing::warn!("plexus.schema error: {}", message);
+                    tracing::warn!("substrate.schema error: {}", message);
                     break;
                 }
                 _ => {}
@@ -308,9 +310,9 @@ impl PlexusClient {
 
         let mut sub = client
             .subscribe::<PlexusStreamItem, _>(
-                "plexus.call",
+                "substrate.call",
                 rpc_params,
-                "plexus.call_unsub",
+                "substrate.call_unsub",
             )
             .await
             .map_err(|e| format!("Failed to call {}: {}", method, e))?;
@@ -430,12 +432,46 @@ impl ServerHandler for PlexusGatewayBridge {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let method_name = &request.name;
-        let arguments = request
+        let mut arguments_map = request
             .arguments
-            .map(Value::Object)
-            .unwrap_or(json!({}));
+            .unwrap_or_else(|| serde_json::Map::new());
 
-        tracing::debug!("Gateway calling tool: {} with args: {:?}", method_name, arguments);
+        tracing::debug!("Gateway calling tool: {} with args: {:?}", method_name, arguments_map);
+
+        // Extract HTTP connection metadata from extensions and inject into arguments.
+        // This makes the gateway transparent: all HTTP-level metadata (query params)
+        // is forwarded to the backend without the gateway needing to know what it means.
+        eprintln!("[MCP GATEWAY] call_tool: method={}, checking for HTTP metadata...", method_name);
+        if let Some(parts) = ctx.extensions.get::<http::request::Parts>() {
+            eprintln!("[MCP GATEWAY] Found HTTP Parts! URI: {}", parts.uri);
+            let mut connection_meta = serde_json::Map::new();
+
+            // Forward ALL query parameters
+            if let Some(query) = parts.uri.query() {
+                eprintln!("[MCP GATEWAY] Query string: {}", query);
+                for (key, value) in form_urlencoded::parse(query.as_bytes()) {
+                    eprintln!("[MCP GATEWAY] Query param: {}={}", key, value);
+                    connection_meta.insert(
+                        format!("query.{}", key),
+                        json!(value.to_string()),
+                    );
+                }
+            } else {
+                eprintln!("[MCP GATEWAY] No query string in URI");
+            }
+
+            // If we extracted any connection metadata, inject it
+            if !connection_meta.is_empty() {
+                arguments_map.insert("_connection".to_string(), json!(connection_meta));
+                eprintln!("[MCP GATEWAY] ✅ Injected connection metadata: {:?}", connection_meta);
+            } else {
+                eprintln!("[MCP GATEWAY] No connection metadata to inject");
+            }
+        } else {
+            eprintln!("[MCP GATEWAY] ❌ No HTTP Parts in extensions!");
+        }
+
+        let arguments = Value::Object(arguments_map);
 
         // Call Plexus hub
         let results = self

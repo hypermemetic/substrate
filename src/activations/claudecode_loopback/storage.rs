@@ -31,6 +31,12 @@ pub struct LoopbackStorage {
     /// Maps session_id -> Notify for blocking wait on new approvals
     /// Allows wait_for_approval to block until an approval arrives for that session
     session_notifiers: Arc<RwLock<HashMap<String, Arc<Notify>>>>,
+    /// Maps child_session_id -> parent_session_id
+    /// When a child session gets an approval, the parent is also notified
+    session_parents: RwLock<HashMap<String, String>>,
+    /// Maps parent_session_id -> [child_session_id]
+    /// Allows list_pending to include child session approvals when querying by parent
+    session_children: RwLock<HashMap<String, Vec<String>>>,
 }
 
 impl LoopbackStorage {
@@ -41,6 +47,8 @@ impl LoopbackStorage {
             pool,
             tool_session_map: RwLock::new(HashMap::new()),
             session_notifiers: Arc::new(RwLock::new(HashMap::new())),
+            session_parents: RwLock::new(HashMap::new()),
+            session_children: RwLock::new(HashMap::new()),
         };
         storage.run_migrations().await?;
         Ok(storage)
@@ -188,13 +196,36 @@ impl LoopbackStorage {
 
     pub async fn list_pending(&self, session_id: Option<&str>) -> Result<Vec<ApprovalRequest>, String> {
         let rows = if let Some(sid) = session_id {
-            sqlx::query(
-                "SELECT id, session_id, tool_name, tool_use_id, input, status, response_message, created_at, resolved_at
-                 FROM loopback_approvals WHERE session_id = ? AND status = 'pending' ORDER BY created_at"
-            )
-            .bind(sid)
-            .fetch_all(&self.pool)
-            .await
+            // Collect all session IDs to query: the given one plus any registered children
+            let mut session_ids = vec![sid.to_string()];
+            if let Ok(children) = self.session_children.read() {
+                if let Some(child_ids) = children.get(sid) {
+                    session_ids.extend(child_ids.iter().cloned());
+                }
+            }
+
+            if session_ids.len() == 1 {
+                sqlx::query(
+                    "SELECT id, session_id, tool_name, tool_use_id, input, status, response_message, created_at, resolved_at
+                     FROM loopback_approvals WHERE session_id = ? AND status = 'pending' ORDER BY created_at"
+                )
+                .bind(&session_ids[0])
+                .fetch_all(&self.pool)
+                .await
+            } else {
+                // Build IN clause for multiple session IDs
+                let placeholders = session_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+                let query_str = format!(
+                    "SELECT id, session_id, tool_name, tool_use_id, input, status, response_message, created_at, resolved_at
+                     FROM loopback_approvals WHERE session_id IN ({}) AND status = 'pending' ORDER BY created_at",
+                    placeholders
+                );
+                let mut q = sqlx::query(&query_str);
+                for sid in &session_ids {
+                    q = q.bind(sid);
+                }
+                q.fetch_all(&self.pool).await
+            }
         } else {
             sqlx::query(
                 "SELECT id, session_id, tool_name, tool_use_id, input, status, response_message, created_at, resolved_at
@@ -244,11 +275,39 @@ impl LoopbackStorage {
             .clone()
     }
 
-    /// Notify all waiters on a session that a new approval has arrived
+    /// Register a parent session for a child session.
+    /// When the child gets an approval, the parent notifier is also woken.
+    /// Also registers the inverse mapping so list_pending can find child approvals.
+    pub fn register_session_parent(&self, child_session_id: &str, parent_session_id: &str) {
+        if let Ok(mut map) = self.session_parents.write() {
+            map.insert(child_session_id.to_string(), parent_session_id.to_string());
+        }
+        if let Ok(mut map) = self.session_children.write() {
+            map.entry(parent_session_id.to_string())
+                .or_default()
+                .push(child_session_id.to_string());
+        }
+    }
+
+    /// Notify waiters on a session that a new approval has arrived.
+    /// Uses notify_one() so the permit is stored even if no task is currently
+    /// suspended in notified() — preventing lost wakeups when the auto-approver
+    /// is busy processing a previous batch.
+    /// Also notifies the parent session if one is registered.
     fn notify_session(&self, session_id: &str) {
         if let Ok(notifiers) = self.session_notifiers.read() {
             if let Some(notifier) = notifiers.get(session_id) {
-                notifier.notify_waiters(); // Wake all waiters
+                notifier.notify_one();
+            }
+        }
+        // Propagate to parent (e.g., Orcha session waiting on any child approval)
+        if let Ok(parents) = self.session_parents.read() {
+            if let Some(parent_id) = parents.get(session_id) {
+                if let Ok(notifiers) = self.session_notifiers.read() {
+                    if let Some(notifier) = notifiers.get(parent_id.as_str()) {
+                        notifier.notify_one();
+                    }
+                }
             }
         }
     }

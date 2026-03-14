@@ -51,6 +51,7 @@ dotenvy = "0.15"
 tower-http = { version = "0.5", features = ["trace", "util", "cors"] }
 http = "1.0"
 http-body-util = "0.1"
+form_urlencoded = "1.2"  # For parsing query parameters in MCP gateway
 
 # LLM client
 
@@ -62,13 +63,17 @@ rmcp = { version = "0.12", features = ["server", "transport-io", "transport-stre
 cllient = { version = "0.2.1", path = "../../juggernautlabs/cllient" }
 plexus-macros = "0.3.0"
 plexus-core = "0.3.0"
-plexus-transport = "0.1.0"
+plexus-transport = { version = "0.1.0", features = ["mcp-gateway"] }
 hyperforge = "4.0.0"
 # plexus-jsexec = "0.1.0"  # temporarily disabled - needs API updates
 registry = { package = "plexus-registry", version = "0.1.0" }
 
 # Mustache templating
 mustache = "0.9"
+
+[features]
+default = ["mcp-gateway"]
+mcp-gateway = ["plexus-transport/mcp-gateway"]
 
 [dev-dependencies]
 hyper = "1"

@@ -1,6 +1,10 @@
 use plexus_substrate::build_plexus_rpc;
 use plexus_transport::TransportServer;
+#[cfg(feature = "mcp-gateway")]
+use plexus_transport::{serve_combined, RouteFn};
 use clap::Parser;
+#[cfg(feature = "mcp-gateway")]
+use std::sync::Arc;
 
 /// CLI arguments for substrate
 #[derive(Parser, Debug)]
@@ -11,13 +15,19 @@ struct Args {
     #[arg(long)]
     stdio: bool,
 
-    /// Port for WebSocket server (ignored in stdio mode)
+    /// Port for WebSocket + MCP HTTP server (ignored in stdio mode)
     #[arg(short, long, default_value = "4444")]
     port: u16,
 
-    /// Disable built-in MCP HTTP server (use mcp-gateway instead)
+    /// Disable built-in MCP HTTP server (WebSocket only)
     #[arg(long)]
     no_mcp: bool,
+
+    /// Bearer token required on all WebSocket and MCP HTTP connections.
+    /// Also read from the PLEXUS_API_KEY environment variable.
+    /// When neither is provided, no authentication is required.
+    #[arg(long, env = "PLEXUS_API_KEY")]
+    api_key: Option<String>,
 }
 
 
@@ -68,6 +78,12 @@ async fn main() -> anyhow::Result<()> {
     tracing::debug!("  ├─ debug :: introspection enabled");
     tracing::trace!("  └─ trace :: full observability unlocked");
 
+    if args.api_key.is_some() {
+        tracing::info!("Authentication: bearer token configured (--api-key / PLEXUS_API_KEY)");
+    } else {
+        tracing::warn!("Authentication: DISABLED — set --api-key or PLEXUS_API_KEY to require bearer tokens");
+    }
+
     // Build Plexus RPC hub (returns Arc<DynamicHub>)
     let hub = build_plexus_rpc().await;
     let activations = hub.list_activations_info();
@@ -91,39 +107,59 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("");
     tracing::info!("Total methods: {}", methods.len());
 
-    // Configure transport server using plexus-transport library
     let rpc_converter = |arc| {
         use plexus_core::plexus::DynamicHub;
         DynamicHub::arc_into_rpc_module(arc)
             .map_err(|e| anyhow::anyhow!("Failed to create RPC module: {}", e))
     };
 
-    let mut builder = TransportServer::builder(hub, rpc_converter);
-
-    // Add requested transports
     if args.stdio {
-        builder = builder.with_stdio();
-    } else {
-        builder = builder.with_websocket(args.port);
-
-        if !args.no_mcp {
-            builder = builder.with_mcp_http(args.port + 1);
-        }
-    }
-
-    // Log what we're starting
-    if args.stdio {
+        // Stdio mode: line-delimited JSON-RPC over stdin/stdout
         tracing::info!("Starting stdio transport (MCP-compatible)");
-    } else {
+        TransportServer::builder(hub, rpc_converter)
+            .with_stdio()
+            .build().await?.serve().await
+    } else if args.no_mcp {
+        // WebSocket only
         tracing::info!("Substrate Plexus RPC server started");
         tracing::info!("  WebSocket: ws://127.0.0.1:{}", args.port);
-        if !args.no_mcp {
+        tracing::info!("  MCP HTTP:  disabled");
+        TransportServer::builder(hub, rpc_converter)
+            .with_websocket(args.port)
+            .with_api_key(args.api_key)
+            .build().await?.serve().await
+    } else {
+        #[cfg(feature = "mcp-gateway")]
+        {
+            // Combined WebSocket + MCP HTTP on same port
+            use plexus_core::plexus::DynamicHub;
+            let flat_schemas = hub.list_plugin_schemas();
+            let module = DynamicHub::arc_into_rpc_module(hub.clone())
+                .map_err(|e| anyhow::anyhow!("Failed to create RPC module: {}", e))?;
+            let hub_route = hub.clone();
+            let route_fn: RouteFn = Arc::new(move |method, params| {
+                let hub = hub_route.clone();
+                Box::pin(async move { hub.route(&method, params).await })
+            });
+            let addr: std::net::SocketAddr = format!("127.0.0.1:{}", args.port).parse()?;
+            tracing::info!("Substrate Plexus RPC server started");
+            tracing::info!("  WebSocket: ws://127.0.0.1:{}", args.port);
+            tracing::info!("  MCP HTTP:  http://127.0.0.1:{}/mcp", args.port);
+            let handle = serve_combined(module, hub, Some(flat_schemas), Some(route_fn), addr, args.api_key).await?;
+            handle.stopped().await;
+            Ok(())
+        }
+        #[cfg(not(feature = "mcp-gateway"))]
+        {
+            // Fallback: WebSocket + separate MCP HTTP on next port
+            tracing::info!("Substrate Plexus RPC server started");
+            tracing::info!("  WebSocket: ws://127.0.0.1:{}", args.port);
             tracing::info!("  MCP HTTP:  http://127.0.0.1:{}/mcp", args.port + 1);
-        } else {
-            tracing::info!("  MCP HTTP:  disabled (use mcp-gateway instead)");
+            TransportServer::builder(hub, rpc_converter)
+                .with_websocket(args.port)
+                .with_mcp_http(args.port + 1)
+                .with_api_key(args.api_key)
+                .build().await?.serve().await
         }
     }
-
-    // Start the transport server
-    builder.build().await?.serve().await
 }

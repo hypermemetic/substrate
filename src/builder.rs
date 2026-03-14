@@ -13,8 +13,10 @@ use crate::activations::cone::{Cone, ConeStorageConfig};
 use crate::activations::echo::Echo;
 use crate::activations::health::Health;
 use crate::activations::interactive::Interactive;
+use crate::activations::lattice::{Lattice, LatticeStorageConfig};
 use crate::activations::mustache::{Mustache, MustacheStorageConfig};
-use crate::activations::orcha::{Orcha, OrchaStorage, OrchaStorageConfig};
+use crate::activations::orcha::pm::{Pm, PmStorage, PmStorageConfig};
+use crate::activations::orcha::{GraphRuntime, Orcha, OrchaStorage, OrchaStorageConfig};
 use crate::activations::solar::Solar;
 use crate::plexus::DynamicHub;
 use hyperforge::HyperforgeHub;
@@ -86,11 +88,23 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
             .expect("Failed to initialize Orcha storage")
     );
 
+    // Initialize PM storage for ticket→node mapping
+    let pm_storage = Arc::new(
+        PmStorage::new(PmStorageConfig::default())
+            .await
+            .expect("Failed to initialize PM storage")
+    );
+
     // Clone arbor_storage for Orcha (needs separate reference)
     let arbor_storage_for_orcha = arbor.storage();
 
     // Initialize JsExec for JavaScript execution in V8 isolates
     // let jsexec = JsExec::new(JsExecConfig::default());  // temporarily disabled
+
+    // Initialize Lattice DAG execution engine
+    let lattice = Lattice::new(LatticeStorageConfig::default())
+        .await
+        .expect("Failed to initialize Lattice storage");
 
     // Initialize Registry for backend discovery
     let registry = Registry::with_defaults()
@@ -100,6 +114,10 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
     // Use Arc::new_cyclic to get a Weak<DynamicHub> during construction
     // This allows us to inject the parent context into Cone and ClaudeCode
     // before the hub is fully constructed, avoiding reference cycles
+    //
+    // We keep a clone of `orcha` outside the closure so we can call
+    // `recover_running_graphs` after the hub is fully assembled.
+    let orcha_for_recovery: std::cell::OnceCell<Orcha<Weak<DynamicHub>>> = std::cell::OnceCell::new();
     let hub = Arc::new_cyclic(|weak_hub: &Weak<DynamicHub>| {
         // Inject parent context into activations that need it
         arbor.inject_parent(weak_hub.clone());
@@ -107,12 +125,19 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
         claudecode.inject_parent(weak_hub.clone());
 
         // Initialize Orcha with dependencies (needs to be inside closure to access claudecode)
+        let graph_runtime = Arc::new(GraphRuntime::new(lattice.storage()));
+        let pm = Arc::new(Pm::new(pm_storage.clone(), lattice.storage()));
         let orcha: Orcha<Weak<DynamicHub>> = Orcha::new(
             orcha_storage.clone(),
             Arc::new(claudecode.clone()),
             loopback.clone(),
             arbor_storage_for_orcha,
+            graph_runtime,
+            pm,
         );
+
+        // Store a clone for the post-construction recovery pass.
+        let _ = orcha_for_recovery.set(orcha.clone());
 
         // Build and return the DynamicHub with "substrate" namespace
         DynamicHub::new("substrate")
@@ -125,9 +150,10 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
             .register(mustache)
             .register(changelog.clone())
             .register((*loopback).clone())
-            .register(orcha)
+            .register_hub(orcha)
             // .register(jsexec)  // temporarily disabled
             .register(registry)
+            .register(lattice)
             .register(Interactive::new())  // Bidirectional demo activation
             .register_hub(Solar::new())
             .register(HyperforgeHub::new())
@@ -148,6 +174,12 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
         Err(e) => {
             tracing::error!("Changelog startup check failed: {}", e);
         }
+    }
+
+    // Run startup recovery for any Orcha graphs that were mid-execution when the
+    // substrate last shut down.  This is best-effort: failures are logged, never fatal.
+    if let Some(orcha) = orcha_for_recovery.into_inner() {
+        orcha.recover_running_graphs().await;
     }
 
     hub

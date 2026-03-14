@@ -15,6 +15,10 @@
 - [Loopback MCP Conformance](./16678130375925173503_loopback-mcp-conformance-analysis.md) - Permission routing via `--permission-prompt-tool` and streaming JSON output
 - [Arbor-Buffered Streaming](./16678111153768723711_arbor-buffered-streaming.md) - Original design doc (superseded by above)
 
+## Orcha
+
+- [Orcha Approval Workflow](./16772656563233000000_orcha-approval-workflow.md) - Manual and auto-approval flows, session ID topology, notification propagation, Arbor integration
+
 ## JsExec
 
 - **NEW** activation added in `7fa6a8d` - JavaScript execution in sandboxed V8 isolates via Cloudflare workerd

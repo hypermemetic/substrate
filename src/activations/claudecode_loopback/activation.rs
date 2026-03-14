@@ -55,27 +55,35 @@ impl ClaudeCodeLoopback {
     #[plexus_macros::hub_method(params(
         tool_name = "Name of the tool being requested",
         tool_use_id = "Unique ID for this tool invocation",
-        input = "Tool input parameters"
+        input = "Tool input parameters",
+        _connection = "HTTP connection metadata (optional)" // Added for transparent query param forwarding
     ))]
     async fn permit(
         &self,
         tool_name: String,
         tool_use_id: String,
         input: Value,
+        _connection: Option<Value>,
     ) -> impl Stream<Item = String> + Send + 'static {
         // IMMEDIATE DEBUG: Log before stream starts
-        eprintln!("[LOOPBACK] permit called: tool={}, tool_use_id={}", tool_name, tool_use_id);
+        tracing::debug!("[LOOPBACK] permit called: tool={}, tool_use_id={}", tool_name, tool_use_id);
 
         let storage = self.storage.clone();
 
-        // Look up session ID from pre-registered tool_use_id mapping
-        // This mapping was set by run_chat_background when it saw the ToolUse event
-        let session_id = storage.lookup_session_by_tool(&tool_use_id)
+        // Try to get session_id from HTTP connection metadata first (transparent approach).
+        // If not available, fall back to tool_use_id mapping (legacy approach).
+        let session_id = _connection
+            .as_ref()
+            .and_then(|conn| conn.get("query.session_id"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| std::env::var("PLEXUS_SESSION_ID").ok())
+            .or_else(|| storage.lookup_session_by_tool(&tool_use_id))
             .unwrap_or_else(|| "unknown".to_string());
 
         stream! {
             // DEBUG: Log the lookup result
-            eprintln!("[LOOPBACK] permit: tool_use_id={} mapped to session_id={}", tool_use_id, session_id);
+            tracing::debug!("[LOOPBACK] permit: tool_use_id={} mapped to session_id={}", tool_use_id, session_id);
 
             // Create approval request
             let approval = match storage.create_approval(

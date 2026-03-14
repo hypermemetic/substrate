@@ -184,8 +184,10 @@ pub struct ClaudeCodeConfig {
     pub id: ClaudeCodeId,
     /// Human-readable name
     pub name: String,
-    /// Claude Code's internal session ID (for --resume)
+    /// Claude Code's internal session ID (for --resume, populated after first chat)
     pub claude_session_id: Option<String>,
+    /// Session ID for loopback MCP URL correlation (e.g., orcha-xxx-claude-yyy)
+    pub loopback_session_id: Option<String>,
     /// The canonical head - current position in conversation tree
     pub head: Position,
     /// Working directory for Claude Code
@@ -557,6 +559,14 @@ pub enum RawClaudeEvent {
         event_type: String,
         data: Value,
     },
+
+    /// The exact shell command launched (emitted before spawn, constructed manually)
+    #[serde(skip)]
+    LaunchCommand { command: String },
+
+    /// A line from Claude's stderr (emitted after stdout closes, constructed manually)
+    #[serde(skip)]
+    Stderr { text: String },
 }
 
 /// Inner event types for stream_event
@@ -712,6 +722,14 @@ pub enum NodeEvent {
     /// Assistant turn complete marker
     #[serde(rename = "assistant_complete")]
     AssistantComplete { usage: Option<ChatUsage> },
+
+    /// The exact shell command used to launch Claude (for debugging)
+    #[serde(rename = "launch_command")]
+    LaunchCommand { command: String },
+
+    /// Stderr output captured from the Claude process (errors, warnings)
+    #[serde(rename = "claude_stderr")]
+    ClaudeStderr { text: String },
 }
 
 /// Claude API message format - what we render arbor nodes into

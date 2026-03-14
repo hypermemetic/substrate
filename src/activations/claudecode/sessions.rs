@@ -571,6 +571,9 @@ pub async fn export_from_arbor(
                         in_assistant = false;
                     }
                 }
+
+                // Debug/observability nodes — not part of conversation history
+                NodeEvent::LaunchCommand { .. } | NodeEvent::ClaudeStderr { .. } => {}
             }
         }
     }

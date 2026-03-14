@@ -37,6 +37,7 @@ async fn test_create_session() {
             None,
             3,
             AgentMode::Single,
+            None,
         )
         .await
         .expect("Failed to create session");
@@ -69,6 +70,7 @@ async fn test_create_multi_agent_session() {
             None,
             3,
             AgentMode::Multi,
+            None,
         )
         .await
         .expect("Failed to create session");
@@ -86,11 +88,11 @@ async fn test_list_sessions() {
     let id2 = format!("test-2-{}", uuid::Uuid::new_v4());
 
     storage
-        .create_session(id1.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single)
+        .create_session(id1.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single, None)
         .await
         .expect("Failed to create session 1");
     storage
-        .create_session(id2.clone(), "opus".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi)
+        .create_session(id2.clone(), "opus".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi, None)
         .await
         .expect("Failed to create session 2");
 
@@ -117,7 +119,7 @@ async fn test_delete_session() {
 
     let session_id = format!("test-delete-{}", uuid::Uuid::new_v4());
     storage
-        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single)
+        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single, None)
         .await
         .expect("Failed to create session");
 
@@ -141,7 +143,7 @@ async fn test_update_session_state() {
 
     let session_id = format!("test-state-{}", uuid::Uuid::new_v4());
     storage
-        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single)
+        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single, None)
         .await
         .expect("Failed to create session");
 
@@ -178,7 +180,7 @@ async fn test_update_state_failure() {
 
     let session_id = format!("test-fail-{}", uuid::Uuid::new_v4());
     storage
-        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single)
+        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single, None)
         .await
         .expect("Failed to create session");
 
@@ -216,7 +218,7 @@ async fn test_increment_retry_count() {
 
     let session_id = format!("test-retry-{}", uuid::Uuid::new_v4());
     storage
-        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single)
+        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single, None)
         .await
         .expect("Failed to create session");
 
@@ -240,7 +242,7 @@ async fn test_retry_count_multiple_increments() {
 
     let session_id = format!("test-retries-{}", uuid::Uuid::new_v4());
     storage
-        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single)
+        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single, None)
         .await
         .expect("Failed to create session");
 
@@ -276,7 +278,7 @@ async fn test_create_agent() {
 
     let session_id = format!("test-agent-{}", uuid::Uuid::new_v4());
     storage
-        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi)
+        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi, None)
         .await
         .expect("Failed to create session");
 
@@ -307,7 +309,7 @@ async fn test_create_multiple_agents() {
 
     let session_id = format!("test-agents-{}", uuid::Uuid::new_v4());
     storage
-        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi)
+        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi, None)
         .await
         .expect("Failed to create session");
 
@@ -335,7 +337,7 @@ async fn test_list_agents() {
 
     let session_id = format!("test-list-agents-{}", uuid::Uuid::new_v4());
     storage
-        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi)
+        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi, None)
         .await
         .expect("Failed to create session");
 
@@ -373,7 +375,7 @@ async fn test_update_agent_state() {
 
     let session_id = format!("test-agent-state-{}", uuid::Uuid::new_v4());
     storage
-        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi)
+        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi, None)
         .await
         .expect("Failed to create session");
 
@@ -409,7 +411,7 @@ async fn test_update_agent_state_failure() {
 
     let session_id = format!("test-agent-fail-{}", uuid::Uuid::new_v4());
     storage
-        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi)
+        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi, None)
         .await
         .expect("Failed to create session");
 
@@ -442,11 +444,11 @@ async fn test_agent_isolation_between_sessions() {
     let session2_id = format!("test-iso-2-{}", uuid::Uuid::new_v4());
 
     storage
-        .create_session(session1_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi)
+        .create_session(session1_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi, None)
         .await
         .expect("Failed to create session 1");
     storage
-        .create_session(session2_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi)
+        .create_session(session2_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi, None)
         .await
         .expect("Failed to create session 2");
 
@@ -481,7 +483,7 @@ async fn test_delete_session_cascades_to_agents() {
 
     let session_id = format!("test-cascade-{}", uuid::Uuid::new_v4());
     storage
-        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi)
+        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi, None)
         .await
         .expect("Failed to create session");
 
@@ -510,7 +512,7 @@ async fn test_get_agent_counts() {
 
     let session_id = format!("test-counts-{}", uuid::Uuid::new_v4());
     storage
-        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi)
+        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi, None)
         .await
         .expect("Failed to create session");
 
@@ -632,7 +634,7 @@ async fn test_concurrent_session_creation() {
         let handle = tokio::spawn(async move {
             let session_id = format!("test-concurrent-{}-{}", i, uuid::Uuid::new_v4());
             storage_clone
-                .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single)
+                .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single, None)
                 .await
                 .map(|s| s.session_id)
         });
@@ -662,7 +664,7 @@ async fn test_concurrent_agent_creation() {
 
     let session_id = format!("test-concurrent-agents-{}", uuid::Uuid::new_v4());
     storage
-        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi)
+        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Multi, None)
         .await
         .expect("Failed to create session");
 
@@ -712,7 +714,7 @@ async fn test_concurrent_state_updates() {
 
     let session_id = format!("test-concurrent-states-{}", uuid::Uuid::new_v4());
     storage
-        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single)
+        .create_session(session_id.clone(), "sonnet".to_string(), "/workspace".to_string(), None, 3, AgentMode::Single, None)
         .await
         .expect("Failed to create session");
 

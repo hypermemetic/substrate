@@ -1,5 +1,7 @@
+use super::context::OrchaContext;
 use super::storage::OrchaStorage;
 use super::types::*;
+use crate::activations::arbor::ArborStorage;
 use crate::activations::claudecode::{ChatEvent, ClaudeCode, Model};
 use crate::activations::claudecode_loopback::ClaudeCodeLoopback;
 use crate::plexus::HubContext;
@@ -21,21 +23,40 @@ use uuid::Uuid;
 /// Returns a stream of OrchaEvent items showing progress
 pub async fn run_orchestration_task<P: HubContext>(
     storage: Arc<OrchaStorage>,
+    arbor: Arc<ArborStorage>,
     claudecode: Arc<ClaudeCode<P>>,
     loopback: Arc<ClaudeCodeLoopback>,
     request: RunTaskRequest,
     session_id_override: Option<String>,
 ) -> impl Stream<Item = OrchaEvent> + Send + 'static {
     stream! {
-        // 1. Create orcha session to track state (single-agent mode for backward compatibility)
+        // 1. Create Orcha context for tracking orchestration events
         let session_id = session_id_override.unwrap_or_else(|| format!("orcha-{}", Uuid::new_v4()));
-        let session = match storage.create_session(
+        let ctx = match OrchaContext::new(
+            arbor.clone(),
+            session_id.clone(),
+            request.task.clone(),
+            request.model.clone(),
+        ).await {
+            Ok(c) => Arc::new(c),
+            Err(e) => {
+                yield OrchaEvent::Failed {
+                    session_id: session_id.clone(),
+                    error: e,
+                };
+                return;
+            }
+        };
+
+        // 2. Create orcha session to track state
+        let _session = match storage.create_session(
             session_id.clone(),
             request.model.clone(),
             request.working_directory.clone(),
             request.rules.clone(),
             request.max_retries,
             AgentMode::Single, // run_task uses single-agent mode
+            Some(ctx.tree_id()),
         ).await {
             Ok(s) => s,
             Err(e) => {
@@ -54,69 +75,81 @@ pub async fn run_orchestration_task<P: HubContext>(
             };
         }
 
-        // Retry loop for validation failures
-        let mut retry_count = 0;
-        loop {
-            // 2. Create claudecode session with loopback enabled
-            let cc_session_name = format!("orcha-{}", Uuid::new_v4());
+        // Parse model string to Model enum (once, stable across retries)
+        let model = match request.model.as_str() {
+            "opus" => Model::Opus,
+            "sonnet" => Model::Sonnet,
+            "haiku" => Model::Haiku,
+            _ => Model::Sonnet,
+        };
 
-            if request.verbose {
-                yield OrchaEvent::Progress {
-                    message: format!("Creating Claude Code session: {}", cc_session_name),
-                    percentage: Some(10.0),
-                };
-            }
+        // Stable session name for this Orcha session's claudecode record.
+        let cc_session_name = format!("{}-cc", session_id);
 
-            // Parse model string to Model enum
-            let model = match request.model.as_str() {
-                "opus" => Model::Opus,
-                "sonnet" => Model::Sonnet,
-                "haiku" => Model::Haiku,
-                _ => Model::Sonnet, // default
+        // 2. Create claudecode session with loopback enabled (once before retry loop)
+        if request.verbose {
+            yield OrchaEvent::Progress {
+                message: format!("Creating Claude Code session: {}", cc_session_name),
+                percentage: Some(10.0),
             };
+        }
 
-            // Call claudecode.create() and consume the stream
-            // Loopback is enabled so orcha can intelligently approve/deny tool uses
-            let create_stream = claudecode.create(
-                cc_session_name.clone(),
-                request.working_directory.clone(),
-                model,
-                None, // system_prompt
-                Some(true), // loopback_enabled - orcha will handle approvals intelligently
-            ).await;
-            tokio::pin!(create_stream);
+        // loopback_session_id will be set to cc_session_id after create() returns.
+        // We pass None here and update storage directly after, since create() doesn't
+        // know the cc_session_id until after the DB insert.
+        let create_stream = claudecode.create(
+            cc_session_name.clone(),
+            request.working_directory.clone(),
+            model,
+            None, // system_prompt
+            Some(true), // loopback_enabled
+            None, // loopback_session_id set below after we have cc_session_id
+        ).await;
+        tokio::pin!(create_stream);
 
-            // Consume the create stream and check for errors
-            let mut create_success = false;
-            while let Some(result) = create_stream.next().await {
-                match result {
-                    crate::activations::claudecode::CreateResult::Ok { id, .. } => {
-                        if request.verbose {
-                            yield OrchaEvent::Progress {
-                                message: format!("Created Claude Code session: {}", id),
-                                percentage: Some(20.0),
-                            };
-                        }
-                        create_success = true;
-                    }
-                    crate::activations::claudecode::CreateResult::Err { message } => {
-                        yield OrchaEvent::Failed {
-                            session_id: session_id.clone(),
-                            error: format!("Failed to create Claude Code session: {}", message),
+        let mut cc_session_id: Option<String> = None;
+        while let Some(result) = create_stream.next().await {
+            match result {
+                crate::activations::claudecode::CreateResult::Ok { id, .. } => {
+                    let id_str = id.to_string();
+                    // Use cc_session_id as the loopback session_id for MCP URL correlation.
+                    // Register the parent so Orcha notifiers fire when child approvals arrive.
+                    loopback.storage().register_session_parent(&id_str, &session_id);
+                    // Update the claudecode session's loopback_session_id
+                    let _ = claudecode.storage.session_update_loopback_id(&id, id_str.clone()).await;
+                    cc_session_id = Some(id_str.clone());
+                    ctx.claude_session_created(id_str, cc_session_name.clone()).await;
+                    if request.verbose {
+                        yield OrchaEvent::Progress {
+                            message: format!("Created Claude Code session: {}", id),
+                            percentage: Some(20.0),
                         };
-                        return;
                     }
                 }
+                crate::activations::claudecode::CreateResult::Err { message } => {
+                    yield OrchaEvent::Failed {
+                        session_id: session_id.clone(),
+                        error: format!("Failed to create Claude Code session: {}", message),
+                    };
+                    return;
+                }
             }
+        }
 
-            if !create_success {
+        let cc_session_id = match cc_session_id {
+            Some(id) => id,
+            None => {
                 yield OrchaEvent::Failed {
                     session_id: session_id.clone(),
                     error: "Failed to create Claude Code session: no response".to_string(),
                 };
                 return;
             }
+        };
 
+        // Retry loop for validation failures
+        let mut retry_count = 0;
+        loop {
             // 3. Start the chat
             if request.verbose {
                 yield OrchaEvent::Progress {
@@ -133,6 +166,9 @@ pub async fn run_orchestration_task<P: HubContext>(
             } else {
                 request.task.clone()
             };
+
+            // Record task prompt in arbor via context
+            ctx.prompt_created(task_prompt.clone(), retry_count).await;
 
             let chat_stream = claudecode.chat(
                 cc_session_name.clone(),
@@ -201,12 +237,13 @@ pub async fn run_orchestration_task<P: HubContext>(
                     }
                     ChatEvent::ToolUse { tool_name, tool_use_id, input } => {
                         // Register tool_use_id with loopback for approval tracking
-                        loopback.storage().register_tool_session(&tool_use_id, &session_id);
+                        loopback.storage().register_tool_session(&tool_use_id, &cc_session_id);
 
                         // Spawn background task to handle approval decision
                         let loopback_clone = loopback.clone();
                         let claudecode_clone = claudecode.clone();
                         let session_id_clone = session_id.clone();
+                        let cc_session_id_clone = cc_session_id.clone();
                         let tool_name_clone = tool_name.clone();
                         let tool_use_id_clone = tool_use_id.clone();
                         let input_clone = input.clone();
@@ -218,6 +255,7 @@ pub async fn run_orchestration_task<P: HubContext>(
                                 loopback_clone,
                                 claudecode_clone,
                                 session_id_clone,
+                                cc_session_id_clone,
                                 tool_name_clone,
                                 tool_use_id_clone,
                                 input_clone,
@@ -246,6 +284,9 @@ pub async fn run_orchestration_task<P: HubContext>(
                         }
                     }
                     ChatEvent::Complete { .. } => {
+                        // Record Claude session completion in arbor via context
+                        ctx.claude_session_complete(cc_session_id.clone()).await;
+
                         if request.verbose {
                             yield OrchaEvent::Progress {
                                 message: "Agent completed task".to_string(),
@@ -279,8 +320,14 @@ pub async fn run_orchestration_task<P: HubContext>(
                     test_command: artifact.test_command.clone(),
                 }).await;
 
+                // Record validation start in arbor via context
+                ctx.validation_started(artifact.test_command.clone(), artifact.cwd.clone()).await;
+
                 // Run the validation test
                 let validation_result = run_validation_test(&artifact).await;
+
+                // Record validation result in arbor via context
+                ctx.validation_result(validation_result.success, validation_result.output.clone()).await;
 
                 if request.verbose {
                     yield OrchaEvent::ValidationResult {
@@ -292,6 +339,9 @@ pub async fn run_orchestration_task<P: HubContext>(
                 if validation_result.success {
                     // Success! Mark complete and exit
                     let _ = storage.update_state(&session_id, SessionState::Complete).await;
+
+                    // Record session completion in arbor via context
+                    ctx.session_complete("success").await;
 
                     if request.verbose {
                         yield OrchaEvent::StateChange {
@@ -338,6 +388,9 @@ pub async fn run_orchestration_task<P: HubContext>(
             } else {
                 // No validation artifact found - treat as success
                 let _ = storage.update_state(&session_id, SessionState::Complete).await;
+
+                // Record session completion in arbor via context
+                ctx.session_complete("success_no_validation").await;
 
                 if request.verbose {
                     yield OrchaEvent::StateChange {
@@ -408,6 +461,7 @@ async fn handle_tool_approval<P: HubContext>(
     loopback: Arc<ClaudeCodeLoopback>,
     claudecode: Arc<ClaudeCode<P>>,
     orcha_session_id: String,
+    cc_session_id: String,
     tool_name: String,
     tool_use_id: String,
     tool_input: serde_json::Value,
@@ -416,17 +470,26 @@ async fn handle_tool_approval<P: HubContext>(
 ) {
     use futures::StreamExt;
 
-    // Wait briefly for the approval to be created by loopback.permit()
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    // Wait for loopback.permit() to create the approval record.
+    // Approvals are keyed by cc_session_id (the Claude Code session that owns the tool call).
+    // The cc_session's notifier also propagates to orcha_session_id via register_session_parent.
+    let notifier = loopback.storage().get_or_create_notifier(&cc_session_id);
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(3600);
 
-    // Get the approval from storage
-    let approvals = loopback.storage().get_pending_approvals(&orcha_session_id).await;
-    let approval_id = match approvals.iter().find(|a| a.tool_use_id == tool_use_id) {
-        Some(a) => a.id.clone(),
-        None => {
-            tracing::warn!("No approval found for tool_use_id: {}", tool_use_id);
+    let approval_id = loop {
+        let approvals = loopback.storage().get_pending_approvals(&cc_session_id).await;
+        if let Some(a) = approvals.iter().find(|a| a.tool_use_id == tool_use_id) {
+            break a.id.clone();
+        }
+
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            tracing::warn!("Timed out waiting for approval for tool_use_id: {}", tool_use_id);
             return;
         }
+
+        let remaining = deadline - now;
+        let _ = tokio::time::timeout(remaining, notifier.notified()).await;
     };
 
     // Manual approval mode: do nothing, wait for external approval
@@ -442,12 +505,15 @@ async fn handle_tool_approval<P: HubContext>(
     // Auto-approval mode: spawn Haiku decision agent
     // Create ephemeral session for approval decision
     let decision_session = format!("orcha-approval-{}", uuid::Uuid::new_v4());
-    let mut create_stream = claudecode.create(
+    let decision_session_id = format!("{}-approval-{}", orcha_session_id, uuid::Uuid::new_v4());
+
+    let create_stream = claudecode.create(
         decision_session.clone(),
         "/workspace".to_string(),
         crate::activations::claudecode::Model::Haiku, // Fast decision with Haiku
         None,
         Some(false), // No loopback for the decision agent
+        Some(decision_session_id), // Track decision agent under parent session
     ).await;
     tokio::pin!(create_stream);
 
@@ -622,6 +688,7 @@ pub async fn run_agent_task<P: HubContext>(
                         let loopback_clone = loopback.clone();
                         let claudecode_clone = claudecode.clone();
                         let session_id_clone = agent_info.session_id.clone();
+                        let cc_session_id_clone = agent_info.session_id.clone();
                         let tool_name_clone = tool_name.clone();
                         let tool_use_id_clone = tool_use_id.clone();
                         let input_clone = input.clone();
@@ -633,6 +700,7 @@ pub async fn run_agent_task<P: HubContext>(
                                 loopback_clone,
                                 claudecode_clone,
                                 session_id_clone,
+                                cc_session_id_clone,
                                 tool_name_clone,
                                 tool_use_id_clone,
                                 input_clone,
@@ -854,6 +922,7 @@ async fn handle_agent_spawn_request<P: HubContext>(
         model.clone(),
         None,
         Some(true), // Loopback enabled
+        Some(session.session_id.clone()), // Use parent session_id for MCP URL transparency
     ).await;
     tokio::pin!(create_stream);
 

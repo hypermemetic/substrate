@@ -1,5 +1,21 @@
+pub use crate::activations::lattice::GatherStrategy;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Orcha Node Kind — typed dispatch
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Typed Orcha node payload — serialized into NodeSpec::Task { data }.
+/// graph_runner deserializes this to dispatch to the correct executor.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "orcha_type", rename_all = "snake_case")]
+pub enum OrchaNodeKind {
+    Task { task: String },
+    Synthesize { task: String },
+    Validate { command: String, cwd: Option<String> },
+    Review { prompt: String },
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Session Management Types
@@ -64,6 +80,8 @@ pub struct SessionInfo {
     pub agent_mode: AgentMode,
     /// Primary agent ID (if in multi mode)
     pub primary_agent_id: Option<AgentId>,
+    /// Arbor tree ID for tracking orchestration events
+    pub tree_id: Option<String>,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -115,7 +133,7 @@ pub struct RunTaskRequest {
 }
 
 fn default_auto_approve() -> bool {
-    true
+    false
 }
 
 fn default_cwd() -> String {
@@ -479,6 +497,73 @@ pub enum OrchaEvent {
         subtask: String,
         error: String,
     },
+
+    /// Graph execution has started
+    GraphStarted {
+        graph_id: String,
+    },
+
+    /// A node is ready and has been dispatched for execution
+    NodeStarted {
+        node_id: String,
+        label: Option<String>,
+        /// Ticket ID (e.g. "CALC-1") if this node was built from a ticket definition
+        ticket_id: Option<String>,
+        /// Completion percentage before this node started (complete_nodes / total_nodes * 100)
+        percentage: Option<u32>,
+    },
+
+    /// A node completed successfully
+    NodeComplete {
+        node_id: String,
+        label: Option<String>,
+        /// Ticket ID (e.g. "CALC-1") if this node was built from a ticket definition
+        ticket_id: Option<String>,
+        output_summary: Option<String>,
+        /// Completion percentage after this node finished (complete_nodes / total_nodes * 100)
+        percentage: Option<u32>,
+    },
+
+    /// A node failed
+    NodeFailed {
+        node_id: String,
+        label: Option<String>,
+        /// Ticket ID (e.g. "CALC-1") if this node was built from a ticket definition
+        ticket_id: Option<String>,
+        error: String,
+        /// Completion percentage after this node failed (complete_nodes / total_nodes * 100)
+        percentage: Option<u32>,
+    },
+
+    /// A validate node is retrying after a failed validation attempt
+    Retrying {
+        node_id: String,
+        ticket_id: Option<String>,
+        attempt: usize,
+        max_attempts: usize,
+        error: String,
+    },
+
+    /// Live output chunk from a node during execution
+    NodeOutput {
+        node_id: String,
+        ticket_id: Option<String>,
+        chunk: String,
+    },
+
+    /// Graph was cancelled via cancel_graph
+    Cancelled {
+        graph_id: String,
+    },
+
+    /// A pending approval request is waiting for a human decision
+    ApprovalPending {
+        approval_id: String,
+        graph_id: String,
+        tool_name: String,
+        tool_input: serde_json::Value,
+        created_at: String,
+    },
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -634,4 +719,60 @@ pub struct AgentSummary {
     pub subtask: String,
     pub state: AgentState,
     pub summary: String,  // AI-generated summary of this agent's work
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Graph Builder Result Types
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum OrchaCreateGraphResult {
+    Ok { graph_id: String },
+    Err { message: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum OrchaAddNodeResult {
+    Ok { node_id: String },
+    Err { message: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum OrchaAddDependencyResult {
+    Ok,
+    Err { message: String },
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Inline Graph Definition Types (for run_graph_definition)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Typed node spec in Orcha vocabulary — no raw NodeSpec JSON needed.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum OrchaNodeSpec {
+    Task { task: String },
+    Synthesize { task: String },
+    Validate { command: String, cwd: Option<String> },
+    Gather { strategy: GatherStrategy },
+    Review { prompt: String },
+}
+
+/// One node in an inline graph definition.
+/// `id` is a caller-supplied stable label used in OrchaEdgeDef.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct OrchaNodeDef {
+    pub id: String,
+    pub spec: OrchaNodeSpec,
+}
+
+/// One edge in an inline graph definition.
+/// `from`/`to` reference OrchaNodeDef.id values.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct OrchaEdgeDef {
+    pub from: String,
+    pub to: String,
 }
