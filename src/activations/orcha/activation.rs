@@ -1862,6 +1862,219 @@ impl<P: HubContext> Orcha<P> {
         }
     }
 
+    /// Read one or more ticket files from disk, concatenate them, compile, and run.
+    ///
+    /// Equivalent to reading each file and passing the joined content to `run_tickets`.
+    /// Files are joined with a blank line separator; the compiler ignores preamble and
+    /// section boundaries so cross-file `blocked_by` references work correctly.
+    ///
+    /// Streams OrchaEvents until the graph completes or fails.
+    #[plexus_macros::hub_method(params(
+        paths = "Absolute paths to ticket markdown files, e.g. [\"/workspace/plans/batch.tickets.md\"]",
+        metadata = "Arbitrary JSON metadata attached to the graph",
+        model = "Model for task nodes: opus, sonnet, haiku (default: sonnet)",
+        working_directory = "Working directory for task nodes (default: /workspace)"
+    ))]
+    async fn run_tickets_files(
+        &self,
+        paths: Vec<String>,
+        metadata: Value,
+        model: Option<String>,
+        working_directory: Option<String>,
+    ) -> impl Stream<Item = OrchaEvent> + Send + 'static {
+        let graph_runtime = self.graph_runtime.clone();
+        let claudecode = self.claudecode.clone();
+        let arbor_storage = self.arbor_storage.clone();
+        let loopback_storage = self.loopback.storage();
+        let pm = self.pm.clone();
+        let cancel_registry = self.cancel_registry.clone();
+        stream! {
+            // Read and concatenate all files.
+            let mut parts: Vec<String> = Vec::new();
+            for path in &paths {
+                match tokio::fs::read_to_string(path).await {
+                    Ok(content) => parts.push(content),
+                    Err(e) => {
+                        yield OrchaEvent::Failed {
+                            session_id: "tickets".to_string(),
+                            error: format!("Failed to read '{}': {}", path, e),
+                        };
+                        return;
+                    }
+                }
+            }
+            let tickets = parts.join("\n\n");
+
+            let compiled = match ticket_compiler::compile_tickets(&tickets) {
+                Ok(c) => c,
+                Err(e) => {
+                    yield OrchaEvent::Failed {
+                        session_id: "tickets".to_string(),
+                        error: format!("Ticket compile error: {}", e),
+                    };
+                    return;
+                }
+            };
+            let model_str = model.as_deref().unwrap_or("sonnet").to_string();
+            let wd = working_directory.unwrap_or_else(|| "/workspace".to_string());
+            let mut enriched_metadata = if metadata.is_object() { metadata.clone() } else { serde_json::json!({}) };
+            enriched_metadata["_plexus_run_config"] = serde_json::json!({
+                "model": model_str,
+                "working_directory": wd,
+            });
+            let (graph_id, id_map) = match build_graph_from_definition(
+                graph_runtime.clone(), enriched_metadata, compiled.nodes, compiled.edges,
+            ).await {
+                Ok(pair) => pair,
+                Err(e) => {
+                    yield OrchaEvent::Failed { session_id: "tickets".to_string(), error: e };
+                    return;
+                }
+            };
+            let _ = pm.save_ticket_map(&graph_id, &id_map).await;
+            let _ = pm.save_ticket_source(&graph_id, &tickets).await;
+
+            yield OrchaEvent::GraphStarted { graph_id: graph_id.clone() };
+
+            let model_enum = match model_str.as_str() {
+                "opus" => Model::Opus,
+                "haiku" => Model::Haiku,
+                _ => Model::Sonnet,
+            };
+            if !std::path::Path::new(&wd).is_dir() {
+                yield OrchaEvent::Failed {
+                    session_id: "tickets".to_string(),
+                    error: format!("Working directory does not exist: '{}'", wd),
+                };
+                return;
+            }
+            let node_to_ticket: std::collections::HashMap<String, String> = id_map
+                .iter().map(|(t, n)| (n.clone(), t.clone())).collect();
+            let graph = Arc::new(graph_runtime.open_graph(graph_id.clone()));
+            let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+            cancel_registry.lock().await.insert(graph_id.clone(), cancel_tx);
+            let execution = graph_runner::run_graph_execution(
+                graph, claudecode, arbor_storage, loopback_storage, pm,
+                graph_runtime, cancel_registry.clone(),
+                model_enum, wd, cancel_rx, node_to_ticket,
+            );
+            tokio::pin!(execution);
+            while let Some(event) = execution.next().await {
+                yield event;
+            }
+            cancel_registry.lock().await.remove(&graph_id);
+        }
+    }
+
+    /// Like `run_tickets_files` but fire-and-forget — returns `GraphStarted` immediately.
+    ///
+    /// Use `subscribe_graph(graph_id)` to observe progress after this call returns.
+    #[plexus_macros::hub_method(params(
+        paths = "Absolute paths to ticket markdown files",
+        metadata = "Arbitrary JSON metadata attached to the graph",
+        model = "Model for task nodes: opus, sonnet, haiku (default: sonnet)",
+        working_directory = "Working directory for task nodes (default: /workspace)"
+    ))]
+    async fn run_tickets_async_files(
+        &self,
+        paths: Vec<String>,
+        metadata: Value,
+        model: Option<String>,
+        working_directory: Option<String>,
+    ) -> impl Stream<Item = OrchaEvent> + Send + 'static {
+        let graph_runtime = self.graph_runtime.clone();
+        let claudecode = self.claudecode.clone();
+        let arbor_storage = self.arbor_storage.clone();
+        let loopback_storage = self.loopback.storage();
+        let pm = self.pm.clone();
+        let cancel_registry = self.cancel_registry.clone();
+        stream! {
+            let mut parts: Vec<String> = Vec::new();
+            for path in &paths {
+                match tokio::fs::read_to_string(path).await {
+                    Ok(content) => parts.push(content),
+                    Err(e) => {
+                        yield OrchaEvent::Failed {
+                            session_id: "tickets".to_string(),
+                            error: format!("Failed to read '{}': {}", path, e),
+                        };
+                        return;
+                    }
+                }
+            }
+            let tickets = parts.join("\n\n");
+
+            let compiled = match ticket_compiler::compile_tickets(&tickets) {
+                Ok(c) => c,
+                Err(e) => {
+                    yield OrchaEvent::Failed {
+                        session_id: "tickets".to_string(),
+                        error: format!("Ticket compile error: {}", e),
+                    };
+                    return;
+                }
+            };
+            let model_str = model.as_deref().unwrap_or("sonnet").to_string();
+            let wd = working_directory.unwrap_or_else(|| "/workspace".to_string());
+            let mut enriched_metadata = if metadata.is_object() { metadata.clone() } else { serde_json::json!({}) };
+            enriched_metadata["_plexus_run_config"] = serde_json::json!({
+                "model": model_str,
+                "working_directory": wd,
+            });
+            let (graph_id, id_map) = match build_graph_from_definition(
+                graph_runtime.clone(), enriched_metadata, compiled.nodes, compiled.edges,
+            ).await {
+                Ok(pair) => pair,
+                Err(e) => {
+                    yield OrchaEvent::Failed { session_id: "tickets".to_string(), error: e };
+                    return;
+                }
+            };
+            let _ = pm.save_ticket_map(&graph_id, &id_map).await;
+            let _ = pm.save_ticket_source(&graph_id, &tickets).await;
+
+            yield OrchaEvent::GraphStarted { graph_id: graph_id.clone() };
+
+            let model_enum = match model_str.as_str() {
+                "opus" => Model::Opus,
+                "haiku" => Model::Haiku,
+                _ => Model::Sonnet,
+            };
+            if !std::path::Path::new(&wd).is_dir() {
+                yield OrchaEvent::Failed {
+                    session_id: "tickets".to_string(),
+                    error: format!("Working directory does not exist: '{}'", wd),
+                };
+                return;
+            }
+            let node_to_ticket: std::collections::HashMap<String, String> = id_map
+                .iter().map(|(t, n)| (n.clone(), t.clone())).collect();
+            let graph = Arc::new(graph_runtime.open_graph(graph_id.clone()));
+            let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+            cancel_registry.lock().await.insert(graph_id.clone(), cancel_tx);
+            tokio::spawn(async move {
+                let execution = graph_runner::run_graph_execution(
+                    graph, claudecode, arbor_storage, loopback_storage, pm,
+                    graph_runtime, cancel_registry.clone(),
+                    model_enum, wd, cancel_rx, node_to_ticket,
+                );
+                tokio::pin!(execution);
+                while let Some(event) = execution.next().await {
+                    match &event {
+                        OrchaEvent::Failed { error, .. } => {
+                            tracing::error!("run_tickets_async_files graph {} failed: {}", graph_id, error);
+                        }
+                        OrchaEvent::Complete { .. } => {
+                            tracing::info!("run_tickets_async_files graph {} complete", graph_id);
+                        }
+                        _ => {}
+                    }
+                }
+                cancel_registry.lock().await.remove(&graph_id);
+            });
+        }
+    }
+
     /// Build and execute a graph from an inline definition.
     ///
     /// Nodes use caller-supplied string ids; edges reference those ids.
