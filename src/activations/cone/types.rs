@@ -292,27 +292,26 @@ pub struct ChatUsage {
 }
 
 /// Error type for cone operations
-#[derive(Debug, Clone)]
-pub struct ConeError {
-    pub message: String,
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum ConeError {
+    #[error("Cone not found: {name}")]
+    SessionNotFound { name: String },
+    #[error("Storage error ({operation}): {detail}")]
+    StorageError { operation: String, detail: String },
+    #[error("Arbor error: {detail}")]
+    ArborError { detail: String },
+    #[error("{message}")]
+    InvalidState { message: String },
 }
-
-impl std::fmt::Display for ConeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for ConeError {}
 
 impl From<String> for ConeError {
     fn from(s: String) -> Self {
-        Self { message: s }
+        Self::InvalidState { message: s }
     }
 }
 
 impl From<&str> for ConeError {
     fn from(s: &str) -> Self {
-        Self { message: s.to_string() }
+        Self::InvalidState { message: s.to_string() }
     }
 }

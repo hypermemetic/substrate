@@ -192,7 +192,7 @@ impl ClaudeCodeLoopback {
                     yield RespondResult::Ok { approval_id };
                 }
                 Err(e) => {
-                    yield RespondResult::Err { message: e };
+                    yield RespondResult::Err { message: e.to_string() };
                 }
             }
         }
@@ -214,7 +214,7 @@ impl ClaudeCodeLoopback {
                     yield PendingResult::Ok { approvals };
                 }
                 Err(e) => {
-                    yield PendingResult::Err { message: e };
+                    yield PendingResult::Err { message: e.to_string() };
                 }
             }
         }

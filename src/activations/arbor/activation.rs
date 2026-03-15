@@ -25,7 +25,7 @@ impl<P: HubContext> Arbor<P> {
     pub async fn with_context_type(config: ArborConfig) -> Result<Self, String> {
         let storage = ArborStorage::new(config)
             .await
-            .map_err(|e| format!("Failed to initialize Arbor storage: {}", e.message))?;
+            .map_err(|e| format!("Failed to initialize Arbor storage: {}", e.to_string()))?;
 
         Ok(Self {
             storage: Arc::new(storage),
@@ -52,7 +52,9 @@ impl<P: HubContext> Arbor<P> {
     ///
     /// Called during hub construction (e.g., via Arc::new_cyclic for DynamicHub).
     pub fn inject_parent(&self, parent: P) {
-        let _ = self.hub.set(parent);
+        if self.hub.set(parent).is_err() {
+            tracing::warn!("Arbor parent context already set");
+        }
     }
 
     /// Check if parent context has been injected
@@ -94,7 +96,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.tree_create(metadata, &owner_id).await {
                 Ok(tree_id) => yield ArborEvent::TreeCreated { tree_id },
                 Err(e) => {
-                    eprintln!("Error creating tree: {}", e.message);
+                    eprintln!("Error creating tree: {}", e.to_string());
                     yield ArborEvent::TreeCreated { tree_id: TreeId::nil() };
                 }
             }
@@ -109,7 +111,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.tree_get(&tree_id).await {
                 Ok(tree) => yield ArborEvent::TreeData { tree },
                 Err(e) => {
-                    eprintln!("Error getting tree: {}", e.message);
+                    eprintln!("Error getting tree: {}", e.to_string());
                     yield ArborEvent::TreeList { tree_ids: vec![] };
                 }
             }
@@ -127,7 +129,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.tree_get(&tree_id).await {
                 Ok(tree) => yield ArborEvent::TreeSkeleton { skeleton: TreeSkeleton::from(&tree) },
                 Err(e) => {
-                    eprintln!("Error getting tree skeleton: {}", e.message);
+                    eprintln!("Error getting tree skeleton: {}", e.to_string());
                     yield ArborEvent::TreeList { tree_ids: vec![] };
                 }
             }
@@ -142,7 +144,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.tree_list(false).await {
                 Ok(tree_ids) => yield ArborEvent::TreeList { tree_ids },
                 Err(e) => {
-                    eprintln!("Error listing trees: {}", e.message);
+                    eprintln!("Error listing trees: {}", e.to_string());
                     yield ArborEvent::TreeList { tree_ids: vec![] };
                 }
             }
@@ -164,7 +166,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.tree_update_metadata(&tree_id, metadata).await {
                 Ok(_) => yield ArborEvent::TreeUpdated { tree_id },
                 Err(e) => {
-                    eprintln!("Error updating tree metadata: {}", e.message);
+                    eprintln!("Error updating tree metadata: {}", e.to_string());
                     yield ArborEvent::TreeList { tree_ids: vec![] };
                 }
             }
@@ -188,7 +190,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.tree_claim(&tree_id, &owner_id, count).await {
                 Ok(new_count) => yield ArborEvent::TreeClaimed { tree_id, owner_id, new_count },
                 Err(e) => {
-                    eprintln!("Error claiming tree: {}", e.message);
+                    eprintln!("Error claiming tree: {}", e.to_string());
                     yield ArborEvent::TreeList { tree_ids: vec![] };
                 }
             }
@@ -212,7 +214,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.tree_release(&tree_id, &owner_id, count).await {
                 Ok(new_count) => yield ArborEvent::TreeReleased { tree_id, owner_id, new_count },
                 Err(e) => {
-                    eprintln!("Error releasing tree: {}", e.message);
+                    eprintln!("Error releasing tree: {}", e.to_string());
                     yield ArborEvent::TreeList { tree_ids: vec![] };
                 }
             }
@@ -227,7 +229,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.tree_list(true).await {
                 Ok(tree_ids) => yield ArborEvent::TreesScheduled { tree_ids },
                 Err(e) => {
-                    eprintln!("Error listing scheduled trees: {}", e.message);
+                    eprintln!("Error listing scheduled trees: {}", e.to_string());
                     yield ArborEvent::TreesScheduled { tree_ids: vec![] };
                 }
             }
@@ -242,7 +244,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.tree_list(true).await {
                 Ok(tree_ids) => yield ArborEvent::TreesArchived { tree_ids },
                 Err(e) => {
-                    eprintln!("Error listing archived trees: {}", e.message);
+                    eprintln!("Error listing archived trees: {}", e.to_string());
                     yield ArborEvent::TreesArchived { tree_ids: vec![] };
                 }
             }
@@ -268,7 +270,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.node_create_text(&tree_id, parent, content, metadata).await {
                 Ok(node_id) => yield ArborEvent::NodeCreated { tree_id, node_id, parent },
                 Err(e) => {
-                    eprintln!("Error creating text node: {}", e.message);
+                    eprintln!("Error creating text node: {}", e.to_string());
                     yield ArborEvent::TreeList { tree_ids: vec![] };
                 }
             }
@@ -294,7 +296,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.node_create_external(&tree_id, parent, handle, metadata).await {
                 Ok(node_id) => yield ArborEvent::NodeCreated { tree_id, node_id, parent },
                 Err(e) => {
-                    eprintln!("Error creating external node: {}", e.message);
+                    eprintln!("Error creating external node: {}", e.to_string());
                     yield ArborEvent::TreeList { tree_ids: vec![] };
                 }
             }
@@ -316,7 +318,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.node_get(&tree_id, &node_id).await {
                 Ok(node) => yield ArborEvent::NodeData { tree_id, node },
                 Err(e) => {
-                    eprintln!("Error getting node: {}", e.message);
+                    eprintln!("Error getting node: {}", e.to_string());
                     yield ArborEvent::TreeList { tree_ids: vec![] };
                 }
             }
@@ -338,7 +340,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.node_get_children(&tree_id, &node_id).await {
                 Ok(children) => yield ArborEvent::NodeChildren { tree_id, node_id, children },
                 Err(e) => {
-                    eprintln!("Error getting node children: {}", e.message);
+                    eprintln!("Error getting node children: {}", e.to_string());
                     yield ArborEvent::TreeList { tree_ids: vec![] };
                 }
             }
@@ -360,7 +362,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.node_get_parent(&tree_id, &node_id).await {
                 Ok(parent) => yield ArborEvent::NodeParent { tree_id, node_id, parent },
                 Err(e) => {
-                    eprintln!("Error getting node parent: {}", e.message);
+                    eprintln!("Error getting node parent: {}", e.to_string());
                     yield ArborEvent::TreeList { tree_ids: vec![] };
                 }
             }
@@ -382,7 +384,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.node_get_path(&tree_id, &node_id).await {
                 Ok(path) => yield ArborEvent::ContextPath { tree_id, path },
                 Err(e) => {
-                    eprintln!("Error getting node path: {}", e.message);
+                    eprintln!("Error getting node path: {}", e.to_string());
                     yield ArborEvent::TreeList { tree_ids: vec![] };
                 }
             }
@@ -400,7 +402,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.context_list_leaves(&tree_id).await {
                 Ok(leaves) => yield ArborEvent::ContextLeaves { tree_id, leaves },
                 Err(e) => {
-                    eprintln!("Error listing leaf nodes: {}", e.message);
+                    eprintln!("Error listing leaf nodes: {}", e.to_string());
                     yield ArborEvent::TreeList { tree_ids: vec![] };
                 }
             }
@@ -422,7 +424,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.context_get_path(&tree_id, &node_id).await {
                 Ok(nodes) => yield ArborEvent::ContextPathData { tree_id, nodes },
                 Err(e) => {
-                    eprintln!("Error getting context path: {}", e.message);
+                    eprintln!("Error getting context path: {}", e.to_string());
                     yield ArborEvent::TreeList { tree_ids: vec![] };
                 }
             }
@@ -444,7 +446,7 @@ impl<P: HubContext> Arbor<P> {
             match storage.context_get_handles(&tree_id, &node_id).await {
                 Ok(handles) => yield ArborEvent::ContextHandles { tree_id, handles },
                 Err(e) => {
-                    eprintln!("Error getting context handles: {}", e.message);
+                    eprintln!("Error getting context handles: {}", e.to_string());
                     yield ArborEvent::TreeList { tree_ids: vec![] };
                 }
             }
@@ -483,8 +485,8 @@ impl<P: HubContext> Arbor<P> {
                     yield ArborEvent::TreeRender { tree_id, render };
                 }
                 Err(e) => {
-                    eprintln!("Error rendering tree: {}", e.message);
-                    yield ArborEvent::TreeRender { tree_id, render: format!("Error: {}", e.message) };
+                    eprintln!("Error rendering tree: {}", e.to_string());
+                    yield ArborEvent::TreeRender { tree_id, render: format!("Error: {}", e.to_string()) };
                 }
             }
         }
@@ -507,7 +509,7 @@ impl<P: HubContext> Arbor<P> {
                     };
                 }
                 Err(e) => {
-                    eprintln!("Error creating view: {}", e.message);
+                    eprintln!("Error creating view: {}", e.to_string());
                     yield ArborEvent::Err { message: e.to_string() };
                 }
             }
@@ -532,7 +534,7 @@ impl<P: HubContext> Arbor<P> {
                     };
                 }
                 Err(e) => {
-                    eprintln!("Error adding range: {}", e.message);
+                    eprintln!("Error adding range: {}", e.to_string());
                     yield ArborEvent::Err { message: e.to_string() };
                 }
             }
@@ -556,7 +558,7 @@ impl<P: HubContext> Arbor<P> {
                     };
                 }
                 Err(e) => {
-                    eprintln!("Error detecting text runs: {}", e.message);
+                    eprintln!("Error detecting text runs: {}", e.to_string());
                     yield ArborEvent::Err { message: e.to_string() };
                 }
             }
@@ -582,7 +584,7 @@ impl<P: HubContext> Arbor<P> {
                     };
                 }
                 Err(e) => {
-                    eprintln!("Error collapsing text runs: {}", e.message);
+                    eprintln!("Error collapsing text runs: {}", e.to_string());
                     yield ArborEvent::Err { message: e.to_string() };
                 }
             }
@@ -610,7 +612,7 @@ impl<P: HubContext> Arbor<P> {
                     };
                 }
                 Err(e) => {
-                    eprintln!("Error getting range: {}", e.message);
+                    eprintln!("Error getting range: {}", e.to_string());
                     yield ArborEvent::Err { message: e.to_string() };
                 }
             }

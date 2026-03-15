@@ -1,10 +1,33 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use thiserror::Error;
 use uuid::Uuid;
 
 /// Unique identifier for an approval request
 pub type ApprovalId = Uuid;
+
+/// Typed errors for the claudecode loopback subsystem
+#[derive(Debug, Error)]
+pub enum LoopbackError {
+    #[error("{operation}: {detail}")]
+    Storage { operation: &'static str, detail: String },
+
+    #[error("Approval not found: {id}")]
+    ApprovalNotFound { id: String },
+
+    #[error("Serialization failed: {detail}")]
+    Serialization { detail: String },
+
+    #[error("Invalid data: {detail}")]
+    InvalidData { detail: String },
+}
+
+impl From<LoopbackError> for String {
+    fn from(e: LoopbackError) -> Self {
+        e.to_string()
+    }
+}
 
 /// Status of an approval request
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

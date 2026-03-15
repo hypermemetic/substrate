@@ -1,6 +1,6 @@
 [package]
 name = "plexus-substrate"
-version = "0.2.7"
+version = "0.2.8"
 edition = "2021"
 description = "Reference Plexus RPC server with conversation trees and LLM orchestration"
 license = "AGPL-3.0-only"
@@ -60,7 +60,7 @@ dialectic = { version = "0.4.1", features = ["tokio"] }
 
 # MCP server via rmcp
 rmcp = { version = "0.12", features = ["server", "transport-io", "transport-streamable-http-server"] }
-cllient = { version = "0.2.1", path = "../../juggernautlabs/cllient" }
+cllient = "0.2.1"
 plexus-macros = "0.3.0"
 plexus-core = "0.3.0"
 plexus-transport = { version = "0.1.0", features = ["mcp-gateway"] }
@@ -92,5 +92,4 @@ path = "examples/rmcp_mcp_server.rs"
 plexus-core = { path = "../plexus-core" }
 plexus-macros = { path = "../plexus-macros" }
 plexus-transport = { path = "../plexus-transport" }
-hyperforge = { path = "../hyperforge" }
 plexus-registry = { path = "../plexus-registry" }

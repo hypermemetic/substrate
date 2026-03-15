@@ -77,7 +77,7 @@ impl ConeStorage {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Failed to run cone migrations: {}", e))?;
+        .map_err(|e| ConeError::StorageError { operation: "migration".into(), detail: e.to_string() })?;
 
         Ok(())
     }
@@ -107,11 +107,11 @@ impl ConeStorage {
 
         // Create a new tree for this cone
         let tree_id = self.arbor.tree_create(metadata.clone(), &cone_id.to_string()).await
-            .map_err(|e| format!("Failed to create tree for cone: {}", e))?;
+            .map_err(|e| ConeError::ArborError { detail: format!("Failed to create tree: {}", e) })?;
 
         // Get the root node as initial position
         let tree = self.arbor.tree_get(&tree_id).await
-            .map_err(|e| format!("Failed to get tree: {}", e))?;
+            .map_err(|e| ConeError::ArborError { detail: format!("Failed to get tree: {}", e) })?;
         let head = Position::new(tree_id, tree.root);
 
         let metadata_json = metadata.as_ref().map(|m| serde_json::to_string(m).unwrap());
@@ -152,11 +152,11 @@ impl ConeStorage {
                 .bind(now)
                 .execute(&self.pool)
                 .await
-                .map_err(|e| format!("Failed to create cone with unique name: {}", e))?;
+                .map_err(|e| ConeError::StorageError { operation: "create_cone".into(), detail: e.to_string() })?;
 
                 unique_name
             }
-            Err(e) => return Err(ConeError::from(format!("Failed to create cone: {}", e))),
+            Err(e) => return Err(ConeError::StorageError { operation: "create_cone".into(), detail: e.to_string() }),
         };
 
         Ok(ConeConfig {
@@ -187,11 +187,11 @@ impl ConeStorage {
                     .bind(name)
                     .fetch_optional(&self.pool)
                     .await
-                    .map_err(|e| ConeError::from(format!("Failed to resolve cone by name: {}", e)))?
+                    .map_err(|e| ConeError::StorageError { operation: "resolve_by_name".into(), detail: e.to_string() })?
                 {
                     let id_str: String = row.get("id");
                     return Uuid::parse_str(&id_str)
-                        .map_err(|e| ConeError::from(format!("Invalid cone ID in database: {}", e)));
+                        .map_err(|e| ConeError::StorageError { operation: "parse_cone_id".into(), detail: e.to_string() });
                 }
 
                 // Try partial match with LIKE pattern
@@ -201,23 +201,25 @@ impl ConeStorage {
                     .bind(&pattern)
                     .fetch_all(&self.pool)
                     .await
-                    .map_err(|e| ConeError::from(format!("Failed to resolve cone by pattern: {}", e)))?;
+                    .map_err(|e| ConeError::StorageError { operation: "resolve_by_pattern".into(), detail: e.to_string() })?;
 
                 match rows.len() {
-                    0 => Err(ConeError::from(format!("Cone not found with name: {}", name))),
+                    0 => Err(ConeError::SessionNotFound { name: name.clone() }),
                     1 => {
                         let id_str: String = rows[0].get("id");
                         Uuid::parse_str(&id_str)
-                            .map_err(|e| ConeError::from(format!("Invalid cone ID in database: {}", e)))
+                            .map_err(|e| ConeError::StorageError { operation: "parse_cone_id".into(), detail: e.to_string() })
                     }
                     _ => {
                         // Multiple matches - list them for user
                         let matches: Vec<String> = rows.iter().map(|r| r.get("name")).collect();
-                        Err(ConeError::from(format!(
-                            "Ambiguous name '{}' matches multiple cones: {}. Use full name with #uuid to disambiguate.",
-                            name,
-                            matches.join(", ")
-                        )))
+                        Err(ConeError::InvalidState {
+                            message: format!(
+                                "Ambiguous name '{}' matches multiple cones: {}. Use full name with #uuid to disambiguate.",
+                                name,
+                                matches.join(", ")
+                            ),
+                        })
                     }
                 }
             }
@@ -233,8 +235,8 @@ impl ConeStorage {
         .bind(cone_id.to_string())
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| format!("Failed to fetch cone: {}", e))?
-        .ok_or_else(|| format!("Cone not found: {}", cone_id))?;
+        .map_err(|e| ConeError::StorageError { operation: "fetch_cone".into(), detail: e.to_string() })?
+        .ok_or_else(|| ConeError::SessionNotFound { name: cone_id.to_string() })?;
 
         self.row_to_cone_config(row)
     }
@@ -252,7 +254,7 @@ impl ConeStorage {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| format!("Failed to list cones: {}", e))?;
+        .map_err(|e| ConeError::StorageError { operation: "list_cones".into(), detail: e.to_string() })?;
 
         let cones: Result<Vec<ConeInfo>, ConeError> = rows
             .iter()
@@ -261,11 +263,11 @@ impl ConeStorage {
                 let tree_id_str: String = row.get("tree_id");
                 let head_str: String = row.get("canonical_head");
 
-                let tree_id = TreeId::parse_str(&tree_id_str).map_err(|e| format!("Invalid tree ID: {}", e))?;
-                let node_id = NodeId::parse_str(&head_str).map_err(|e| format!("Invalid node ID: {}", e))?;
+                let tree_id = TreeId::parse_str(&tree_id_str).map_err(|e| ConeError::StorageError { operation: "parse_tree_id".into(), detail: e.to_string() })?;
+                let node_id = NodeId::parse_str(&head_str).map_err(|e| ConeError::StorageError { operation: "parse_node_id".into(), detail: e.to_string() })?;
 
                 Ok(ConeInfo {
-                    id: Uuid::parse_str(&id_str).map_err(|e| format!("Invalid cone ID: {}", e))?,
+                    id: Uuid::parse_str(&id_str).map_err(|e| ConeError::StorageError { operation: "parse_cone_id".into(), detail: e.to_string() })?,
                     name: row.get("name"),
                     model_id: row.get("model_id"),
                     head: Position::new(tree_id, node_id),
@@ -293,10 +295,10 @@ impl ConeStorage {
         .bind(cone_id.to_string())
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Failed to update cone head: {}", e))?;
+        .map_err(|e| ConeError::StorageError { operation: "update_head".into(), detail: e.to_string() })?;
 
         if result.rows_affected() == 0 {
-            return Err(format!("Cone not found: {}", cone_id).into());
+            return Err(ConeError::SessionNotFound { name: cone_id.to_string() });
         }
 
         Ok(())
@@ -333,7 +335,7 @@ impl ConeStorage {
         .bind(cone_id.to_string())
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Failed to update cone: {}", e))?;
+        .map_err(|e| ConeError::StorageError { operation: "update_cone".into(), detail: e.to_string() })?;
 
         Ok(())
     }
@@ -344,10 +346,10 @@ impl ConeStorage {
             .bind(cone_id.to_string())
             .execute(&self.pool)
             .await
-            .map_err(|e| format!("Failed to delete cone: {}", e))?;
+            .map_err(|e| ConeError::StorageError { operation: "delete_cone".into(), detail: e.to_string() })?;
 
         if result.rows_affected() == 0 {
-            return Err(format!("Cone not found: {}", cone_id).into());
+            return Err(ConeError::SessionNotFound { name: cone_id.to_string() });
         }
 
         Ok(())
@@ -384,7 +386,7 @@ impl ConeStorage {
         .bind(now)
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Failed to create message: {}", e))?;
+        .map_err(|e| ConeError::StorageError { operation: "create_message".into(), detail: e.to_string() })?;
 
         Ok(Message {
             id: message_id,
@@ -428,7 +430,7 @@ impl ConeStorage {
         .bind(ephemeral_marker)
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Failed to create ephemeral message: {}", e))?;
+        .map_err(|e| ConeError::StorageError { operation: "create_ephemeral_message".into(), detail: e.to_string() })?;
 
         Ok(Message {
             id: message_id,
@@ -451,8 +453,8 @@ impl ConeStorage {
         .bind(message_id.to_string())
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| format!("Failed to fetch message: {}", e))?
-        .ok_or_else(|| format!("Message not found: {}", message_id))?;
+        .map_err(|e| ConeError::StorageError { operation: "fetch_message".into(), detail: e.to_string() })?
+        .ok_or_else(|| ConeError::SessionNotFound { name: format!("message:{}", message_id) })?;
 
         self.row_to_message(row)
     }
@@ -473,7 +475,7 @@ impl ConeStorage {
 
         let message_id_str = &msg_part[4..]; // Strip "msg-" prefix
         let message_id = Uuid::parse_str(message_id_str)
-            .map_err(|e| format!("Invalid message ID in handle: {}", e))?;
+            .map_err(|e| ConeError::StorageError { operation: "parse_handle_id".into(), detail: e.to_string() })?;
 
         self.message_get(&message_id).await
     }
@@ -500,9 +502,9 @@ impl ConeStorage {
         let role_str: String = row.get("role");
 
         Ok(Message {
-            id: Uuid::parse_str(&id_str).map_err(|e| format!("Invalid message ID: {}", e))?,
-            cone_id: Uuid::parse_str(&cone_id_str).map_err(|e| format!("Invalid cone ID: {}", e))?,
-            role: MessageRole::from_str(&role_str).ok_or_else(|| format!("Invalid role: {}", role_str))?,
+            id: Uuid::parse_str(&id_str).map_err(|e| ConeError::StorageError { operation: "parse_message_id".into(), detail: e.to_string() })?,
+            cone_id: Uuid::parse_str(&cone_id_str).map_err(|e| ConeError::StorageError { operation: "parse_cone_id".into(), detail: e.to_string() })?,
+            role: MessageRole::from_str(&role_str).ok_or_else(|| ConeError::StorageError { operation: "parse_role".into(), detail: format!("Invalid role: {}", role_str) })?,
             content: row.get("content"),
             created_at: row.get("created_at"),
             model_id: row.get("model_id"),
@@ -517,11 +519,11 @@ impl ConeStorage {
         let head_str: String = row.get("canonical_head");
         let metadata_json: Option<String> = row.get("metadata");
 
-        let tree_id = TreeId::parse_str(&tree_id_str).map_err(|e| format!("Invalid tree ID: {}", e))?;
-        let node_id = NodeId::parse_str(&head_str).map_err(|e| format!("Invalid node ID: {}", e))?;
+        let tree_id = TreeId::parse_str(&tree_id_str).map_err(|e| ConeError::StorageError { operation: "parse_tree_id".into(), detail: e.to_string() })?;
+        let node_id = NodeId::parse_str(&head_str).map_err(|e| ConeError::StorageError { operation: "parse_node_id".into(), detail: e.to_string() })?;
 
         Ok(ConeConfig {
-            id: Uuid::parse_str(&id_str).map_err(|e| format!("Invalid cone ID: {}", e))?,
+            id: Uuid::parse_str(&id_str).map_err(|e| ConeError::StorageError { operation: "parse_cone_id".into(), detail: e.to_string() })?,
             name: row.get("name"),
             model_id: row.get("model_id"),
             system_prompt: row.get("system_prompt"),

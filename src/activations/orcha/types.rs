@@ -1,6 +1,33 @@
 pub use crate::activations::lattice::GatherStrategy;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Error Types
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Structured error type for Orcha operations
+#[derive(Debug, Error)]
+pub enum OrchaError {
+    #[error("session not found: {session_id}")]
+    SessionNotFound { session_id: String },
+
+    #[error("orchestration error: {detail}")]
+    OrchestrationError { detail: String },
+
+    #[error("storage error during {operation}: {detail}")]
+    StorageError { operation: String, detail: String },
+
+    #[error("validation error: {detail}")]
+    ValidationError { detail: String },
+}
+
+impl From<String> for OrchaError {
+    fn from(detail: String) -> Self {
+        OrchaError::OrchestrationError { detail }
+    }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Orcha Node Kind — typed dispatch

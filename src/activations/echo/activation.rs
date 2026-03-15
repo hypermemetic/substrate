@@ -82,4 +82,12 @@ impl Echo {
             };
         }
     }
+
+    /// Ping — returns a Pong response
+    #[plexus_macros::hub_method(description = "Ping — returns a Pong response")]
+    async fn ping(&self) -> impl Stream<Item = EchoEvent> + Send + 'static {
+        stream! {
+            yield EchoEvent::Pong;
+        }
+    }
 }

@@ -611,29 +611,34 @@ pub enum ArborEvent {
 // ============================================================================
 
 /// Error types for Arbor operations
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArborError {
-    pub message: String,
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum ArborError {
+    #[error("Tree not found: {tree_id}")]
+    TreeNotFound { tree_id: String },
+    #[error("Node not found: {node_id} in tree {tree_id}")]
+    NodeNotFound { node_id: String, tree_id: String },
+    #[error("Storage error during {operation}: {detail}")]
+    StorageError { operation: String, detail: String },
+    #[error("Invalid state: {message}")]
+    InvalidState { message: String },
+    #[error("Initialization error: {detail}")]
+    InitError { detail: String },
 }
-
-impl std::fmt::Display for ArborError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for ArborError {}
 
 impl From<String> for ArborError {
     fn from(message: String) -> Self {
-        ArborError { message }
+        ArborError::StorageError {
+            operation: "unknown".to_string(),
+            detail: message,
+        }
     }
 }
 
 impl From<&str> for ArborError {
     fn from(message: &str) -> Self {
-        ArborError {
-            message: message.to_string(),
+        ArborError::StorageError {
+            operation: "unknown".to_string(),
+            detail: message.to_string(),
         }
     }
 }

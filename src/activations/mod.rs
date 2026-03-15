@@ -25,9 +25,6 @@ pub mod claudecode;
 // Mustache provides template rendering for handle values
 pub mod mustache;
 
-// Changelog tracks plexus hash changes and enforces documentation
-pub mod changelog;
-
 // ClaudeCode Loopback routes tool permissions back to parent for approval
 pub mod claudecode_loopback;
 

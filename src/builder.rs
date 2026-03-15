@@ -6,7 +6,6 @@ use std::sync::{Arc, Weak};
 
 use crate::activations::arbor::{Arbor, ArborConfig};
 use crate::activations::bash::Bash;
-use crate::activations::changelog::{Changelog, ChangelogStorageConfig};
 use crate::activations::claudecode::{ClaudeCode, ClaudeCodeStorage, ClaudeCodeStorageConfig};
 use crate::activations::claudecode_loopback::{ClaudeCodeLoopback, LoopbackStorageConfig};
 use crate::activations::cone::{Cone, ConeStorageConfig};
@@ -19,7 +18,6 @@ use crate::activations::orcha::pm::{Pm, PmStorage, PmStorageConfig};
 use crate::activations::orcha::{GraphRuntime, Orcha, OrchaStorage, OrchaStorageConfig};
 use crate::activations::solar::Solar;
 use crate::plexus::DynamicHub;
-use hyperforge::HyperforgeHub;
 // use plexus_jsexec::{JsExec, JsExecConfig};  // temporarily disabled - needs API updates
 use registry::Registry;
 
@@ -68,11 +66,6 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
     let mustache = Mustache::new(MustacheStorageConfig::default())
         .await
         .expect("Failed to initialize Mustache");
-
-    // Initialize Changelog for tracking Plexus RPC server changes
-    let changelog = Changelog::new(ChangelogStorageConfig::default())
-        .await
-        .expect("Failed to initialize Changelog");
 
     // Initialize ClaudeCode Loopback for tool permission routing
     let loopback = Arc::new(
@@ -156,7 +149,6 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
             .register(lattice)
             .register(Interactive::new())  // Bidirectional demo activation
             .register_hub(Solar::new())
-            .register(HyperforgeHub::new())
     });
 
     // Run changelog startup check

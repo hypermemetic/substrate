@@ -1,184 +1,242 @@
-[2m2026-03-14T13:07:20.163044Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m Starting substrate at 2026-03-14 13:07:20.162
-[2m2026-03-14T13:07:20.163339Z[0m [31mERROR[0m [2mplexus_substrate[0m[2m:[0m ▓▓▓ SUBSTRATE BOOT SEQUENCE ▓▓▓
-[2m2026-03-14T13:07:20.163345Z[0m [33m WARN[0m [2mplexus_substrate[0m[2m:[0m   ├─ warn  :: caution signals armed
-[2m2026-03-14T13:07:20.163350Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   ├─ info  :: telemetry online
-[2m2026-03-14T13:07:20.163355Z[0m [33m WARN[0m [2mplexus_substrate[0m[2m:[0m Authentication: DISABLED — set --api-key or PLEXUS_API_KEY to require bearer tokens
-[2m2026-03-14T13:07:20.420770Z[0m [32m INFO[0m [2mplexus_registry::storage[0m[2m:[0m Config file not found: /home/developer/.config/plexus/backends.toml
-[2m2026-03-14T13:07:20.511241Z[0m [31mERROR[0m [2mplexus_substrate::builder[0m[2m:[0m UNDOCUMENTED PLEXUS CHANGE: 50f5f18631ad231a -> 71120b2316d55196. Add changelog entry for hash '71120b2316d55196'
-[2m2026-03-14T13:07:20.532000Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m Plexus hash: 71120b2316d55196
-[2m2026-03-14T13:07:20.532043Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m 
-[2m2026-03-14T13:07:20.532048Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m Activations (16):
-[2m2026-03-14T13:07:20.532054Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   substrate v1.0.0 - Central routing and introspection
-[2m2026-03-14T13:07:20.532095Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - substrate_call
-[2m2026-03-14T13:07:20.532099Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - substrate_hash
-[2m2026-03-14T13:07:20.532103Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - substrate_hashes
-[2m2026-03-14T13:07:20.532107Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - substrate_schema
-[2m2026-03-14T13:07:20.532110Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   loopback v1.0.0 - Route tool permissions to parent for approval
-[2m2026-03-14T13:07:20.532115Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - loopback_permit
-[2m2026-03-14T13:07:20.532119Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - loopback_respond
-[2m2026-03-14T13:07:20.532122Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - loopback_pending
-[2m2026-03-14T13:07:20.532125Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - loopback_wait_for_approval
-[2m2026-03-14T13:07:20.532129Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - loopback_configure
-[2m2026-03-14T13:07:20.532132Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - loopback_schema
-[2m2026-03-14T13:07:20.532136Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   arbor v1.0.0 - Manage conversation trees with context tracking
-[2m2026-03-14T13:07:20.532140Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_create
-[2m2026-03-14T13:07:20.532143Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_get
-[2m2026-03-14T13:07:20.532147Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_get_skeleton
-[2m2026-03-14T13:07:20.532150Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_list
-[2m2026-03-14T13:07:20.532154Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_update_metadata
-[2m2026-03-14T13:07:20.532157Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_claim
-[2m2026-03-14T13:07:20.532160Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_release
-[2m2026-03-14T13:07:20.532164Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_list_scheduled
-[2m2026-03-14T13:07:20.532167Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_list_archived
-[2m2026-03-14T13:07:20.532171Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_node_create_text
-[2m2026-03-14T13:07:20.532174Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_node_create_external
-[2m2026-03-14T13:07:20.532189Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_node_get
-[2m2026-03-14T13:07:20.532192Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_node_get_children
-[2m2026-03-14T13:07:20.532195Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_node_get_parent
-[2m2026-03-14T13:07:20.532198Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_node_get_path
-[2m2026-03-14T13:07:20.532202Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_context_list_leaves
-[2m2026-03-14T13:07:20.532205Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_context_get_path
-[2m2026-03-14T13:07:20.532208Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_context_get_handles
-[2m2026-03-14T13:07:20.532211Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_render
-[2m2026-03-14T13:07:20.532214Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_schema
-[2m2026-03-14T13:07:20.532217Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   claudecode v1.0.0 - Manage Claude Code sessions with Arbor-backed conversation history
-[2m2026-03-14T13:07:20.532221Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_create
-[2m2026-03-14T13:07:20.532224Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_chat
-[2m2026-03-14T13:07:20.532227Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_get
-[2m2026-03-14T13:07:20.532229Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_list
-[2m2026-03-14T13:07:20.532232Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_delete
-[2m2026-03-14T13:07:20.532235Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_fork
-[2m2026-03-14T13:07:20.532238Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_chat_async
-[2m2026-03-14T13:07:20.532241Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_poll
-[2m2026-03-14T13:07:20.532244Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_streams
-[2m2026-03-14T13:07:20.532247Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_get_tree
-[2m2026-03-14T13:07:20.532250Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_render_context
-[2m2026-03-14T13:07:20.532253Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_sessions_list
-[2m2026-03-14T13:07:20.532256Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_sessions_get
-[2m2026-03-14T13:07:20.532259Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_sessions_import
-[2m2026-03-14T13:07:20.532262Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_sessions_export
-[2m2026-03-14T13:07:20.532265Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_sessions_delete
-[2m2026-03-14T13:07:20.532268Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_schema
-[2m2026-03-14T13:07:20.532271Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   health v1.0.0 - Check hub health and uptime
-[2m2026-03-14T13:07:20.532274Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - health_check
-[2m2026-03-14T13:07:20.532277Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - health_schema
-[2m2026-03-14T13:07:20.532280Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   hyperforge v4.0.2 - Multi-forge repository management
-[2m2026-03-14T13:07:20.532284Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - hyperforge_status
-[2m2026-03-14T13:07:20.532286Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - hyperforge_reload
-[2m2026-03-14T13:07:20.532289Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - hyperforge_begin
-[2m2026-03-14T13:07:20.532292Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - hyperforge_schema
-[2m2026-03-14T13:07:20.532295Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   solar v1.0.0 - Solar system model - demonstrates nested plugin hierarchy
-[2m2026-03-14T13:07:20.532301Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - solar_observe
-[2m2026-03-14T13:07:20.532304Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - solar_info
-[2m2026-03-14T13:07:20.532307Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - solar_schema
-[2m2026-03-14T13:07:20.532310Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   bash v1.0.0 - Execute bash commands and stream output
-[2m2026-03-14T13:07:20.532313Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - bash_execute
-[2m2026-03-14T13:07:20.532316Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - bash_schema
-[2m2026-03-14T13:07:20.532319Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   echo v1.0.0 - Echo messages back - demonstrates plexus-macros usage
-[2m2026-03-14T13:07:20.532323Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - echo_echo
-[2m2026-03-14T13:07:20.532325Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - echo_once
-[2m2026-03-14T13:07:20.532328Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - echo_schema
-[2m2026-03-14T13:07:20.532330Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   interactive v1.0.0 - Interactive methods demonstrating bidirectional communication
-[2m2026-03-14T13:07:20.532335Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - interactive_wizard
-[2m2026-03-14T13:07:20.532338Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - interactive_delete
-[2m2026-03-14T13:07:20.532341Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - interactive_confirm
-[2m2026-03-14T13:07:20.532344Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - interactive_schema
-[2m2026-03-14T13:07:20.532347Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   changelog v1.0.0 - Track and document plexus configuration changes
-[2m2026-03-14T13:07:20.532351Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_add
-[2m2026-03-14T13:07:20.532353Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_list
-[2m2026-03-14T13:07:20.532356Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_get
-[2m2026-03-14T13:07:20.532359Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_check
-[2m2026-03-14T13:07:20.532362Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_queue_add
-[2m2026-03-14T13:07:20.532364Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_queue_list
-[2m2026-03-14T13:07:20.532367Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_queue_pending
-[2m2026-03-14T13:07:20.532371Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_queue_get
-[2m2026-03-14T13:07:20.532373Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_queue_complete
-[2m2026-03-14T13:07:20.532377Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_schema
-[2m2026-03-14T13:07:20.532380Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   cone v1.0.0 - LLM cone with persistent conversation context
-[2m2026-03-14T13:07:20.532383Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_create
-[2m2026-03-14T13:07:20.532386Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_get
-[2m2026-03-14T13:07:20.532388Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_list
-[2m2026-03-14T13:07:20.532391Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_delete
-[2m2026-03-14T13:07:20.532394Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_chat
-[2m2026-03-14T13:07:20.532397Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_set_head
-[2m2026-03-14T13:07:20.532399Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_registry
-[2m2026-03-14T13:07:20.532402Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_schema
-[2m2026-03-14T13:07:20.532405Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   orcha v1.0.0 - Full task orchestration with approval loops and validation
-[2m2026-03-14T13:07:20.532410Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_task
-[2m2026-03-14T13:07:20.532413Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_create_session
-[2m2026-03-14T13:07:20.532416Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_update_session_state
-[2m2026-03-14T13:07:20.532419Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_get_session
-[2m2026-03-14T13:07:20.532422Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_extract_validation
-[2m2026-03-14T13:07:20.532425Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_validation
-[2m2026-03-14T13:07:20.532428Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_increment_retry
-[2m2026-03-14T13:07:20.532431Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_list_sessions
-[2m2026-03-14T13:07:20.532434Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_delete_session
-[2m2026-03-14T13:07:20.532518Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_task_async
-[2m2026-03-14T13:07:20.532539Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_list_monitor_trees
-[2m2026-03-14T13:07:20.532542Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_check_status
-[2m2026-03-14T13:07:20.532546Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_spawn_agent
-[2m2026-03-14T13:07:20.532548Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_list_agents
-[2m2026-03-14T13:07:20.532551Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_get_agent
-[2m2026-03-14T13:07:20.532554Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_list_pending_approvals
-[2m2026-03-14T13:07:20.532557Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_approve_request
-[2m2026-03-14T13:07:20.532560Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_deny_request
-[2m2026-03-14T13:07:20.532563Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_subscribe_approvals
-[2m2026-03-14T13:07:20.532566Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_graph
-[2m2026-03-14T13:07:20.532569Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_cancel_graph
-[2m2026-03-14T13:07:20.532572Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_subscribe_graph
-[2m2026-03-14T13:07:20.532575Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_create_graph
-[2m2026-03-14T13:07:20.532577Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_add_task_node
-[2m2026-03-14T13:07:20.532580Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_add_synthesize_node
-[2m2026-03-14T13:07:20.532583Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_add_validate_node
-[2m2026-03-14T13:07:20.532586Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_add_gather_node
-[2m2026-03-14T13:07:20.532589Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_add_subgraph_node
-[2m2026-03-14T13:07:20.532592Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_add_dependency
-[2m2026-03-14T13:07:20.532595Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_build_tickets
-[2m2026-03-14T13:07:20.532598Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_tickets
-[2m2026-03-14T13:07:20.532601Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_tickets_async
-[2m2026-03-14T13:07:20.532605Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_graph_definition
-[2m2026-03-14T13:07:20.532608Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_schema
-[2m2026-03-14T13:07:20.532612Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   lattice v1.0.0 - DAG execution engine — manages graph topology and drives topological execution
-[2m2026-03-14T13:07:20.532617Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_create
-[2m2026-03-14T13:07:20.532630Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_add_node
-[2m2026-03-14T13:07:20.532635Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_add_edge
-[2m2026-03-14T13:07:20.532638Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_execute
-[2m2026-03-14T13:07:20.532641Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_node_complete
-[2m2026-03-14T13:07:20.532643Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_node_failed
-[2m2026-03-14T13:07:20.532646Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_get_node_inputs
-[2m2026-03-14T13:07:20.532649Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_get
-[2m2026-03-14T13:07:20.532652Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_list
-[2m2026-03-14T13:07:20.532655Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_cancel
-[2m2026-03-14T13:07:20.532659Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_create_child_graph
-[2m2026-03-14T13:07:20.532662Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_get_child_graphs
-[2m2026-03-14T13:07:20.532665Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_schema
-[2m2026-03-14T13:07:20.532667Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   registry v1.0.0 - Backend discovery and registration service for Plexus hubs
-[2m2026-03-14T13:07:20.532672Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_register
-[2m2026-03-14T13:07:20.532674Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_list
-[2m2026-03-14T13:07:20.532679Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_get
-[2m2026-03-14T13:07:20.532681Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_update
-[2m2026-03-14T13:07:20.532684Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_delete
-[2m2026-03-14T13:07:20.532687Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_ping
-[2m2026-03-14T13:07:20.532690Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_reload
-[2m2026-03-14T13:07:20.532693Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_schema
-[2m2026-03-14T13:07:20.532695Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   mustache v1.0.0 - Mustache template rendering for handle values
-[2m2026-03-14T13:07:20.532699Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - mustache_render
-[2m2026-03-14T13:07:20.532702Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - mustache_register_template
-[2m2026-03-14T13:07:20.532705Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - mustache_list_templates
-[2m2026-03-14T13:07:20.532708Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - mustache_get_template
-[2m2026-03-14T13:07:20.532711Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - mustache_delete_template
-[2m2026-03-14T13:07:20.532714Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - mustache_schema
-[2m2026-03-14T13:07:20.532722Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m 
-[2m2026-03-14T13:07:20.532725Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m Total methods: 144
-[2m2026-03-14T13:07:20.587331Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m Substrate Plexus RPC server started
-[2m2026-03-14T13:07:20.587373Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   WebSocket: ws://127.0.0.1:4444
-[2m2026-03-14T13:07:20.587377Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   MCP HTTP:  http://127.0.0.1:4444/mcp
-[2m2026-03-14T13:07:20.588807Z[0m [32m INFO[0m [2mplexus_transport::combined[0m[2m:[0m Starting WebSocket transport at ws://127.0.0.1:4444
-[2m2026-03-14T13:07:20.588830Z[0m [32m INFO[0m [2mplexus_transport::combined[0m[2m:[0m Starting MCP HTTP transport at http://127.0.0.1:4444/mcp
-[2m2026-03-14T13:07:53.727100Z[0m [32m INFO[0m [2mrmcp::transport::streamable_http_server::session::local[0m[2m:[0m create new session [3msession_id[0m[2m=[0m"38a831ce-9adb-4fc5-8da9-87901ac220b4"
-[2m2026-03-14T13:07:53.740227Z[0m [32m INFO[0m [2mrmcp::handler::server[0m[2m:[0m client initialized
-[2m2026-03-14T13:07:53.740336Z[0m [32m INFO[0m [1mserve_inner[0m[2m:[0m [2mrmcp::service[0m[2m:[0m Service initialized as server [3mpeer_info[0m[2m=[0mSome(InitializeRequestParam { protocol_version: ProtocolVersion("2025-11-25"), capabilities: ClientCapabilities { experimental: None, roots: Some(RootsCapabilities { list_changed: None }), sampling: None, elicitation: Some(ElicitationCapability { schema_validation: None }) }, client_info: Implementation { name: "claude-code", title: None, version: "2.1.63", icons: None, website_url: None } })
-[2m2026-03-14T13:13:13.111864Z[0m [32m INFO[0m [2mrmcp::transport::streamable_http_server::session::local[0m[2m:[0m create new session [3msession_id[0m[2m=[0m"0a6fbe8e-664c-4bea-9451-0cbd2b0f07ad"
-[2m2026-03-14T13:13:13.124884Z[0m [32m INFO[0m [2mrmcp::handler::server[0m[2m:[0m client initialized
-[2m2026-03-14T13:13:13.124946Z[0m [32m INFO[0m [1mserve_inner[0m[2m:[0m [2mrmcp::service[0m[2m:[0m Service initialized as server [3mpeer_info[0m[2m=[0mSome(InitializeRequestParam { protocol_version: ProtocolVersion("2025-11-25"), capabilities: ClientCapabilities { experimental: None, roots: Some(RootsCapabilities { list_changed: None }), sampling: None, elicitation: Some(ElicitationCapability { schema_validation: None }) }, client_info: Implementation { name: "claude-code", title: None, version: "2.1.63", icons: None, website_url: None } })
-[2m2026-03-14T13:17:21.650896Z[0m [32m INFO[0m [2mplexus_substrate::activations::orcha::activation[0m[2m:[0m run_tickets_async graph lattice-d47cfb79-e508-4bd8-a925-4b4dfbe9702c complete
+[2m2026-03-15T00:49:42.046801Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m Starting substrate at 2026-03-15 00:49:42.046
+[2m2026-03-15T00:49:42.046876Z[0m [31mERROR[0m [2mplexus_substrate[0m[2m:[0m ▓▓▓ SUBSTRATE BOOT SEQUENCE ▓▓▓
+[2m2026-03-15T00:49:42.046882Z[0m [33m WARN[0m [2mplexus_substrate[0m[2m:[0m   ├─ warn  :: caution signals armed
+[2m2026-03-15T00:49:42.046885Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   ├─ info  :: telemetry online
+[2m2026-03-15T00:49:42.046890Z[0m [33m WARN[0m [2mplexus_substrate[0m[2m:[0m Authentication: DISABLED — set --api-key or PLEXUS_API_KEY to require bearer tokens
+[2m2026-03-15T00:49:42.128933Z[0m [32m INFO[0m [2mplexus_registry::storage[0m[2m:[0m Config file not found: /home/developer/.config/plexus/backends.toml
+[2m2026-03-15T00:49:42.214428Z[0m [31mERROR[0m [2mplexus_substrate::builder[0m[2m:[0m UNDOCUMENTED PLEXUS CHANGE: 474dcda2c08c18d1 -> e33d1f72fb6733fb. Add changelog entry for hash 'e33d1f72fb6733fb'
+[2m2026-03-15T00:49:42.234399Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m Plexus hash: e33d1f72fb6733fb
+[2m2026-03-15T00:49:42.234431Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m 
+[2m2026-03-15T00:49:42.234436Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m Activations (16):
+[2m2026-03-15T00:49:42.234442Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   substrate v1.0.0 - Central routing and introspection
+[2m2026-03-15T00:49:42.234456Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - substrate_call
+[2m2026-03-15T00:49:42.234462Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - substrate_hash
+[2m2026-03-15T00:49:42.234465Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - substrate_hashes
+[2m2026-03-15T00:49:42.234468Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - substrate_schema
+[2m2026-03-15T00:49:42.234472Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   solar v1.0.0 - Solar system model - demonstrates nested plugin hierarchy
+[2m2026-03-15T00:49:42.234476Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - solar_observe
+[2m2026-03-15T00:49:42.234479Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - solar_info
+[2m2026-03-15T00:49:42.234483Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - solar_schema
+[2m2026-03-15T00:49:42.234486Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   claudecode v1.0.0 - Manage Claude Code sessions with Arbor-backed conversation history
+[2m2026-03-15T00:49:42.234490Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_create
+[2m2026-03-15T00:49:42.234494Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_chat
+[2m2026-03-15T00:49:42.234497Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_get
+[2m2026-03-15T00:49:42.234500Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_list
+[2m2026-03-15T00:49:42.234503Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_delete
+[2m2026-03-15T00:49:42.234506Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_fork
+[2m2026-03-15T00:49:42.234509Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_chat_async
+[2m2026-03-15T00:49:42.234513Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_poll
+[2m2026-03-15T00:49:42.234516Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_streams
+[2m2026-03-15T00:49:42.234520Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_get_tree
+[2m2026-03-15T00:49:42.234523Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_render_context
+[2m2026-03-15T00:49:42.234526Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_sessions_list
+[2m2026-03-15T00:49:42.234530Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_sessions_get
+[2m2026-03-15T00:49:42.234533Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_sessions_import
+[2m2026-03-15T00:49:42.234546Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_sessions_export
+[2m2026-03-15T00:49:42.234549Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_sessions_delete
+[2m2026-03-15T00:49:42.234553Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - claudecode_schema
+[2m2026-03-15T00:49:42.234556Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   registry v1.0.0 - Backend discovery and registration service for Plexus hubs
+[2m2026-03-15T00:49:42.234560Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_register
+[2m2026-03-15T00:49:42.234563Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_list
+[2m2026-03-15T00:49:42.234566Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_get
+[2m2026-03-15T00:49:42.234570Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_update
+[2m2026-03-15T00:49:42.234572Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_delete
+[2m2026-03-15T00:49:42.234575Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_ping
+[2m2026-03-15T00:49:42.234578Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_reload
+[2m2026-03-15T00:49:42.234580Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - registry_schema
+[2m2026-03-15T00:49:42.234583Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   lattice v1.0.0 - DAG execution engine — manages graph topology and drives topological execution
+[2m2026-03-15T00:49:42.234587Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_create
+[2m2026-03-15T00:49:42.234590Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_add_node
+[2m2026-03-15T00:49:42.234593Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_add_edge
+[2m2026-03-15T00:49:42.234595Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_execute
+[2m2026-03-15T00:49:42.234598Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_node_complete
+[2m2026-03-15T00:49:42.234601Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_node_failed
+[2m2026-03-15T00:49:42.234604Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_get_node_inputs
+[2m2026-03-15T00:49:42.234606Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_get
+[2m2026-03-15T00:49:42.234609Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_list
+[2m2026-03-15T00:49:42.234611Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_cancel
+[2m2026-03-15T00:49:42.234614Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_create_child_graph
+[2m2026-03-15T00:49:42.234616Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_get_child_graphs
+[2m2026-03-15T00:49:42.234619Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - lattice_schema
+[2m2026-03-15T00:49:42.234621Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   health v1.0.0 - Check hub health and uptime
+[2m2026-03-15T00:49:42.234625Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - health_check
+[2m2026-03-15T00:49:42.234627Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - health_schema
+[2m2026-03-15T00:49:42.234630Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   interactive v1.0.0 - Interactive methods demonstrating bidirectional communication
+[2m2026-03-15T00:49:42.234634Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - interactive_wizard
+[2m2026-03-15T00:49:42.234636Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - interactive_delete
+[2m2026-03-15T00:49:42.234639Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - interactive_confirm
+[2m2026-03-15T00:49:42.234642Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - interactive_schema
+[2m2026-03-15T00:49:42.234645Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   cone v1.0.0 - LLM cone with persistent conversation context
+[2m2026-03-15T00:49:42.234648Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_create
+[2m2026-03-15T00:49:42.234653Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_get
+[2m2026-03-15T00:49:42.234655Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_list
+[2m2026-03-15T00:49:42.234658Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_delete
+[2m2026-03-15T00:49:42.234662Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_chat
+[2m2026-03-15T00:49:42.234664Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_set_head
+[2m2026-03-15T00:49:42.234667Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_registry
+[2m2026-03-15T00:49:42.234670Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - cone_schema
+[2m2026-03-15T00:49:42.234672Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   orcha v1.0.0 - Full task orchestration with approval loops and validation
+[2m2026-03-15T00:49:42.234676Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_task
+[2m2026-03-15T00:49:42.234679Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_create_session
+[2m2026-03-15T00:49:42.234682Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_update_session_state
+[2m2026-03-15T00:49:42.234684Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_get_session
+[2m2026-03-15T00:49:42.234687Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_extract_validation
+[2m2026-03-15T00:49:42.234692Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_validation
+[2m2026-03-15T00:49:42.234696Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_increment_retry
+[2m2026-03-15T00:49:42.234698Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_list_sessions
+[2m2026-03-15T00:49:42.234703Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_delete_session
+[2m2026-03-15T00:49:42.234707Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_task_async
+[2m2026-03-15T00:49:42.234712Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_list_monitor_trees
+[2m2026-03-15T00:49:42.234715Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_check_status
+[2m2026-03-15T00:49:42.234717Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_spawn_agent
+[2m2026-03-15T00:49:42.234720Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_list_agents
+[2m2026-03-15T00:49:42.234723Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_get_agent
+[2m2026-03-15T00:49:42.234725Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_list_pending_approvals
+[2m2026-03-15T00:49:42.234728Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_approve_request
+[2m2026-03-15T00:49:42.234731Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_deny_request
+[2m2026-03-15T00:49:42.234734Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_subscribe_approvals
+[2m2026-03-15T00:49:42.234737Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_graph
+[2m2026-03-15T00:49:42.234739Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_cancel_graph
+[2m2026-03-15T00:49:42.234742Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_subscribe_graph
+[2m2026-03-15T00:49:42.234745Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_create_graph
+[2m2026-03-15T00:49:42.234747Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_add_task_node
+[2m2026-03-15T00:49:42.234750Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_add_synthesize_node
+[2m2026-03-15T00:49:42.234753Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_add_validate_node
+[2m2026-03-15T00:49:42.234756Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_add_gather_node
+[2m2026-03-15T00:49:42.234758Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_add_subgraph_node
+[2m2026-03-15T00:49:42.234762Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_add_dependency
+[2m2026-03-15T00:49:42.234765Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_build_tickets
+[2m2026-03-15T00:49:42.234768Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_tickets
+[2m2026-03-15T00:49:42.234771Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_tickets_async
+[2m2026-03-15T00:49:42.234774Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_tickets_files
+[2m2026-03-15T00:49:42.234778Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_tickets_async_files
+[2m2026-03-15T00:49:42.234781Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_run_graph_definition
+[2m2026-03-15T00:49:42.234786Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - orcha_schema
+[2m2026-03-15T00:49:42.234794Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   mustache v1.0.0 - Mustache template rendering for handle values
+[2m2026-03-15T00:49:42.234803Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - mustache_render
+[2m2026-03-15T00:49:42.234806Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - mustache_register_template
+[2m2026-03-15T00:49:42.234809Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - mustache_list_templates
+[2m2026-03-15T00:49:42.234812Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - mustache_get_template
+[2m2026-03-15T00:49:42.234814Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - mustache_delete_template
+[2m2026-03-15T00:49:42.234817Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - mustache_schema
+[2m2026-03-15T00:49:42.234820Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   changelog v1.0.0 - Track and document plexus configuration changes
+[2m2026-03-15T00:49:42.234824Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_add
+[2m2026-03-15T00:49:42.234827Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_list
+[2m2026-03-15T00:49:42.234829Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_get
+[2m2026-03-15T00:49:42.234832Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_check
+[2m2026-03-15T00:49:42.234835Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_queue_add
+[2m2026-03-15T00:49:42.234837Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_queue_list
+[2m2026-03-15T00:49:42.234840Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_queue_pending
+[2m2026-03-15T00:49:42.234845Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_queue_get
+[2m2026-03-15T00:49:42.234847Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_queue_complete
+[2m2026-03-15T00:49:42.234850Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - changelog_schema
+[2m2026-03-15T00:49:42.234853Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   arbor v1.0.0 - Manage conversation trees with context tracking
+[2m2026-03-15T00:49:42.234856Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_create
+[2m2026-03-15T00:49:42.234859Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_get
+[2m2026-03-15T00:49:42.234862Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_get_skeleton
+[2m2026-03-15T00:49:42.234864Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_list
+[2m2026-03-15T00:49:42.234867Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_update_metadata
+[2m2026-03-15T00:49:42.234871Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_claim
+[2m2026-03-15T00:49:42.234874Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_release
+[2m2026-03-15T00:49:42.234877Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_list_scheduled
+[2m2026-03-15T00:49:42.234880Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_list_archived
+[2m2026-03-15T00:49:42.234886Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_node_create_text
+[2m2026-03-15T00:49:42.234889Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_node_create_external
+[2m2026-03-15T00:49:42.234892Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_node_get
+[2m2026-03-15T00:49:42.234894Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_node_get_children
+[2m2026-03-15T00:49:42.234897Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_node_get_parent
+[2m2026-03-15T00:49:42.234900Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_node_get_path
+[2m2026-03-15T00:49:42.234902Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_context_list_leaves
+[2m2026-03-15T00:49:42.234905Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_context_get_path
+[2m2026-03-15T00:49:42.234908Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_context_get_handles
+[2m2026-03-15T00:49:42.234911Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_tree_render
+[2m2026-03-15T00:49:42.234914Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - arbor_schema
+[2m2026-03-15T00:49:42.234916Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   hyperforge v4.0.2 - Multi-forge repository management
+[2m2026-03-15T00:49:42.234920Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - hyperforge_status
+[2m2026-03-15T00:49:42.234922Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - hyperforge_reload
+[2m2026-03-15T00:49:42.234925Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - hyperforge_begin
+[2m2026-03-15T00:49:42.234928Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - hyperforge_schema
+[2m2026-03-15T00:49:42.234930Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   echo v1.0.0 - Echo messages back - demonstrates plexus-macros usage
+[2m2026-03-15T00:49:42.234934Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - echo_echo
+[2m2026-03-15T00:49:42.234936Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - echo_once
+[2m2026-03-15T00:49:42.234939Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - echo_schema
+[2m2026-03-15T00:49:42.234941Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   bash v1.0.0 - Execute bash commands and stream output
+[2m2026-03-15T00:49:42.234945Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - bash_execute
+[2m2026-03-15T00:49:42.234947Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - bash_schema
+[2m2026-03-15T00:49:42.234949Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   loopback v1.0.0 - Route tool permissions to parent for approval
+[2m2026-03-15T00:49:42.234953Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - loopback_permit
+[2m2026-03-15T00:49:42.234956Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - loopback_respond
+[2m2026-03-15T00:49:42.234958Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - loopback_pending
+[2m2026-03-15T00:49:42.234961Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - loopback_wait_for_approval
+[2m2026-03-15T00:49:42.234964Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - loopback_configure
+[2m2026-03-15T00:49:42.234966Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m     - loopback_schema
+[2m2026-03-15T00:49:42.234970Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m 
+[2m2026-03-15T00:49:42.234973Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m Total methods: 146
+[2m2026-03-15T00:49:42.285218Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m Substrate Plexus RPC server started
+[2m2026-03-15T00:49:42.285327Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   WebSocket: ws://127.0.0.1:4444
+[2m2026-03-15T00:49:42.285335Z[0m [32m INFO[0m [2mplexus_substrate[0m[2m:[0m   MCP HTTP:  http://127.0.0.1:4444/mcp
+Error: Address already in use (os error 98)
+
+Stack backtrace:
+   0: anyhow::error::<impl core::convert::From<E> for anyhow::Error>::from
+             at /home/developer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/anyhow-1.0.101/src/backtrace.rs:27:14
+   1: <core::result::Result<T,F> as core::ops::try_trait::FromResidual<core::result::Result<core::convert::Infallible,E>>>::from_residual
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/result.rs:2184:27
+   2: plexus_transport::combined::serve_combined::{{closure}}
+             at /workspace/hypermemetic/plexus-transport/src/combined.rs:128:20
+   3: plexus_substrate::main::{{closure}}
+             at /workspace/hypermemetic/plexus-substrate/src/main.rs:148:110
+   4: <core::pin::Pin<P> as core::future::future::Future>::poll
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/future/future.rs:133:9
+   5: tokio::runtime::park::CachedParkThread::block_on::{{closure}}
+             at /home/developer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.49.0/src/runtime/park.rs:284:71
+   6: tokio::task::coop::with_budget
+             at /home/developer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.49.0/src/task/coop/mod.rs:167:5
+   7: tokio::task::coop::budget
+             at /home/developer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.49.0/src/task/coop/mod.rs:133:5
+   8: tokio::runtime::park::CachedParkThread::block_on
+             at /home/developer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.49.0/src/runtime/park.rs:284:31
+   9: tokio::runtime::context::blocking::BlockingRegionGuard::block_on
+             at /home/developer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.49.0/src/runtime/context/blocking.rs:66:14
+  10: tokio::runtime::scheduler::multi_thread::MultiThread::block_on::{{closure}}
+             at /home/developer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.49.0/src/runtime/scheduler/multi_thread/mod.rs:89:22
+  11: tokio::runtime::context::runtime::enter_runtime
+             at /home/developer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.49.0/src/runtime/context/runtime.rs:65:16
+  12: tokio::runtime::scheduler::multi_thread::MultiThread::block_on
+             at /home/developer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.49.0/src/runtime/scheduler/multi_thread/mod.rs:88:9
+  13: tokio::runtime::runtime::Runtime::block_on_inner
+             at /home/developer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.49.0/src/runtime/runtime.rs:370:50
+  14: tokio::runtime::runtime::Runtime::block_on
+             at /home/developer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.49.0/src/runtime/runtime.rs:340:18
+  15: plexus_substrate::main
+             at /workspace/hypermemetic/plexus-substrate/src/main.rs:131:12
+  16: core::ops::function::FnOnce::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:250:5
+  17: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/sys/backtrace.rs:158:18
+  18: std::rt::lang_start::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:206:18
+  19: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  20: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  21: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  22: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  23: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  24: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  25: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  26: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  27: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  28: std::rt::lang_start
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:205:5
+  29: main
+  30: <unknown>
+  31: __libc_start_main
+  32: _start

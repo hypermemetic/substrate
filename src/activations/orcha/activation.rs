@@ -455,8 +455,13 @@ impl<P: HubContext> Orcha<P> {
         stream! {
             match storage.increment_retry(&session_id).await {
                 Ok(count) => {
-                    let session = storage.get_session(&session_id).await.ok();
-                    let max_retries = session.map(|s| s.max_retries).unwrap_or(3);
+                    let max_retries = match storage.get_session(&session_id).await {
+                        Ok(s) => s.max_retries,
+                        Err(e) => {
+                            tracing::warn!("Failed to get session {} for max_retries lookup: {}", session_id, e);
+                            3
+                        }
+                    };
 
                     yield IncrementRetryResult::Ok {
                         retry_count: count,
@@ -653,7 +658,13 @@ impl<P: HubContext> Orcha<P> {
                 let agent_summaries: Vec<AgentSummary> = futures::future::join_all(summary_futures)
                     .await
                     .into_iter()
-                    .filter_map(|r| r.ok())
+                    .filter_map(|r| match r {
+                        Ok(summary) => Some(summary),
+                        Err(e) => {
+                            tracing::warn!("Failed to generate agent summary: {}", e);
+                            None
+                        }
+                    })
                     .collect();
 
                 // Generate overall meta-summary
@@ -2243,11 +2254,23 @@ fn extract_validation_artifact(text: &str) -> Option<ValidationArtifact> {
     // Look for {"orcha_validate": {...}} pattern
     use regex::Regex;
 
-    let re = Regex::new(r#"\{"orcha_validate"\s*:\s*(\{[^}]+\})\}"#).ok()?;
+    let re = match Regex::new(r#"\{"orcha_validate"\s*:\s*(\{[^}]+\})\}"#) {
+        Ok(re) => re,
+        Err(e) => {
+            tracing::warn!("Failed to compile orcha_validate regex: {}", e);
+            return None;
+        }
+    };
     let captures = re.captures(text)?;
     let json_str = captures.get(1)?.as_str();
 
-    serde_json::from_str::<ValidationArtifact>(json_str).ok()
+    match serde_json::from_str::<ValidationArtifact>(json_str) {
+        Ok(artifact) => Some(artifact),
+        Err(e) => {
+            tracing::warn!("Failed to parse validation artifact JSON '{}': {}", json_str, e);
+            None
+        }
+    }
 }
 
 /// Run a validation test command

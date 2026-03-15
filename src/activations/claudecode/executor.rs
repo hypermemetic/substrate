@@ -5,9 +5,55 @@ use serde_json::Value;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::process::Stdio;
+use std::sync::Arc;
+use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::process::Command;
+use tokio::sync::Mutex;
+
+/// Errors from the Claude Code executor
+#[derive(Debug, Error)]
+pub enum ExecutorError {
+    #[error("claude binary not found at '{path}' (searched: {searched})")]
+    BinaryNotFound {
+        path: String,
+        searched: String,
+    },
+
+    #[error("working directory does not exist: '{path}'")]
+    WorkingDirNotFound {
+        path: String,
+    },
+
+    #[error("failed to spawn claude process (binary='{binary}', cwd='{cwd}'): {source}")]
+    SpawnFailed {
+        binary: String,
+        cwd: String,
+        source: std::io::Error,
+    },
+
+    #[error("failed to write MCP config to '{path}': {reason}")]
+    McpConfigWrite {
+        path: String,
+        reason: String,
+    },
+
+    #[error("claude process exited with code {code} (binary='{binary}', cwd='{cwd}'):\n{stderr}")]
+    ProcessFailed {
+        code: String,
+        binary: String,
+        cwd: String,
+        stderr: String,
+    },
+
+    #[error("claude process produced no output (binary='{binary}', cwd='{cwd}', exit_code={code})")]
+    NoOutput {
+        binary: String,
+        cwd: String,
+        code: String,
+    },
+}
 
 // ─── MCP Reachability Check ───────────────────────────────────────────────────
 
@@ -336,16 +382,10 @@ impl ClaudeCodeExecutor {
                         Some(path)
                     }
                     Err(e) => {
-                        yield RawClaudeEvent::Result {
-                            subtype: Some("error".to_string()),
-                            session_id: None,
-                            cost_usd: None,
-                            is_error: Some(true),
-                            duration_ms: None,
-                            num_turns: None,
-                            result: None,
-                            error: Some(e),
-                        };
+                        yield_error!(ExecutorError::McpConfigWrite {
+                            path: std::env::temp_dir().to_string_lossy().to_string(),
+                            reason: e,
+                        });
                         return;
                     }
                 }
@@ -393,22 +433,33 @@ impl ClaudeCodeExecutor {
             let mut child = match cmd.spawn() {
                 Ok(c) => c,
                 Err(e) => {
-                    yield RawClaudeEvent::Result {
-                        subtype: Some("error".to_string()),
-                        session_id: None,
-                        cost_usd: None,
-                        is_error: Some(true),
-                        duration_ms: None,
-                        num_turns: None,
-                        result: None,
-                        error: Some(format!("Failed to spawn claude: {}", e)),
-                    };
+                    yield_error!(ExecutorError::SpawnFailed {
+                        binary: claude_path.clone(),
+                        cwd: working_dir.clone(),
+                        source: e,
+                    });
                     return;
                 }
             };
 
             let stdout = child.stdout.take().expect("stdout");
             let mut reader = BufReader::with_capacity(10 * 1024 * 1024, stdout).lines(); // 10MB buffer
+
+            // Capture stderr in a background task to prevent pipe buffer blocking
+            let stderr_buffer: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+            let stderr = child.stderr.take().expect("stderr");
+            let stderr_buf = stderr_buffer.clone();
+            tokio::spawn(async move {
+                let mut stderr_reader = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = stderr_reader.next_line().await {
+                    let mut buf = stderr_buf.lock().await;
+                    if buf.len() < 100 {
+                        buf.push(line);
+                    }
+                }
+            });
+
+            let mut got_result = false;
 
             // Stream events from stdout
             while let Ok(Some(line)) = reader.next_line().await {
@@ -419,6 +470,9 @@ impl ClaudeCodeExecutor {
                 match serde_json::from_str::<RawClaudeEvent>(&line) {
                     Ok(event) => {
                         let is_result = matches!(event, RawClaudeEvent::Result { .. });
+                        if is_result {
+                            got_result = true;
+                        }
                         yield event;
                         if is_result {
                             break;
@@ -458,6 +512,7 @@ impl ClaudeCodeExecutor {
 
             // Cleanup
             let _ = child.wait().await;
+
             if let Some(path) = mcp_path {
                 let _ = tokio::fs::remove_file(path).await;
             }

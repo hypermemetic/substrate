@@ -37,7 +37,7 @@ impl<P: HubContext> Cone<P> {
     ) -> Result<Self, String> {
         let storage = ConeStorage::new(config, arbor)
             .await
-            .map_err(|e| format!("Failed to initialize cone storage: {}", e.message))?;
+            .map_err(|e| format!("Failed to initialize cone storage: {}", e.to_string()))?;
 
         let llm_registry = ModelRegistry::new()
             .map_err(|e| format!("Failed to initialize LLM registry: {}", e))?;
@@ -55,7 +55,9 @@ impl<P: HubContext> Cone<P> {
     /// Called during hub construction (e.g., via Arc::new_cyclic for DynamicHub).
     /// This allows Cone to resolve handles from other activations when walking arbor trees.
     pub fn inject_parent(&self, parent: P) {
-        let _ = self.hub.set(parent);
+        if self.hub.set(parent).is_err() {
+            tracing::warn!("Cone: inject_parent called but parent was already set");
+        }
     }
 
     /// Check if parent context has been injected
@@ -151,7 +153,7 @@ impl<P: HubContext> Cone<P> {
                 }
                 Err(e) => {
                     yield ResolveResult::Error {
-                        message: format!("Failed to resolve handle: {}", e.message),
+                        message: format!("Failed to resolve handle: {}", e.to_string()),
                     };
                 }
             }
@@ -204,7 +206,7 @@ impl<P: HubContext> Cone<P> {
                     };
                 }
                 Err(e) => {
-                    yield CreateResult::Error { message: e.message };
+                    yield CreateResult::Error { message: e.to_string() };
                 }
             }
         }
@@ -225,7 +227,7 @@ impl<P: HubContext> Cone<P> {
             let cone_id = match storage.resolve_cone_identifier(&identifier).await {
                 Ok(id) => id,
                 Err(e) => {
-                    yield GetResult::Error { message: e.message };
+                    yield GetResult::Error { message: e.to_string() };
                     return;
                 }
             };
@@ -235,7 +237,7 @@ impl<P: HubContext> Cone<P> {
                     yield GetResult::Data { cone };
                 }
                 Err(e) => {
-                    yield GetResult::Error { message: e.message };
+                    yield GetResult::Error { message: e.to_string() };
                 }
             }
         }
@@ -252,7 +254,7 @@ impl<P: HubContext> Cone<P> {
                     yield ListResult::List { cones };
                 }
                 Err(e) => {
-                    yield ListResult::Error { message: e.message };
+                    yield ListResult::Error { message: e.to_string() };
                 }
             }
         }
@@ -273,7 +275,7 @@ impl<P: HubContext> Cone<P> {
             let cone_id = match storage.resolve_cone_identifier(&identifier).await {
                 Ok(id) => id,
                 Err(e) => {
-                    yield DeleteResult::Error { message: e.message };
+                    yield DeleteResult::Error { message: e.to_string() };
                     return;
                 }
             };
@@ -283,7 +285,7 @@ impl<P: HubContext> Cone<P> {
                     yield DeleteResult::Deleted { cone_id };
                 }
                 Err(e) => {
-                    yield DeleteResult::Error { message: e.message };
+                    yield DeleteResult::Error { message: e.to_string() };
                 }
             }
         }
@@ -314,7 +316,7 @@ impl<P: HubContext> Cone<P> {
             let cone_id = match storage.resolve_cone_identifier(&identifier).await {
                 Ok(id) => id,
                 Err(e) => {
-                    yield ChatEvent::Error { message: e.message };
+                    yield ChatEvent::Error { message: e.to_string() };
                     return;
                 }
             };
@@ -323,7 +325,7 @@ impl<P: HubContext> Cone<P> {
             let cone = match storage.cone_get(&cone_id).await {
                 Ok(a) => a,
                 Err(e) => {
-                    yield ChatEvent::Error { message: format!("Failed to get cone: {}", e.message) };
+                    yield ChatEvent::Error { message: format!("Failed to get cone: {}", e.to_string()) };
                     return;
                 }
             };
@@ -358,7 +360,7 @@ impl<P: HubContext> Cone<P> {
                 ).await {
                     Ok(msg) => msg,
                     Err(e) => {
-                        yield ChatEvent::Error { message: format!("Failed to store user message: {}", e.message) };
+                        yield ChatEvent::Error { message: format!("Failed to store user message: {}", e.to_string()) };
                         return;
                     }
                 }
@@ -373,7 +375,7 @@ impl<P: HubContext> Cone<P> {
                 ).await {
                     Ok(msg) => msg,
                     Err(e) => {
-                        yield ChatEvent::Error { message: format!("Failed to store user message: {}", e.message) };
+                        yield ChatEvent::Error { message: format!("Failed to store user message: {}", e.to_string()) };
                         return;
                     }
                 }
@@ -488,7 +490,7 @@ impl<P: HubContext> Cone<P> {
                 ).await {
                     Ok(msg) => msg,
                     Err(e) => {
-                        yield ChatEvent::Error { message: format!("Failed to store assistant message: {}", e.message) };
+                        yield ChatEvent::Error { message: format!("Failed to store assistant message: {}", e.to_string()) };
                         return;
                     }
                 }
@@ -503,7 +505,7 @@ impl<P: HubContext> Cone<P> {
                 ).await {
                     Ok(msg) => msg,
                     Err(e) => {
-                        yield ChatEvent::Error { message: format!("Failed to store assistant message: {}", e.message) };
+                        yield ChatEvent::Error { message: format!("Failed to store assistant message: {}", e.to_string()) };
                         return;
                     }
                 }
@@ -544,7 +546,7 @@ impl<P: HubContext> Cone<P> {
             // 6. Update canonical_head (skip for ephemeral)
             if !is_ephemeral {
                 if let Err(e) = storage.cone_update_head(&cone_id, response_node_id).await {
-                    yield ChatEvent::Error { message: format!("Failed to update head: {}", e.message) };
+                    yield ChatEvent::Error { message: format!("Failed to update head: {}", e.to_string()) };
                     return;
                 }
             }
@@ -587,7 +589,7 @@ impl<P: HubContext> Cone<P> {
             let cone_id = match storage.resolve_cone_identifier(&identifier).await {
                 Ok(id) => id,
                 Err(e) => {
-                    yield SetHeadResult::Error { message: e.message };
+                    yield SetHeadResult::Error { message: e.to_string() };
                     return;
                 }
             };
@@ -596,7 +598,7 @@ impl<P: HubContext> Cone<P> {
             let old_head = match storage.cone_get(&cone_id).await {
                 Ok(cone) => cone.head,
                 Err(e) => {
-                    yield SetHeadResult::Error { message: e.message };
+                    yield SetHeadResult::Error { message: e.to_string() };
                     return;
                 }
             };
@@ -613,7 +615,7 @@ impl<P: HubContext> Cone<P> {
                     };
                 }
                 Err(e) => {
-                    yield SetHeadResult::Error { message: e.message };
+                    yield SetHeadResult::Error { message: e.to_string() };
                 }
             }
         }
@@ -657,7 +659,7 @@ async fn resolve_context_to_messages(
                     let msg = storage
                         .resolve_message_handle(&identifier)
                         .await
-                        .map_err(|e| format!("Failed to resolve message handle: {}", e.message))?;
+                        .map_err(|e| format!("Failed to resolve message handle: {}", e.to_string()))?;
 
                     let cllient_msg = match msg.role {
                         MessageRole::User => Message::user(&msg.content),

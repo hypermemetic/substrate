@@ -492,15 +492,16 @@ impl ArborStorage {
             path_nodes.push(current);
 
             let node = tree.nodes.get(&current)
-                .ok_or_else(|| ArborError {
-                    message: format!("Node not found: {}", current)
+                .ok_or_else(|| ArborError::NodeNotFound {
+                    node_id: current.to_string(),
+                    tree_id: tree_id.to_string(),
                 })?;
 
             if let Some(parent) = &node.parent {
                 current = *parent;
             } else {
-                return Err(ArborError {
-                    message: "end_node is not a descendant of start_node".to_string()
+                return Err(ArborError::InvalidState {
+                    message: format!("end_node {} is not a descendant of start_node {} in tree {}", end_node, start_node, tree_id),
                 });
             }
         }

@@ -182,13 +182,15 @@ pub async fn run_orchestration_task<P: HubContext>(
             let mut validation_artifact: Option<ValidationArtifact> = None;
 
             // Update orcha session state to Running
-            let _ = storage.update_state(&session_id, SessionState::Running {
+            if let Err(e) = storage.update_state(&session_id, SessionState::Running {
                 stream_id: cc_session_name.clone(),
                 sequence: 0,
                 active_agents: 0,  // Single-agent mode
                 completed_agents: 0,
                 failed_agents: 0,
-            }).await;
+            }).await {
+                tracing::warn!("Failed to update session {} state to Running: {}", session_id, e);
+            }
 
             if request.verbose {
                 yield OrchaEvent::StateChange {
@@ -316,9 +318,11 @@ pub async fn run_orchestration_task<P: HubContext>(
                     };
                 }
 
-                let _ = storage.update_state(&session_id, SessionState::Validating {
+                if let Err(e) = storage.update_state(&session_id, SessionState::Validating {
                     test_command: artifact.test_command.clone(),
-                }).await;
+                }).await {
+                    tracing::warn!("Failed to update session {} state to Validating: {}", session_id, e);
+                }
 
                 // Record validation start in arbor via context
                 ctx.validation_started(artifact.test_command.clone(), artifact.cwd.clone()).await;
@@ -338,7 +342,9 @@ pub async fn run_orchestration_task<P: HubContext>(
 
                 if validation_result.success {
                     // Success! Mark complete and exit
-                    let _ = storage.update_state(&session_id, SessionState::Complete).await;
+                    if let Err(e) = storage.update_state(&session_id, SessionState::Complete).await {
+                        tracing::warn!("Failed to update session {} state to Complete: {}", session_id, e);
+                    }
 
                     // Record session completion in arbor via context
                     ctx.session_complete("success").await;
@@ -360,9 +366,11 @@ pub async fn run_orchestration_task<P: HubContext>(
 
                     if retry_count >= request.max_retries {
                         // Max retries exceeded
-                        let _ = storage.update_state(&session_id, SessionState::Failed {
+                        if let Err(e) = storage.update_state(&session_id, SessionState::Failed {
                             error: format!("Validation failed after {} retries", retry_count),
-                        }).await;
+                        }).await {
+                            tracing::warn!("Failed to update session {} state to Failed: {}", session_id, e);
+                        }
 
                         yield OrchaEvent::Failed {
                             session_id: session_id.clone(),
@@ -371,7 +379,9 @@ pub async fn run_orchestration_task<P: HubContext>(
                         return;
                     } else {
                         // Increment retry counter and loop again
-                        let _ = storage.increment_retry(&session_id).await;
+                        if let Err(e) = storage.increment_retry(&session_id).await {
+                            tracing::warn!("Failed to increment retry counter for session {}: {}", session_id, e);
+                        }
 
                         if request.verbose {
                             yield OrchaEvent::RetryAttempt {
@@ -387,7 +397,9 @@ pub async fn run_orchestration_task<P: HubContext>(
                 }
             } else {
                 // No validation artifact found - treat as success
-                let _ = storage.update_state(&session_id, SessionState::Complete).await;
+                if let Err(e) = storage.update_state(&session_id, SessionState::Complete).await {
+                    tracing::warn!("Failed to update session {} state to Complete: {}", session_id, e);
+                }
 
                 // Record session completion in arbor via context
                 ctx.session_complete("success_no_validation").await;
@@ -417,11 +429,23 @@ fn extract_validation_artifact(text: &str) -> Option<ValidationArtifact> {
     // Look for {"orcha_validate": {...}} pattern
     use regex::Regex;
 
-    let re = Regex::new(r#"\{"orcha_validate"\s*:\s*(\{[^}]+\})\}"#).ok()?;
+    let re = match Regex::new(r#"\{"orcha_validate"\s*:\s*(\{[^}]+\})\}"#) {
+        Ok(re) => re,
+        Err(e) => {
+            tracing::warn!("Failed to compile orcha_validate regex: {}", e);
+            return None;
+        }
+    };
     let captures = re.captures(text)?;
     let json_str = captures.get(1)?.as_str();
 
-    serde_json::from_str::<ValidationArtifact>(json_str).ok()
+    match serde_json::from_str::<ValidationArtifact>(json_str) {
+        Ok(artifact) => Some(artifact),
+        Err(e) => {
+            tracing::warn!("Failed to parse validation artifact JSON '{}': {}", json_str, e);
+            None
+        }
+    }
 }
 
 /// Run a validation test command
@@ -529,11 +553,13 @@ async fn handle_tool_approval<P: HubContext>(
     if !created {
         tracing::error!("Failed to create approval decision session");
         // Auto-deny if we can't create decision session
-        let _ = loopback.storage().resolve_approval(
+        if let Err(e) = loopback.storage().resolve_approval(
             &approval_id,
             false,
             Some("Failed to create approval decision session".to_string()),
-        ).await;
+        ).await {
+            tracing::warn!("Failed to resolve approval {} after decision session creation failure: {}", approval_id, e);
+        }
         return;
     }
 
@@ -633,9 +659,11 @@ pub async fn run_agent_task<P: HubContext>(
 
     loop {
         // Update agent state to Running
-        let _ = storage.update_agent_state(&agent_info.agent_id, AgentState::Running {
+        if let Err(e) = storage.update_agent_state(&agent_info.agent_id, AgentState::Running {
             sequence: 0,
-        }).await;
+        }).await {
+            tracing::warn!("Failed to update agent {} state to Running: {}", agent_info.agent_id, e);
+        }
 
         // Build task prompt with retry context if needed
         let task_prompt = if retry_count > 0 {
@@ -712,12 +740,14 @@ pub async fn run_agent_task<P: HubContext>(
                 }
                 ChatEvent::Complete { .. } => break,
                 ChatEvent::Err { message } => {
-                    let _ = storage.update_agent_state(
+                    if let Err(e) = storage.update_agent_state(
                         &agent_info.agent_id,
                         AgentState::Failed {
                             error: format!("Chat error: {}", message),
                         }
-                    ).await;
+                    ).await {
+                        tracing::warn!("Failed to update agent {} state to Failed: {}", agent_info.agent_id, e);
+                    }
 
                     return AgentTaskResult::Failed {
                         error: message,
@@ -731,21 +761,25 @@ pub async fn run_agent_task<P: HubContext>(
 
         // Run validation if found
         if let Some(artifact) = validation_artifact {
-            let _ = storage.update_agent_state(
+            if let Err(e) = storage.update_agent_state(
                 &agent_info.agent_id,
                 AgentState::Validating {
                     test_command: artifact.test_command.clone(),
                 }
-            ).await;
+            ).await {
+                tracing::warn!("Failed to update agent {} state to Validating: {}", agent_info.agent_id, e);
+            }
 
             let validation_result = run_validation_test(&artifact).await;
 
             if validation_result.success {
                 // Success!
-                let _ = storage.update_agent_state(
+                if let Err(e) = storage.update_agent_state(
                     &agent_info.agent_id,
                     AgentState::Complete,
-                ).await;
+                ).await {
+                    tracing::warn!("Failed to update agent {} state to Complete: {}", agent_info.agent_id, e);
+                }
 
                 return AgentTaskResult::Success {
                     validation_result: Some(validation_result),
@@ -755,12 +789,14 @@ pub async fn run_agent_task<P: HubContext>(
                 retry_count += 1;
 
                 if retry_count >= config.max_retries {
-                    let _ = storage.update_agent_state(
+                    if let Err(e) = storage.update_agent_state(
                         &agent_info.agent_id,
                         AgentState::Failed {
                             error: format!("Validation failed after {} retries", retry_count),
                         }
-                    ).await;
+                    ).await {
+                        tracing::warn!("Failed to update agent {} state to Failed: {}", agent_info.agent_id, e);
+                    }
 
                     return AgentTaskResult::Failed {
                         error: format!("Validation failed after {} retries", retry_count),
@@ -772,10 +808,12 @@ pub async fn run_agent_task<P: HubContext>(
             }
         } else {
             // No validation - treat as success
-            let _ = storage.update_agent_state(
+            if let Err(e) = storage.update_agent_state(
                 &agent_info.agent_id,
                 AgentState::Complete,
-            ).await;
+            ).await {
+                tracing::warn!("Failed to update agent {} state to Complete: {}", agent_info.agent_id, e);
+            }
 
             return AgentTaskResult::Success {
                 validation_result: None,
@@ -826,7 +864,10 @@ pub async fn check_session_completion(storage: &OrchaStorage, session_id: &Sessi
                 // All agents are done (either completed or failed)
                 let session = match storage.get_session(session_id).await {
                     Ok(s) => s,
-                    Err(_) => return,
+                    Err(e) => {
+                        tracing::warn!("Failed to get session {} during completion check: {}", session_id, e);
+                        return;
+                    }
                 };
 
                 // Only update if in multi-agent mode
@@ -836,28 +877,37 @@ pub async fn check_session_completion(storage: &OrchaStorage, session_id: &Sessi
 
                 // If ALL agents completed successfully, mark session complete
                 if completed > 0 && failed == 0 {
-                    let _ = storage.update_state(session_id, SessionState::Complete).await;
+                    if let Err(e) = storage.update_state(session_id, SessionState::Complete).await {
+                        tracing::warn!("Failed to update session {} state to Complete: {}", session_id, e);
+                    }
                 } else if failed > 0 && completed == 0 {
                     // All failed
-                    let _ = storage.update_state(
+                    if let Err(e) = storage.update_state(
                         session_id,
                         SessionState::Failed {
                             error: format!("{} agents failed", failed),
                         }
-                    ).await;
+                    ).await {
+                        tracing::warn!("Failed to update session {} state to Failed: {}", session_id, e);
+                    }
                 } else {
                     // Mixed results - mark as complete (some succeeded)
-                    let _ = storage.update_state(session_id, SessionState::Complete).await;
+                    if let Err(e) = storage.update_state(session_id, SessionState::Complete).await {
+                        tracing::warn!("Failed to update session {} state to Complete: {}", session_id, e);
+                    }
                 }
             } else {
                 // Update session state with agent counts
                 let session = match storage.get_session(session_id).await {
                     Ok(s) => s,
-                    Err(_) => return,
+                    Err(e) => {
+                        tracing::warn!("Failed to get session {} during agent count update: {}", session_id, e);
+                        return;
+                    }
                 };
 
                 if let SessionState::Running { stream_id, .. } = &session.state {
-                    let _ = storage.update_state(
+                    if let Err(e) = storage.update_state(
                         session_id,
                         SessionState::Running {
                             stream_id: stream_id.clone(),
@@ -866,7 +916,9 @@ pub async fn check_session_completion(storage: &OrchaStorage, session_id: &Sessi
                             completed_agents: completed,
                             failed_agents: failed,
                         }
-                    ).await;
+                    ).await {
+                        tracing::warn!("Failed to update session {} agent counts: {}", session_id, e);
+                    }
                 }
             }
         }

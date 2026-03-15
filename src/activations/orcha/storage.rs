@@ -77,7 +77,13 @@ impl OrchaStorage {
             .map_err(|e| format!("Failed to get table info: {}", e))?;
 
         let column_names: Vec<String> = rows.iter()
-            .filter_map(|row| row.try_get::<String, _>("name").ok())
+            .filter_map(|row| match row.try_get::<String, _>("name") {
+                Ok(name) => Some(name),
+                Err(e) => {
+                    tracing::warn!("Failed to read column name from PRAGMA table_info: {}", e);
+                    None
+                }
+            })
             .collect();
 
         let has_agent_mode = column_names.iter().any(|name| name == "agent_mode");

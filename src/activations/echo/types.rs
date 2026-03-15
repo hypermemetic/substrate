@@ -17,4 +17,6 @@ pub enum EchoEvent {
         /// Number of times repeated
         count: u32,
     },
+    /// Pong response (from ping)
+    Pong,
 }
