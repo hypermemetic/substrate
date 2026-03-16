@@ -3,6 +3,7 @@ use plexus_macros::HandleEnum;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use thiserror::Error;
 use uuid::Uuid;
 
 use super::activation::ClaudeCode;
@@ -473,30 +474,29 @@ pub enum ChatEvent {
     Err { message: String },
 }
 
-/// Error type for ClaudeCode operations
-#[derive(Debug, Clone)]
-pub struct ClaudeCodeError {
-    pub message: String,
-}
+/// Typed errors for ClaudeCode operations
+#[derive(Debug, Error)]
+pub enum ClaudeCodeError {
+    #[error("failed to resolve working directory '{path}': {source}")]
+    PathResolution { path: String, source: std::io::Error },
 
-impl std::fmt::Display for ClaudeCodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
+    #[error("session not found: {identifier}")]
+    SessionNotFound { identifier: String },
 
-impl std::error::Error for ClaudeCodeError {}
+    #[error("ambiguous session name '{name}' matches multiple sessions: {matches}")]
+    AmbiguousSession { name: String, matches: String },
 
-impl From<String> for ClaudeCodeError {
-    fn from(s: String) -> Self {
-        Self { message: s }
-    }
-}
+    #[error("database error: {operation}: {source}")]
+    Database { operation: &'static str, source: sqlx::Error },
 
-impl From<&str> for ClaudeCodeError {
-    fn from(s: &str) -> Self {
-        Self { message: s.to_string() }
-    }
+    #[error("parse error: {context}: {detail}")]
+    Parse { context: &'static str, detail: String },
+
+    #[error("serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+
+    #[error("arbor error: {0}")]
+    Arbor(String),
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

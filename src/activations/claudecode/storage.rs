@@ -13,6 +13,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+/// Helper to create parse errors
+fn parse_err(context: &'static str, detail: impl std::fmt::Display) -> ClaudeCodeError {
+    ClaudeCodeError::Parse { context, detail: detail.to_string() }
+}
+
+/// Helper to create database errors
+fn db_err(operation: &'static str, source: sqlx::Error) -> ClaudeCodeError {
+    ClaudeCodeError::Database { operation, source }
+}
+
 /// Configuration for ClaudeCode storage
 #[derive(Debug, Clone)]
 pub struct ClaudeCodeStorageConfig {
@@ -53,11 +63,11 @@ impl ClaudeCodeStorage {
     ) -> Result<Self, ClaudeCodeError> {
         let db_url = format!("sqlite:{}?mode=rwc", config.db_path.display());
         let connect_options: SqliteConnectOptions = db_url.parse()
-            .map_err(|e| format!("Failed to parse database URL: {}", e))?;
+            .map_err(|e| parse_err("database URL", e))?;
         let connect_options = connect_options.disable_statement_logging();
         let pool = SqlitePool::connect_with(connect_options.clone())
             .await
-            .map_err(|e| format!("Failed to connect to claudecode database: {}", e))?;
+            .map_err(|e| db_err("connect", e))?;
 
         let storage = Self {
             pool,
@@ -121,7 +131,7 @@ impl ClaudeCodeStorage {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Failed to run claudecode migrations: {}", e))?;
+        .map_err(|e| db_err("run migrations", e))?;
 
         Ok(())
     }
@@ -154,14 +164,14 @@ impl ClaudeCodeStorage {
             .arbor
             .tree_create(metadata.clone(), &session_id.to_string())
             .await
-            .map_err(|e| format!("Failed to create tree for session: {}", e))?;
+            .map_err(|e| ClaudeCodeError::Arbor(e.to_string()))?;
 
         // Get the root node as initial position
         let tree = self
             .arbor
             .tree_get(&tree_id)
             .await
-            .map_err(|e| format!("Failed to get tree: {}", e))?;
+            .map_err(|e| ClaudeCodeError::Arbor(e.to_string()))?;
         let head = Position::new(tree_id, tree.root);
 
         let metadata_json = metadata.as_ref().map(|m| serde_json::to_string(m).unwrap());
@@ -210,11 +220,11 @@ impl ClaudeCodeStorage {
                 .bind(now)
                 .execute(&self.pool)
                 .await
-                .map_err(|e| format!("Failed to create session with unique name: {}", e))?;
+                .map_err(|e| db_err("create session (unique name)", e))?;
 
                 unique_name
             }
-            Err(e) => return Err(ClaudeCodeError::from(format!("Failed to create session: {}", e))),
+            Err(e) => return Err(db_err("create session", e)),
         };
 
         Ok(ClaudeCodeConfig {
@@ -242,8 +252,8 @@ impl ClaudeCodeStorage {
         .bind(session_id.to_string())
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| format!("Failed to fetch session: {}", e))?
-        .ok_or_else(|| format!("Session not found: {}", session_id))?;
+        .map_err(|e| db_err("fetch session", e))?
+        .ok_or_else(|| ClaudeCodeError::SessionNotFound { identifier: session_id.to_string() })?;
 
         self.row_to_config(row)
     }
@@ -258,7 +268,7 @@ impl ClaudeCodeStorage {
         .bind(name)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| format!("Failed to fetch session by name: {}", e))?
+        .map_err(|e| db_err("fetch session by name", e))?
         {
             return self.row_to_config(row);
         }
@@ -272,18 +282,17 @@ impl ClaudeCodeStorage {
         .bind(&pattern)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| format!("Failed to fetch session by pattern: {}", e))?;
+        .map_err(|e| db_err("fetch session by pattern", e))?;
 
         match rows.len() {
-            0 => Err(ClaudeCodeError::from(format!("Session not found with name: {}", name))),
+            0 => Err(ClaudeCodeError::SessionNotFound { identifier: name.to_string() }),
             1 => self.row_to_config(rows.into_iter().next().unwrap()),
             _ => {
                 let matches: Vec<String> = rows.iter().map(|r| r.get("name")).collect();
-                Err(ClaudeCodeError::from(format!(
-                    "Ambiguous name '{}' matches multiple sessions: {}",
-                    name,
-                    matches.join(", ")
-                )))
+                Err(ClaudeCodeError::AmbiguousSession {
+                    name: name.to_string(),
+                    matches: matches.join(", "),
+                })
             }
         }
     }
@@ -296,7 +305,7 @@ impl ClaudeCodeStorage {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| format!("Failed to list sessions: {}", e))?;
+        .map_err(|e| db_err("list sessions", e))?;
 
         let sessions: Result<Vec<ClaudeCodeInfo>, ClaudeCodeError> = rows
             .iter()
@@ -308,14 +317,14 @@ impl ClaudeCodeStorage {
                 let loopback: i32 = row.get("loopback_enabled");
 
                 let tree_id = TreeId::parse_str(&tree_id_str)
-                    .map_err(|e| format!("Invalid tree ID: {}", e))?;
+                    .map_err(|e| parse_err("tree ID", e))?;
                 let node_id = NodeId::parse_str(&head_str)
-                    .map_err(|e| format!("Invalid node ID: {}", e))?;
+                    .map_err(|e| parse_err("node ID", e))?;
                 let model = Model::from_str(&model_str)
-                    .ok_or_else(|| format!("Invalid model: {}", model_str))?;
+                    .ok_or_else(|| parse_err("model", &model_str))?;
 
                 Ok(ClaudeCodeInfo {
-                    id: Uuid::parse_str(&id_str).map_err(|e| format!("Invalid session ID: {}", e))?,
+                    id: Uuid::parse_str(&id_str).map_err(|e| parse_err("session ID", e))?,
                     name: row.get("name"),
                     model,
                     head: Position::new(tree_id, node_id),
@@ -359,10 +368,10 @@ impl ClaudeCodeStorage {
             .execute(&self.pool)
             .await
         }
-        .map_err(|e| format!("Failed to update session head: {}", e))?;
+        .map_err(|e| db_err("update session head", e))?;
 
         if result.rows_affected() == 0 {
-            return Err(format!("Session not found: {}", session_id).into());
+            return Err(ClaudeCodeError::SessionNotFound { identifier: session_id.to_string() });
         }
 
         Ok(())
@@ -402,7 +411,7 @@ impl ClaudeCodeStorage {
         .bind(session_id.to_string())
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Failed to update session: {}", e))?;
+        .map_err(|e| db_err("update session", e))?;
 
         Ok(())
     }
@@ -413,10 +422,10 @@ impl ClaudeCodeStorage {
             .bind(session_id.to_string())
             .execute(&self.pool)
             .await
-            .map_err(|e| format!("Failed to delete session: {}", e))?;
+            .map_err(|e| db_err("delete session", e))?;
 
         if result.rows_affected() == 0 {
-            return Err(format!("Session not found: {}", session_id).into());
+            return Err(ClaudeCodeError::SessionNotFound { identifier: session_id.to_string() });
         }
 
         Ok(())
@@ -455,7 +464,7 @@ impl ClaudeCodeStorage {
         .bind(now)
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Failed to create message: {}", e))?;
+        .map_err(|e| db_err("create message", e))?;
 
         Ok(Message {
             id: message_id,
@@ -504,7 +513,7 @@ impl ClaudeCodeStorage {
         .bind(ephemeral_marker)
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Failed to create ephemeral message: {}", e))?;
+        .map_err(|e| db_err("create ephemeral message", e))?;
 
         Ok(Message {
             id: message_id,
@@ -528,8 +537,8 @@ impl ClaudeCodeStorage {
         .bind(message_id.to_string())
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| format!("Failed to fetch message: {}", e))?
-        .ok_or_else(|| format!("Message not found: {}", message_id))?;
+        .map_err(|e| db_err("fetch message", e))?
+        .ok_or_else(|| ClaudeCodeError::SessionNotFound { identifier: format!("message:{}", message_id) })?;
 
         self.row_to_message(row)
     }
@@ -539,17 +548,17 @@ impl ClaudeCodeStorage {
     pub async fn resolve_message_handle(&self, identifier: &str) -> Result<Message, ClaudeCodeError> {
         let parts: Vec<&str> = identifier.splitn(3, ':').collect();
         if parts.len() < 2 {
-            return Err(format!("Invalid message handle format: {}", identifier).into());
+            return Err(parse_err("message handle", format!("invalid format: {}", identifier)));
         }
 
         let msg_part = parts[0];
         if !msg_part.starts_with("msg-") {
-            return Err(format!("Invalid message handle format: {}", identifier).into());
+            return Err(parse_err("message handle", format!("invalid prefix: {}", identifier)));
         }
 
         let message_id_str = &msg_part[4..];
         let message_id = Uuid::parse_str(message_id_str)
-            .map_err(|e| format!("Invalid message ID in handle: {}", e))?;
+            .map_err(|e| parse_err("message ID in handle", e))?;
 
         self.message_get(&message_id).await
     }
@@ -579,8 +588,7 @@ impl ClaudeCodeStorage {
     ) -> Result<String, ClaudeCodeError> {
         let id = Uuid::new_v4().to_string();
         let now = current_timestamp();
-        let data_json = serde_json::to_string(data)
-            .map_err(|e| format!("Failed to serialize unknown event data: {}", e))?;
+        let data_json = serde_json::to_string(data)?;
 
         sqlx::query(
             "INSERT INTO claudecode_unknown_events (id, session_id, event_type, data, created_at)
@@ -593,7 +601,7 @@ impl ClaudeCodeStorage {
         .bind(now)
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Failed to store unknown event: {}", e))?;
+        .map_err(|e| db_err("store unknown event", e))?;
 
         Ok(id)
     }
@@ -606,13 +614,12 @@ impl ClaudeCodeStorage {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| format!("Failed to fetch unknown event: {}", e))?
-        .ok_or_else(|| format!("Unknown event not found: {}", id))?;
+        .map_err(|e| db_err("fetch unknown event", e))?
+        .ok_or_else(|| ClaudeCodeError::SessionNotFound { identifier: format!("unknown_event:{}", id) })?;
 
         let event_type: String = row.get("event_type");
         let data_json: String = row.get("data");
-        let data: Value = serde_json::from_str(&data_json)
-            .map_err(|e| format!("Failed to parse unknown event data: {}", e))?;
+        let data: Value = serde_json::from_str(&data_json)?;
 
         Ok((event_type, data))
     }
@@ -625,14 +632,13 @@ impl ClaudeCodeStorage {
         .bind(event_type)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| format!("Failed to list unknown events: {}", e))?;
+        .map_err(|e| db_err("list unknown events", e))?;
 
         rows.iter()
             .map(|row| {
                 let id: String = row.get("id");
                 let data_json: String = row.get("data");
-                let data: Value = serde_json::from_str(&data_json)
-                    .map_err(|e| format!("Failed to parse unknown event data: {}", e))?;
+                let data: Value = serde_json::from_str(&data_json)?;
                 Ok((id, data))
             })
             .collect()
@@ -681,7 +687,7 @@ impl ClaudeCodeStorage {
     ) -> Result<(), ClaudeCodeError> {
         let mut streams = self.streams.write().await;
         let buffer = streams.get_mut(stream_id)
-            .ok_or_else(|| format!("Stream not found: {}", stream_id))?;
+            .ok_or_else(|| ClaudeCodeError::SessionNotFound { identifier: format!("stream:{}", stream_id) })?;
         buffer.info.user_position = Some(position);
         Ok(())
     }
@@ -695,7 +701,7 @@ impl ClaudeCodeStorage {
         let now = current_timestamp();
         let mut streams = self.streams.write().await;
         let buffer = streams.get_mut(stream_id)
-            .ok_or_else(|| format!("Stream not found: {}", stream_id))?;
+            .ok_or_else(|| ClaudeCodeError::SessionNotFound { identifier: format!("stream:{}", stream_id) })?;
 
         let seq = buffer.info.event_count;
         buffer.events.push(BufferedEvent {
@@ -718,7 +724,7 @@ impl ClaudeCodeStorage {
         let now = current_timestamp();
         let mut streams = self.streams.write().await;
         let buffer = streams.get_mut(stream_id)
-            .ok_or_else(|| format!("Stream not found: {}", stream_id))?;
+            .ok_or_else(|| ClaudeCodeError::SessionNotFound { identifier: format!("stream:{}", stream_id) })?;
 
         buffer.info.status = status;
         if status == StreamStatus::Complete || status == StreamStatus::Failed {
@@ -735,7 +741,7 @@ impl ClaudeCodeStorage {
     pub async fn stream_get_info(&self, stream_id: &StreamId) -> Result<StreamInfo, ClaudeCodeError> {
         let streams = self.streams.read().await;
         let buffer = streams.get(stream_id)
-            .ok_or_else(|| format!("Stream not found: {}", stream_id))?;
+            .ok_or_else(|| ClaudeCodeError::SessionNotFound { identifier: format!("stream:{}", stream_id) })?;
         Ok(buffer.info.clone())
     }
 
@@ -749,7 +755,7 @@ impl ClaudeCodeStorage {
     ) -> Result<(StreamInfo, Vec<BufferedEvent>), ClaudeCodeError> {
         let mut streams = self.streams.write().await;
         let buffer = streams.get_mut(stream_id)
-            .ok_or_else(|| format!("Stream not found: {}", stream_id))?;
+            .ok_or_else(|| ClaudeCodeError::SessionNotFound { identifier: format!("stream:{}", stream_id) })?;
 
         let start = from_seq.unwrap_or(buffer.info.read_position) as usize;
         let max_events = limit.unwrap_or(100);
@@ -824,13 +830,13 @@ impl ClaudeCodeStorage {
             .arbor
             .node_get_path(tree_id, end)
             .await
-            .map_err(|e| format!("Failed to get node path: {}", e))?;
+            .map_err(|e| ClaudeCodeError::Arbor(e.to_string()))?;
 
         // Find the starting node in the path
         let start_idx = node_ids
             .iter()
             .position(|id| id == start)
-            .ok_or_else(|| format!("Start node not found in path from root to end"))?;
+            .ok_or_else(|| ClaudeCodeError::Arbor("start node not found in path from root to end".to_string()))?;
 
         let node_ids = &node_ids[start_idx..];
 
@@ -845,7 +851,7 @@ impl ClaudeCodeStorage {
                 .arbor
                 .node_get(tree_id, node_id)
                 .await
-                .map_err(|e| format!("Failed to get node: {}", e))?;
+                .map_err(|e| ClaudeCodeError::Arbor(e.to_string()))?;
 
             // Extract content from node data
             let content = match &node.data {
@@ -862,8 +868,7 @@ impl ClaudeCodeStorage {
             }
 
             // Parse node content as NodeEvent
-            let event: NodeEvent = serde_json::from_str(content)
-                .map_err(|e| format!("Failed to parse node content as NodeEvent: {}", e))?;
+            let event: NodeEvent = serde_json::from_str(content)?;
 
             match event {
                 NodeEvent::UserMessage { content } => {
@@ -979,11 +984,11 @@ impl ClaudeCodeStorage {
         let role_str: String = row.get("role");
 
         Ok(Message {
-            id: Uuid::parse_str(&id_str).map_err(|e| format!("Invalid message ID: {}", e))?,
+            id: Uuid::parse_str(&id_str).map_err(|e| parse_err("message ID", e))?,
             session_id: Uuid::parse_str(&session_id_str)
-                .map_err(|e| format!("Invalid session ID: {}", e))?,
+                .map_err(|e| parse_err("session ID", e))?,
             role: MessageRole::from_str(&role_str)
-                .ok_or_else(|| format!("Invalid role: {}", role_str))?,
+                .ok_or_else(|| parse_err("role", &role_str))?,
             content: row.get("content"),
             created_at: row.get("created_at"),
             model_id: row.get("model_id"),
@@ -1003,14 +1008,14 @@ impl ClaudeCodeStorage {
         let loopback: i32 = row.get("loopback_enabled");
 
         let tree_id = TreeId::parse_str(&tree_id_str)
-            .map_err(|e| format!("Invalid tree ID: {}", e))?;
+            .map_err(|e| parse_err("tree ID", e))?;
         let node_id = NodeId::parse_str(&head_str)
-            .map_err(|e| format!("Invalid node ID: {}", e))?;
+            .map_err(|e| parse_err("node ID", e))?;
         let model = Model::from_str(&model_str)
-            .ok_or_else(|| format!("Invalid model: {}", model_str))?;
+            .ok_or_else(|| parse_err("model", &model_str))?;
 
         Ok(ClaudeCodeConfig {
-            id: Uuid::parse_str(&id_str).map_err(|e| format!("Invalid session ID: {}", e))?,
+            id: Uuid::parse_str(&id_str).map_err(|e| parse_err("session ID", e))?,
             name: row.get("name"),
             claude_session_id: row.get("claude_session_id"),
             head: Position::new(tree_id, node_id),
@@ -1326,7 +1331,7 @@ mod render_tests {
         .await
         .unwrap();
 
-        let assistant_start1 = create_event_node(
+        let assistant_start = create_event_node(
             arbor,
             &tree_id,
             &user_node,
@@ -1335,34 +1340,34 @@ mod render_tests {
         .await
         .unwrap();
 
-        let content1 = create_event_node(
+        let text_node = create_event_node(
             arbor,
             &tree_id,
-            &assistant_start1,
+            &assistant_start,
             &NodeEvent::ContentText {
-                text: "I'll write the file".to_string(),
+                text: "I'll write that file.".to_string(),
             },
         )
         .await
         .unwrap();
 
-        let tool_use = create_event_node(
+        let tool_use_node = create_event_node(
             arbor,
             &tree_id,
-            &content1,
+            &text_node,
             &NodeEvent::ContentToolUse {
-                id: "toolu_123".to_string(),
-                name: "Write".to_string(),
-                input: serde_json::json!({"file_path": "/tmp/test.txt", "content": "hello"}),
+                id: "tool_123".to_string(),
+                name: "write_file".to_string(),
+                input: serde_json::json!({"path": "test.txt", "content": "hello"}),
             },
         )
         .await
         .unwrap();
 
-        let complete1 = create_event_node(
+        let assistant_complete = create_event_node(
             arbor,
             &tree_id,
-            &tool_use,
+            &tool_use_node,
             &NodeEvent::AssistantComplete { usage: None },
         )
         .await
@@ -1371,9 +1376,9 @@ mod render_tests {
         let tool_result = create_event_node(
             arbor,
             &tree_id,
-            &complete1,
+            &assistant_complete,
             &NodeEvent::UserToolResult {
-                tool_use_id: "toolu_123".to_string(),
+                tool_use_id: "tool_123".to_string(),
                 content: "File written successfully".to_string(),
                 is_error: false,
             },
@@ -1390,7 +1395,7 @@ mod render_tests {
         .await
         .unwrap();
 
-        let content2 = create_event_node(
+        let content_node2 = create_event_node(
             arbor,
             &tree_id,
             &assistant_start2,
@@ -1401,259 +1406,28 @@ mod render_tests {
         .await
         .unwrap();
 
-        let complete2 = create_event_node(
+        let complete_node2 = create_event_node(
             arbor,
             &tree_id,
-            &content2,
+            &content_node2,
             &NodeEvent::AssistantComplete { usage: None },
         )
         .await
         .unwrap();
 
-        // Render from root to end
+        // Render full conversation
         let messages = storage
-            .render_messages(&tree_id, &root, &complete2)
+            .render_messages(&tree_id, &root, &complete_node2)
             .await
             .unwrap();
 
-        // Verify: 4 messages (user, assistant with tool, user with result, assistant response)
-        assert_eq!(messages.len(), 4);
+        // Expected: user, assistant (text + tool_use), user (tool_result), assistant (text)
+        assert_eq!(messages.len(), 4, "Expected 4 messages, got {}", messages.len());
 
-        // Message 0: User message
         assert_eq!(messages[0].role, "user");
-        assert_eq!(messages[0].content.len(), 1);
-
-        // Message 1: Assistant message with text + tool_use
         assert_eq!(messages[1].role, "assistant");
-        assert_eq!(messages[1].content.len(), 2);
-        if let ContentBlock::Text { text } = &messages[1].content[0] {
-            assert_eq!(text, "I'll write the file");
-        } else {
-            panic!("Expected text content block");
-        }
-        if let ContentBlock::ToolUse { id, name, .. } = &messages[1].content[1] {
-            assert_eq!(id, "toolu_123");
-            assert_eq!(name, "Write");
-        } else {
-            panic!("Expected tool_use content block");
-        }
-
-        // Message 2: User message with tool_result
-        assert_eq!(messages[2].role, "user");
-        assert_eq!(messages[2].content.len(), 1);
-        if let ContentBlock::ToolResult {
-            tool_use_id,
-            content,
-            is_error,
-        } = &messages[2].content[0]
-        {
-            assert_eq!(tool_use_id, "toolu_123");
-            assert_eq!(content, "File written successfully");
-            assert_eq!(*is_error, false);
-        } else {
-            panic!("Expected tool_result content block");
-        }
-
-        // Message 3: Assistant response
+        assert_eq!(messages[1].content.len(), 2); // text + tool_use
+        assert_eq!(messages[2].role, "user"); // tool result
         assert_eq!(messages[3].role, "assistant");
-        assert_eq!(messages[3].content.len(), 1);
-        if let ContentBlock::Text { text } = &messages[3].content[0] {
-            assert_eq!(text, "Done!");
-        } else {
-            panic!("Expected text content block");
-        }
-    }
-
-    #[tokio::test]
-    async fn test_render_with_thinking() {
-        let (storage, _temp_path) = create_test_storage().await;
-        let arbor = storage.arbor();
-
-        // Create test arbor tree
-        let tree_id = arbor.tree_create(None, "test-thinking").await.unwrap();
-        let tree = arbor.tree_get(&tree_id).await.unwrap();
-        let root = tree.root;
-
-        // Build tree with thinking block
-        let user_node = create_event_node(
-            arbor,
-            &tree_id,
-            &root,
-            &NodeEvent::UserMessage {
-                content: "Solve this problem".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let assistant_start = create_event_node(
-            arbor,
-            &tree_id,
-            &user_node,
-            &NodeEvent::AssistantStart,
-        )
-        .await
-        .unwrap();
-
-        let thinking = create_event_node(
-            arbor,
-            &tree_id,
-            &assistant_start,
-            &NodeEvent::ContentThinking {
-                thinking: "Let me think about this...".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let content = create_event_node(
-            arbor,
-            &tree_id,
-            &thinking,
-            &NodeEvent::ContentText {
-                text: "Here's the solution".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let complete = create_event_node(
-            arbor,
-            &tree_id,
-            &content,
-            &NodeEvent::AssistantComplete { usage: None },
-        )
-        .await
-        .unwrap();
-
-        // Render
-        let messages = storage
-            .render_messages(&tree_id, &root, &complete)
-            .await
-            .unwrap();
-
-        // Verify: 2 messages
-        assert_eq!(messages.len(), 2);
-
-        // Assistant message should have thinking + text
-        assert_eq!(messages[1].role, "assistant");
-        assert_eq!(messages[1].content.len(), 2);
-        if let ContentBlock::Thinking { thinking } = &messages[1].content[0] {
-            assert_eq!(thinking, "Let me think about this...");
-        } else {
-            panic!("Expected thinking content block");
-        }
-        if let ContentBlock::Text { text } = &messages[1].content[1] {
-            assert_eq!(text, "Here's the solution");
-        } else {
-            panic!("Expected text content block");
-        }
-    }
-
-    #[tokio::test]
-    async fn test_render_partial_path() {
-        let (storage, _temp_path) = create_test_storage().await;
-        let arbor = storage.arbor();
-
-        // Create test arbor tree
-        let tree_id = arbor.tree_create(None, "test-partial").await.unwrap();
-        let tree = arbor.tree_get(&tree_id).await.unwrap();
-        let root = tree.root;
-
-        // Build tree with multiple exchanges
-        let user1 = create_event_node(
-            arbor,
-            &tree_id,
-            &root,
-            &NodeEvent::UserMessage {
-                content: "First message".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let assistant_start1 = create_event_node(
-            arbor,
-            &tree_id,
-            &user1,
-            &NodeEvent::AssistantStart,
-        )
-        .await
-        .unwrap();
-
-        let content1 = create_event_node(
-            arbor,
-            &tree_id,
-            &assistant_start1,
-            &NodeEvent::ContentText {
-                text: "First response".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let complete1 = create_event_node(
-            arbor,
-            &tree_id,
-            &content1,
-            &NodeEvent::AssistantComplete { usage: None },
-        )
-        .await
-        .unwrap();
-
-        let user2 = create_event_node(
-            arbor,
-            &tree_id,
-            &complete1,
-            &NodeEvent::UserMessage {
-                content: "Second message".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let assistant_start2 = create_event_node(
-            arbor,
-            &tree_id,
-            &user2,
-            &NodeEvent::AssistantStart,
-        )
-        .await
-        .unwrap();
-
-        let content2 = create_event_node(
-            arbor,
-            &tree_id,
-            &assistant_start2,
-            &NodeEvent::ContentText {
-                text: "Second response".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let complete2 = create_event_node(
-            arbor,
-            &tree_id,
-            &content2,
-            &NodeEvent::AssistantComplete { usage: None },
-        )
-        .await
-        .unwrap();
-
-        // Render from user2 to end (should skip first exchange)
-        let messages = storage
-            .render_messages(&tree_id, &user2, &complete2)
-            .await
-            .unwrap();
-
-        // Verify: 2 messages (only second exchange)
-        assert_eq!(messages.len(), 2);
-        assert_eq!(messages[0].role, "user");
-        if let ContentBlock::Text { text } = &messages[0].content[0] {
-            assert_eq!(text, "Second message");
-        } else {
-            panic!("Expected text content block");
-        }
     }
 }

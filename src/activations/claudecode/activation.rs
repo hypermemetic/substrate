@@ -108,7 +108,7 @@ impl<P: HubContext> ClaudeCode<P> {
                 }
                 Err(e) => {
                     yield ResolveResult::Error {
-                        message: format!("Failed to resolve handle: {}", e.message),
+                        message: format!("Failed to resolve handle: {}", e),
                     };
                 }
             }
@@ -175,6 +175,20 @@ impl<P: HubContext> ClaudeCode<P> {
         let loopback = loopback_enabled.unwrap_or(false);
 
         stream! {
+            // Resolve relative paths to absolute before storing
+            let working_dir = match std::fs::canonicalize(&working_dir) {
+                Ok(p) => p.to_string_lossy().into_owned(),
+                Err(e) => {
+                    yield CreateResult::Err {
+                        message: ClaudeCodeError::PathResolution {
+                            path: working_dir,
+                            source: e,
+                        }.to_string(),
+                    };
+                    return;
+                }
+            };
+
             match storage.session_create(name, working_dir, model, system_prompt, None, loopback, None).await {
                 Ok(config) => {
                     yield CreateResult::Ok {
