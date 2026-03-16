@@ -174,6 +174,7 @@ pub async fn run_orchestration_task<P: HubContext>(
                 cc_session_name.clone(),
                 task_prompt,
                 None, // ephemeral
+                None,
             ).await;
             tokio::pin!(chat_stream);
 
@@ -586,6 +587,7 @@ async fn handle_tool_approval<P: HubContext>(
         decision_session.clone(),
         prompt,
         Some(true), // Ephemeral
+        None,
     ).await;
     tokio::pin!(chat_stream);
 
@@ -621,6 +623,7 @@ async fn handle_tool_approval<P: HubContext>(
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Configuration for running an agent task
+#[allow(dead_code)]
 pub struct AgentConfig {
     pub model: Model,
     pub working_directory: String,
@@ -630,6 +633,7 @@ pub struct AgentConfig {
 }
 
 /// Result of running an agent task
+#[allow(dead_code)]
 pub enum AgentTaskResult {
     Success { validation_result: Option<ValidationResult> },
     Failed { error: String },
@@ -680,6 +684,7 @@ pub async fn run_agent_task<P: HubContext>(
             agent_info.claudecode_session_id.clone(),
             task_prompt,
             None, // Not ephemeral
+            None,
         ).await;
         tokio::pin!(chat_stream);
 

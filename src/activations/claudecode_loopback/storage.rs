@@ -1,4 +1,4 @@
-use super::types::{ApprovalId, ApprovalRequest, ApprovalStatus};
+use super::types::{ApprovalId, ApprovalRequest, ApprovalStatus, LoopbackError};
 use crate::activations::storage::init_sqlite_pool;
 use crate::activation_db_path_from_module;
 use serde_json::Value;

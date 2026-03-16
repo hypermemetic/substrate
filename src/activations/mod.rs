@@ -36,3 +36,6 @@ pub mod interactive;
 
 // Lattice is a DAG execution engine for multi-agent orchestration
 pub mod lattice;
+
+// Changelog tracks plexus hash transitions and planned changes
+pub mod changelog;

@@ -76,7 +76,7 @@ impl BashExecutor {
             // Capture stderr in background task to prevent pipe buffer blocking
             let stderr_buffer: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
             let stderr_buf = stderr_buffer.clone();
-            tokio::spawn(async move {
+            let stderr_task = tokio::spawn(async move {
                 let mut stderr_reader = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = stderr_reader.next_line().await {
                     let mut buf = stderr_buf.lock().await;
@@ -91,6 +91,9 @@ impl BashExecutor {
             while let Ok(Some(line)) = stdout_reader.next_line().await {
                 yield BashOutput::Stdout { line };
             }
+
+            // Wait for stderr task to finish before reading the buffer
+            let _ = stderr_task.await;
 
             // Yield captured stderr lines
             let stderr_lines = stderr_buffer.lock().await;

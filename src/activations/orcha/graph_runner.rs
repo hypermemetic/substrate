@@ -206,14 +206,14 @@ async fn dispatch_node<P: HubContext + 'static>(
     let resolved_inputs = graph.get_resolved_inputs(node_id, &arbor).await?;
 
     match kind {
-        OrchaNodeKind::Task { task } => {
-            dispatch_task(claudecode, loopback_storage, pm, task, resolved_inputs, node_id, model, working_directory, &graph.graph_id, output_tx, cancel_rx, ticket_id).await
+        OrchaNodeKind::Task { task, max_retries, .. } => {
+            dispatch_task_with_retry(claudecode, loopback_storage, pm, task, resolved_inputs, node_id, model, working_directory, &graph.graph_id, output_tx, cancel_rx, ticket_id, max_retries.unwrap_or(0) as usize).await
         }
-        OrchaNodeKind::Synthesize { task } => {
-            dispatch_synthesize(claudecode, arbor, loopback_storage, pm, graph, task, resolved_inputs, node_id, model, working_directory, output_tx, cancel_rx, ticket_id).await
+        OrchaNodeKind::Synthesize { task, max_retries, .. } => {
+            dispatch_synthesize_with_retry(claudecode, arbor, loopback_storage, pm, graph, task, resolved_inputs, node_id, model, working_directory, output_tx, cancel_rx, ticket_id, max_retries.unwrap_or(0) as usize).await
         }
-        OrchaNodeKind::Validate { command, cwd } => {
-            dispatch_validate_with_retry(claudecode, arbor, loopback_storage, pm, graph, node_id, command, cwd, model, working_directory, output_tx, cancel_rx).await
+        OrchaNodeKind::Validate { command, cwd, max_retries } => {
+            dispatch_validate_with_retry(claudecode, arbor, loopback_storage, pm, graph, node_id, command, cwd, model, working_directory, output_tx, cancel_rx, max_retries.unwrap_or(3) as usize).await
         }
         OrchaNodeKind::Review { prompt } => {
             dispatch_review(loopback_storage, &graph.graph_id, prompt, output_tx, cancel_rx).await
@@ -393,7 +393,7 @@ async fn dispatch_task<P: HubContext + 'static>(
         }
     }
 
-    let chat_stream = claudecode.chat(session_name, prompt, None).await;
+    let chat_stream = claudecode.chat(session_name, prompt, None, None).await;
     tokio::pin!(chat_stream);
 
     let mut output_text = String::new();
@@ -524,7 +524,7 @@ async fn dispatch_task<P: HubContext + 'static>(
 /// what each contributing branch was trying to accomplish.
 async fn dispatch_synthesize<P: HubContext + 'static>(
     claudecode: Arc<ClaudeCode<P>>,
-    arbor: Arc<ArborStorage>,
+    _arbor: Arc<ArborStorage>,
     loopback_storage: Arc<LoopbackStorage>,
     pm: Arc<Pm>,
     graph: &OrchaGraph,
@@ -549,7 +549,7 @@ async fn dispatch_synthesize<P: HubContext + 'static>(
                 NodeSpec::Task { data, .. } => {
                     let Ok(kind) = serde_json::from_value::<OrchaNodeKind>(data) else { continue };
                     match kind {
-                        OrchaNodeKind::Task { task } | OrchaNodeKind::Synthesize { task } => {
+                        OrchaNodeKind::Task { task, .. } | OrchaNodeKind::Synthesize { task, .. } => {
                             task.chars().take(200).collect::<String>()
                         }
                         _ => continue,
@@ -831,6 +831,115 @@ fn output_text(output: &NodeOutput) -> Option<String> {
     None
 }
 
+fn is_empty_output(output: &NodeOutput) -> bool {
+    output_text(output).map(|t| t.is_empty()).unwrap_or(true)
+}
+
+async fn dispatch_task_with_retry<P: HubContext + 'static>(
+    claudecode: Arc<ClaudeCode<P>>,
+    loopback_storage: Arc<LoopbackStorage>,
+    pm: Arc<Pm>,
+    task: String,
+    resolved_inputs: Vec<crate::activations::lattice::ResolvedToken>,
+    node_id: &str,
+    model: Model,
+    working_directory: String,
+    graph_id: &str,
+    output_tx: tokio::sync::mpsc::UnboundedSender<OrchaEvent>,
+    cancel_rx: tokio::sync::watch::Receiver<bool>,
+    ticket_id: Option<String>,
+    max_retries: usize,
+) -> Result<Option<NodeOutput>, String> {
+    let mut last_error: Option<String> = None;
+    for attempt in 0..=max_retries {
+        if attempt > 0 {
+            let secs = 1u64 << (attempt - 1).min(3);
+            tokio::time::sleep(tokio::time::Duration::from_secs(secs)).await;
+            let _ = output_tx.send(OrchaEvent::Retrying {
+                node_id: node_id.to_string(),
+                ticket_id: ticket_id.clone(),
+                attempt,
+                max_attempts: max_retries,
+                error: last_error.clone().unwrap_or_default(),
+            });
+        }
+        match dispatch_task(
+            claudecode.clone(), loopback_storage.clone(), pm.clone(),
+            task.clone(), resolved_inputs.clone(), node_id, model,
+            working_directory.clone(), graph_id, output_tx.clone(), cancel_rx.clone(),
+            ticket_id.clone(),
+        ).await {
+            Ok(output) => {
+                let empty = output.as_ref().map(|o| is_empty_output(o)).unwrap_or(true);
+                if !empty {
+                    return Ok(output);
+                }
+                last_error = Some("Task produced no output".to_string());
+            }
+            Err(e) => {
+                if attempt >= max_retries {
+                    return Err(e);
+                }
+                last_error = Some(e);
+            }
+        }
+    }
+    Err(last_error.unwrap_or_else(|| "Task failed after all retries".to_string()))
+}
+
+async fn dispatch_synthesize_with_retry<P: HubContext + 'static>(
+    claudecode: Arc<ClaudeCode<P>>,
+    arbor: Arc<ArborStorage>,
+    loopback_storage: Arc<LoopbackStorage>,
+    pm: Arc<Pm>,
+    graph: &OrchaGraph,
+    task: String,
+    resolved_inputs: Vec<crate::activations::lattice::ResolvedToken>,
+    node_id: &str,
+    model: Model,
+    working_directory: String,
+    output_tx: tokio::sync::mpsc::UnboundedSender<OrchaEvent>,
+    cancel_rx: tokio::sync::watch::Receiver<bool>,
+    ticket_id: Option<String>,
+    max_retries: usize,
+) -> Result<Option<NodeOutput>, String> {
+    let mut last_error: Option<String> = None;
+    for attempt in 0..=max_retries {
+        if attempt > 0 {
+            let secs = 1u64 << (attempt - 1).min(3);
+            tokio::time::sleep(tokio::time::Duration::from_secs(secs)).await;
+            let _ = output_tx.send(OrchaEvent::Retrying {
+                node_id: node_id.to_string(),
+                ticket_id: ticket_id.clone(),
+                attempt,
+                max_attempts: max_retries,
+                error: last_error.clone().unwrap_or_default(),
+            });
+        }
+        match dispatch_synthesize(
+            claudecode.clone(), arbor.clone(), loopback_storage.clone(), pm.clone(),
+            graph, task.clone(), resolved_inputs.clone(), node_id, model,
+            working_directory.clone(), output_tx.clone(), cancel_rx.clone(),
+            ticket_id.clone(),
+        ).await {
+            Ok(output) => {
+                let empty = output.as_ref().map(|o| is_empty_output(o)).unwrap_or(true);
+                if !empty {
+                    return Ok(output);
+                }
+                last_error = Some("Synthesize produced no output".to_string());
+            }
+            Err(e) => {
+                if attempt >= max_retries {
+                    return Err(e);
+                }
+                last_error = Some(e);
+            }
+        }
+    }
+    Err(last_error.unwrap_or_else(|| "Synthesize failed after all retries".to_string()))
+}
+
 /// Validate with automatic agent retry on failure.
 ///
 /// Two improvements over a bare validate call:
@@ -858,8 +967,8 @@ async fn dispatch_validate_with_retry<P: HubContext + 'static>(
     working_directory: String,
     output_tx: tokio::sync::mpsc::UnboundedSender<OrchaEvent>,
     cancel_rx: tokio::sync::watch::Receiver<bool>,
+    max_retries: usize,
 ) -> Result<Option<NodeOutput>, String> {
-    const MAX_RETRIES: usize = 3;
 
     // BFS: find every task/synthesize node that (transitively) feeds this validate.
     let task_ids = find_upstream_tasks(graph, validate_node_id).await;
@@ -877,13 +986,13 @@ async fn dispatch_validate_with_retry<P: HubContext + 'static>(
 
     let mut error_context: Option<String> = None;
 
-    for attempt in 0..=MAX_RETRIES {
+    for attempt in 0..=max_retries {
         if let Some(ref err) = error_context {
             let _ = output_tx.send(OrchaEvent::Retrying {
                 node_id: validate_node_id.to_string(),
                 ticket_id: None,
                 attempt,
-                max_attempts: MAX_RETRIES,
+                max_attempts: max_retries,
                 error: err.clone(),
             });
             if task_ids.is_empty() {
@@ -902,7 +1011,7 @@ async fn dispatch_validate_with_retry<P: HubContext + 'static>(
                 };
                 let Ok(kind) = serde_json::from_value::<OrchaNodeKind>(data) else { continue };
                 let task_text = match kind {
-                    OrchaNodeKind::Task { task } | OrchaNodeKind::Synthesize { task } => task,
+                    OrchaNodeKind::Task { task, .. } | OrchaNodeKind::Synthesize { task, .. } => task,
                     _ => continue,
                 };
 
@@ -949,10 +1058,10 @@ async fn dispatch_validate_with_retry<P: HubContext + 'static>(
                 return Ok(Some(NodeOutput::Single(token)));
             }
             Err(e) => {
-                if attempt >= MAX_RETRIES {
+                if attempt >= max_retries {
                     return Err(format!(
                         "Validation failed after {} retries. Last error: {}",
-                        MAX_RETRIES, e
+                        max_retries, e
                     ));
                 }
                 error_context = Some(e);

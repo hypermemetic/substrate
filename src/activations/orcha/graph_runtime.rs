@@ -70,9 +70,9 @@ impl GraphRuntime {
         let mut id_map: HashMap<String, String> = HashMap::new();
         for OrchaNodeDef { id, spec } in nodes {
             let result = match spec {
-                OrchaNodeSpec::Task { task } => graph.add_task(task).await,
-                OrchaNodeSpec::Synthesize { task } => graph.add_synthesize(task).await,
-                OrchaNodeSpec::Validate { command, cwd } => graph.add_validate(command, cwd).await,
+                OrchaNodeSpec::Task { task, max_retries } => graph.add_task(task, max_retries).await,
+                OrchaNodeSpec::Synthesize { task, max_retries } => graph.add_synthesize(task, max_retries).await,
+                OrchaNodeSpec::Validate { command, cwd, max_retries } => graph.add_validate(command, cwd, max_retries).await,
                 OrchaNodeSpec::Gather { strategy } => graph.add_gather(strategy).await,
                 OrchaNodeSpec::Review { prompt } => graph.add_review(prompt).await,
                 OrchaNodeSpec::Plan { task } => graph.add_plan(task).await,
@@ -126,8 +126,8 @@ impl OrchaGraph {
     // ─── Node builders ───────────────────────────────────────────────────────
 
     /// Add a task node.
-    pub async fn add_task(&self, task: impl Into<String>) -> Result<String, String> {
-        let kind = OrchaNodeKind::Task { task: task.into() };
+    pub async fn add_task(&self, task: impl Into<String>, max_retries: Option<u8>) -> Result<String, String> {
+        let kind = OrchaNodeKind::Task { task: task.into(), max_retries };
         self.add_spec(NodeSpec::Task {
             data: serde_json::to_value(&kind).map_err(|e| e.to_string())?,
             handle: None,
@@ -138,8 +138,8 @@ impl OrchaGraph {
     /// Add a synthesize node.
     ///
     /// Like task, but graph_runner prepends resolved input tokens as `<prior_work>` context.
-    pub async fn add_synthesize(&self, task: impl Into<String>) -> Result<String, String> {
-        let kind = OrchaNodeKind::Synthesize { task: task.into() };
+    pub async fn add_synthesize(&self, task: impl Into<String>, max_retries: Option<u8>) -> Result<String, String> {
+        let kind = OrchaNodeKind::Synthesize { task: task.into(), max_retries };
         self.add_spec(NodeSpec::Task {
             data: serde_json::to_value(&kind).map_err(|e| e.to_string())?,
             handle: None,
@@ -154,10 +154,12 @@ impl OrchaGraph {
         &self,
         command: impl Into<String>,
         cwd: Option<impl Into<String>>,
+        max_retries: Option<u8>,
     ) -> Result<String, String> {
         let kind = OrchaNodeKind::Validate {
             command: command.into(),
             cwd: cwd.map(|d| d.into()),
+            max_retries,
         };
         self.add_spec(NodeSpec::Task {
             data: serde_json::to_value(&kind).map_err(|e| e.to_string())?,

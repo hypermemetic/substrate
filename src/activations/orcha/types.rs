@@ -38,9 +38,9 @@ impl From<String> for OrchaError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "orcha_type", rename_all = "snake_case")]
 pub enum OrchaNodeKind {
-    Task { task: String },
-    Synthesize { task: String },
-    Validate { command: String, cwd: Option<String> },
+    Task { task: String, #[serde(default)] max_retries: Option<u8> },
+    Synthesize { task: String, #[serde(default)] max_retries: Option<u8> },
+    Validate { command: String, cwd: Option<String>, #[serde(default)] max_retries: Option<u8> },
     Review { prompt: String },
     Plan { task: String },
 }
@@ -782,9 +782,9 @@ pub enum OrchaAddDependencyResult {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OrchaNodeSpec {
-    Task { task: String },
-    Synthesize { task: String },
-    Validate { command: String, cwd: Option<String> },
+    Task { task: String, #[serde(default)] max_retries: Option<u8> },
+    Synthesize { task: String, #[serde(default)] max_retries: Option<u8> },
+    Validate { command: String, cwd: Option<String>, #[serde(default)] max_retries: Option<u8> },
     Gather { strategy: GatherStrategy },
     Review { prompt: String },
     Plan { task: String },

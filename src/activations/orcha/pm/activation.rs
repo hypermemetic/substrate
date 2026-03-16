@@ -209,11 +209,11 @@ fn extract_kind_and_label(spec: &NodeSpec) -> (String, Option<String>) {
     match spec {
         NodeSpec::Task { data, .. } => {
             match serde_json::from_value::<OrchaNodeKind>(data.clone()) {
-                Ok(OrchaNodeKind::Task { task }) => {
+                Ok(OrchaNodeKind::Task { task, .. }) => {
                     let label = task.chars().take(80).collect::<String>();
                     ("task".to_string(), Some(label))
                 }
-                Ok(OrchaNodeKind::Synthesize { task }) => {
+                Ok(OrchaNodeKind::Synthesize { task, .. }) => {
                     let label = task.chars().take(80).collect::<String>();
                     ("synthesize".to_string(), Some(label))
                 }
@@ -427,7 +427,7 @@ impl Pm {
             match &node.spec {
                 NodeSpec::Task { data, .. } => {
                     match serde_json::from_value::<OrchaNodeKind>(data.clone()) {
-                        Ok(OrchaNodeKind::Task { task }) => {
+                        Ok(OrchaNodeKind::Task { task, .. }) => {
                             yield PmInspectResult::Ok {
                                 ticket_id, node_id, status,
                                 kind: "task".to_string(),
@@ -435,7 +435,7 @@ impl Pm {
                                 child_graph_id,
                             };
                         }
-                        Ok(OrchaNodeKind::Synthesize { task }) => {
+                        Ok(OrchaNodeKind::Synthesize { task, .. }) => {
                             yield PmInspectResult::Ok {
                                 ticket_id, node_id, status,
                                 kind: "synthesize".to_string(),

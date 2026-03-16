@@ -13,6 +13,7 @@ use crate::activations::echo::Echo;
 use crate::activations::health::Health;
 use crate::activations::interactive::Interactive;
 use crate::activations::lattice::{Lattice, LatticeStorageConfig};
+use crate::activations::changelog::{Changelog, ChangelogStorageConfig};
 use crate::activations::mustache::{Mustache, MustacheStorageConfig};
 use crate::activations::orcha::pm::{Pm, PmStorage, PmStorageConfig};
 use crate::activations::orcha::{GraphRuntime, Orcha, OrchaStorage, OrchaStorageConfig};
@@ -87,6 +88,11 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
             .await
             .expect("Failed to initialize PM storage")
     );
+
+    // Initialize Changelog for tracking plexus hash transitions
+    let changelog = Changelog::new(ChangelogStorageConfig::default())
+        .await
+        .expect("Failed to initialize Changelog");
 
     // Clone arbor_storage for Orcha (needs separate reference)
     let arbor_storage_for_orcha = arbor.storage();

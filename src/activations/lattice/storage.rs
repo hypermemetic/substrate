@@ -764,6 +764,30 @@ impl LatticeStorage {
         Ok(())
     }
 
+    /// Reset a zombie Running node back to Ready for crash recovery.
+    ///
+    /// Inbound edge tokens are never deleted, so the node's join condition
+    /// is still satisfied and it can be re-dispatched immediately.
+    /// Emits a fresh NodeReady event so the `run_graph_execution` watcher
+    /// picks it up.  Idempotent: no-op if node is not Running.
+    pub async fn reset_running_to_ready(
+        &self,
+        graph_id: &GraphId,
+        node_id: &NodeId,
+    ) -> Result<(), String> {
+        let node = self.get_node(node_id).await?;
+        if node.status != NodeStatus::Running {
+            return Ok(());
+        }
+        self.set_node_status(node_id, NodeStatus::Ready, None, None).await?;
+        self.persist_event(graph_id, &LatticeEvent::NodeReady {
+            node_id: node_id.clone(),
+            spec: node.spec,
+        }).await?;
+        self.notify_graph(graph_id);
+        Ok(())
+    }
+
     /// Re-emit NodeReady events for all nodes currently in the 'ready' state.
     ///
     /// Called during startup recovery after stuck nodes have been reset.

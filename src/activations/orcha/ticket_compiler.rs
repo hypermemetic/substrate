@@ -174,19 +174,19 @@ fn build_graph(sections: Vec<RawSection>) -> Result<CompiledGraph, String> {
                 let task = t.task.clone().ok_or_else(|| {
                     format!("Ticket '{}' [agent] has no body text", t.id)
                 })?;
-                OrchaNodeSpec::Task { task }
+                OrchaNodeSpec::Task { task, max_retries: None }
             }
             "agent/synthesize" => {
                 let task = t.task.clone().ok_or_else(|| {
                     format!("Ticket '{}' [agent/synthesize] has no body text", t.id)
                 })?;
-                OrchaNodeSpec::Synthesize { task }
+                OrchaNodeSpec::Synthesize { task, max_retries: None }
             }
             "prog" => {
                 let command = t.command.clone().ok_or_else(|| {
                     format!("Ticket '{}' [prog] has no body text", t.id)
                 })?;
-                OrchaNodeSpec::Validate { command, cwd: None }
+                OrchaNodeSpec::Validate { command, cwd: None, max_retries: None }
             }
             "review" => {
                 let prompt = t.task.clone().ok_or_else(|| {
@@ -213,7 +213,7 @@ fn build_graph(sections: Vec<RawSection>) -> Result<CompiledGraph, String> {
         if let Some(ref cmd) = t.validate {
             nodes.push(OrchaNodeDef {
                 id: format!("{}-validate", t.id),
-                spec: OrchaNodeSpec::Validate { command: cmd.clone(), cwd: None },
+                spec: OrchaNodeSpec::Validate { command: cmd.clone(), cwd: None, max_retries: None },
             });
             // Edge: ticket → validate sibling
             edges.push(OrchaEdgeDef {
@@ -318,7 +318,7 @@ Implement a JSON webhook parser with typed errors.
         assert_eq!(g.nodes.len(), 1);
         assert_eq!(g.edges.len(), 0);
         match &g.nodes[0].spec {
-            OrchaNodeSpec::Task { task } => assert!(task.contains("JSON webhook parser")),
+            OrchaNodeSpec::Task { task, .. } => assert!(task.contains("JSON webhook parser")),
             _ => panic!("wrong spec"),
         }
     }
@@ -430,7 +430,7 @@ The ir.json file is written into the wrong place.
         let g = compile_tickets(input).unwrap();
         assert_eq!(g.nodes.len(), 1);
         match &g.nodes[0].spec {
-            OrchaNodeSpec::Task { task } => {
+            OrchaNodeSpec::Task { task, .. } => {
                 assert!(task.contains("## Problem"));
                 assert!(task.contains("## Acceptance Criteria"));
                 assert!(task.contains("ir.json"));

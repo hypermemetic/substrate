@@ -74,6 +74,7 @@ impl<P: HubContext> Orcha<P> {
     }
 
     /// Remove the cancellation token for a graph (called on normal completion/failure).
+    #[allow(dead_code)]
     async fn unregister_cancel(&self, graph_id: &str) {
         self.cancel_registry.lock().await.remove(graph_id);
     }
@@ -158,19 +159,13 @@ impl<P: HubContext> Orcha<P> {
             for node in &nodes {
                 match node.status {
                     NodeStatus::Running => {
-                        // Fail the node — advance_graph will propagate to downstream nodes.
                         tracing::info!(
-                            "recovery: failing interrupted running node {} in graph {}",
+                            "recovery: re-dispatching interrupted node {} in graph {}",
                             node.id, graph_id
                         );
-                        if let Err(e) = storage.advance_graph(
-                            &graph_id,
-                            &node.id,
-                            None,
-                            Some("interrupted: substrate restarted".to_string()),
-                        ).await {
+                        if let Err(e) = storage.reset_running_to_ready(&graph_id, &node.id).await {
                             tracing::warn!(
-                                "recovery: advance_graph failed for node {} in {}: {}",
+                                "recovery: reset_running_to_ready failed for node {} in {}: {}",
                                 node.id, graph_id, e
                             );
                         }
@@ -256,6 +251,95 @@ impl<P: HubContext> Orcha<P> {
                 cancel_registry.lock().await.remove(&graph_id_clone);
                 tracing::info!("recovery: graph {} execution complete", graph_id_clone);
             });
+        }
+    }
+}
+
+/// Internal helper: watch one graph's lattice events and forward them as OrchaEvents into `tx`.
+///
+/// Used by `watch_graph_tree` to multiplex root + all child graphs into one channel.
+async fn watch_single_graph(
+    gid: String,
+    after_seq: Option<u64>,
+    graph_runtime: Arc<GraphRuntime>,
+    pm: Arc<pm::Pm>,
+    tx: tokio::sync::mpsc::UnboundedSender<OrchaEvent>,
+) {
+    let graph = graph_runtime.open_graph(gid.clone());
+    let node_to_ticket: HashMap<String, String> = pm
+        .get_ticket_map(&gid)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(ticket_id, node_id)| (node_id, ticket_id))
+        .collect();
+
+    let total_nodes = graph.count_nodes().await.unwrap_or(0);
+    let mut complete_nodes: usize = 0;
+
+    fn calc_pct(complete: usize, total: usize) -> Option<u32> {
+        if total == 0 {
+            None
+        } else {
+            Some((complete as f32 / total as f32 * 100.0) as u32)
+        }
+    }
+
+    let event_stream = graph.watch(after_seq);
+    tokio::pin!(event_stream);
+
+    while let Some(crate::activations::lattice::LatticeEventEnvelope { event, .. }) =
+        event_stream.next().await
+    {
+        let evt = match event {
+            crate::activations::lattice::LatticeEvent::NodeReady { node_id, .. } => {
+                let ticket_id = node_to_ticket.get(&node_id).cloned();
+                Some(OrchaEvent::NodeStarted {
+                    node_id,
+                    label: None,
+                    ticket_id,
+                    percentage: calc_pct(complete_nodes, total_nodes),
+                })
+            }
+            crate::activations::lattice::LatticeEvent::NodeStarted { .. } => None,
+            crate::activations::lattice::LatticeEvent::NodeDone { node_id, .. } => {
+                complete_nodes += 1;
+                let ticket_id = node_to_ticket.get(&node_id).cloned();
+                Some(OrchaEvent::NodeComplete {
+                    node_id,
+                    label: None,
+                    ticket_id,
+                    output_summary: None,
+                    percentage: calc_pct(complete_nodes, total_nodes),
+                })
+            }
+            crate::activations::lattice::LatticeEvent::NodeFailed { node_id, error } => {
+                complete_nodes += 1;
+                let ticket_id = node_to_ticket.get(&node_id).cloned();
+                Some(OrchaEvent::NodeFailed {
+                    node_id,
+                    label: None,
+                    ticket_id,
+                    error,
+                    percentage: calc_pct(complete_nodes, total_nodes),
+                })
+            }
+            crate::activations::lattice::LatticeEvent::GraphDone { graph_id } => {
+                Some(OrchaEvent::Complete { session_id: graph_id })
+            }
+            crate::activations::lattice::LatticeEvent::GraphFailed {
+                graph_id,
+                node_id,
+                error,
+            } => Some(OrchaEvent::Failed {
+                session_id: graph_id,
+                error: format!("Node {} failed: {}", node_id, error),
+            }),
+        };
+        if let Some(e) = evt {
+            if tx.send(e).is_err() {
+                break;
+            }
         }
     }
 }
@@ -753,7 +837,7 @@ impl<P: HubContext> Orcha<P> {
             let summary_session_id = format!("{}-check-{}", session_id, Uuid::new_v4());
 
             // Create the session - using Haiku for fast, cheap summaries
-            let mut create_stream = claudecode.create(
+            let create_stream = claudecode.create(
                 summary_session.clone(),
                 "/workspace".to_string(), // Default, doesn't matter for ephemeral
                 crate::activations::claudecode::Model::Haiku,
@@ -825,6 +909,7 @@ impl<P: HubContext> Orcha<P> {
                 summary_session.clone(),
                 prompt,
                 Some(true), // Ephemeral - don't save to history
+                None,
             ).await;
             tokio::pin!(chat_stream);
 
@@ -1270,6 +1355,86 @@ impl<P: HubContext> Orcha<P> {
         }
     }
 
+    /// Run a complete orchestration task driven by a single planning prompt.
+    ///
+    /// This is the single-call counterpart to the three-step sequence:
+    /// `create_graph` → `add_plan_node` → `run_graph`.
+    ///
+    /// A Plan node is created that asks Claude to generate and execute a child
+    /// graph from the supplied `task` description. Streams `OrchaEvent` progress
+    /// events until the graph completes or fails.
+    #[plexus_macros::hub_method(params(
+        task = "Natural-language task — passed directly to Claude as the planning prompt",
+        model = "Model for all nodes: opus, sonnet, haiku (default: sonnet)",
+        working_directory = "Working directory for task nodes (default: /workspace)"
+    ))]
+    async fn run_plan(
+        &self,
+        task: String,
+        model: Option<String>,
+        working_directory: Option<String>,
+    ) -> impl Stream<Item = OrchaEvent> + Send + 'static {
+        let model_str = model.as_deref().unwrap_or("sonnet").to_string();
+        let model_enum = match model_str.as_str() {
+            "opus" => Model::Opus,
+            "haiku" => Model::Haiku,
+            _ => Model::Sonnet,
+        };
+        let wd = working_directory.unwrap_or_else(|| "/workspace".to_string());
+        let graph_runtime = self.graph_runtime.clone();
+        let cancel_registry = self.cancel_registry.clone();
+        let claudecode = self.claudecode.clone();
+        let arbor = self.arbor_storage.clone();
+        let lb = self.loopback.storage();
+        let pm = self.pm.clone();
+
+        stream! {
+            let metadata = serde_json::json!({
+                "_plexus_run_config": {
+                    "model": model_str,
+                    "working_directory": wd,
+                }
+            });
+            let graph = match graph_runtime.create_graph(metadata).await {
+                Ok(g) => Arc::new(g),
+                Err(e) => {
+                    yield OrchaEvent::Failed { session_id: String::new(), error: e };
+                    return;
+                }
+            };
+            let graph_id = graph.graph_id.clone();
+
+            let node_id = match graph.add_plan(task.clone()).await {
+                Ok(id) => id,
+                Err(e) => {
+                    yield OrchaEvent::Failed { session_id: graph_id, error: e };
+                    return;
+                }
+            };
+
+            let ticket_map: std::collections::HashMap<String, String> =
+                [("plan".to_string(), node_id.clone())].into_iter().collect();
+            let _ = pm.save_ticket_map(&graph_id, &ticket_map).await;
+            let _ = pm.save_ticket_source(&graph_id, &task).await;
+
+            let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+            cancel_registry.lock().await.insert(graph_id.clone(), cancel_tx);
+
+            let node_to_ticket: std::collections::HashMap<String, String> =
+                [(node_id, "plan".to_string())].into_iter().collect();
+            let execution = graph_runner::run_graph_execution(
+                graph, claudecode, arbor, lb, pm,
+                graph_runtime, cancel_registry.clone(),
+                model_enum, wd, cancel_rx, node_to_ticket,
+            );
+            tokio::pin!(execution);
+            while let Some(event) = execution.next().await {
+                yield event;
+            }
+            cancel_registry.lock().await.remove(&graph_id);
+        }
+    }
+
     /// Stop a running graph and all its agent tasks.
     ///
     /// Sends a cancellation signal to all node tasks currently executing within the
@@ -1333,7 +1498,7 @@ impl<P: HubContext> Orcha<P> {
     /// `run_tickets_async` or `run_graph` (spawned) to drive execution.
     ///
     /// Client workflow:
-    /// ```
+    /// ```text
     /// graph_id = run_tickets_async(...)     # fires and forgets
     /// events   = subscribe_graph(graph_id)  # observe
     /// # on disconnect:
@@ -1422,6 +1587,95 @@ impl<P: HubContext> Orcha<P> {
         }
     }
 
+    /// Like `subscribe_graph` but recursively follows child graphs created by Plan nodes,
+    /// multiplexing all events into one stream. Ends only when the ROOT graph completes or
+    /// fails.
+    ///
+    /// When a Plan node runs, it creates a child graph and executes it.
+    /// `subscribe_graph` only sees the Plan node completing — all of the child graph's
+    /// NodeStarted/NodeComplete/NodeFailed events are invisible to the caller.
+    /// `watch_graph_tree` fixes this by polling for newly created child graphs every 500 ms
+    /// and subscribing to each one as it appears.
+    #[plexus_macros::hub_method(params(
+        graph_id = "Root graph ID to watch (recursively includes all child graphs)",
+        after_seq = "Sequence number for the root graph to resume from (0 or omit)"
+    ))]
+    async fn watch_graph_tree(
+        &self,
+        graph_id: String,
+        after_seq: Option<u64>,
+    ) -> impl Stream<Item = OrchaEvent> + Send + 'static {
+        let graph_runtime = self.graph_runtime.clone();
+        let pm = self.pm.clone();
+        let root_id = graph_id.clone();
+        stream! {
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<OrchaEvent>();
+            let known_ids: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>> =
+                Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
+
+            // Spawn watcher for the root graph.
+            known_ids.lock().await.insert(root_id.clone());
+            {
+                let gr = graph_runtime.clone();
+                let pm_w = pm.clone();
+                let tx_w = tx.clone();
+                let rid = root_id.clone();
+                tokio::spawn(async move {
+                    watch_single_graph(rid, after_seq, gr, pm_w, tx_w).await;
+                });
+            }
+
+            // Discovery task: poll every 500 ms for newly-created child graphs.
+            {
+                let lattice_storage = graph_runtime.storage();
+                let known = known_ids.clone();
+                let tx_disc = tx.clone();
+                let gr_disc = graph_runtime.clone();
+                let pm_disc = pm.clone();
+                tokio::spawn(async move {
+                    loop {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        if tx_disc.is_closed() {
+                            break;
+                        }
+                        let current_known: Vec<String> =
+                            known.lock().await.iter().cloned().collect();
+                        for gid in current_known {
+                            if let Ok(children) = lattice_storage.get_child_graphs(&gid).await {
+                                for child in children {
+                                    let mut guard = known.lock().await;
+                                    if !guard.contains(&child.id) {
+                                        guard.insert(child.id.clone());
+                                        drop(guard);
+                                        let gr = gr_disc.clone();
+                                        let pm_c = pm_disc.clone();
+                                        let tx_c = tx_disc.clone();
+                                        let cid = child.id;
+                                        tokio::spawn(async move {
+                                            watch_single_graph(cid, None, gr, pm_c, tx_c).await;
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Forward events; stop when the root graph reports terminal status.
+            while let Some(event) = rx.recv().await {
+                let is_root_terminal = matches!(&event,
+                    OrchaEvent::Complete { session_id } | OrchaEvent::Failed { session_id, .. }
+                    if session_id == &root_id
+                );
+                yield event;
+                if is_root_terminal {
+                    break;
+                }
+            }
+        }
+    }
+
     // ─── Graph Builder API ───────────────────────────────────────────────────────
 
     /// Create an empty Orcha execution graph.
@@ -1453,7 +1707,7 @@ impl<P: HubContext> Orcha<P> {
     ) -> impl Stream<Item = OrchaAddNodeResult> + Send + 'static {
         let graph = self.graph_runtime.open_graph(graph_id);
         stream! {
-            match graph.add_task(task).await {
+            match graph.add_task(task, None).await {
                 Ok(node_id) => yield OrchaAddNodeResult::Ok { node_id },
                 Err(e) => yield OrchaAddNodeResult::Err { message: e },
             }
@@ -1472,7 +1726,7 @@ impl<P: HubContext> Orcha<P> {
     ) -> impl Stream<Item = OrchaAddNodeResult> + Send + 'static {
         let graph = self.graph_runtime.open_graph(graph_id);
         stream! {
-            match graph.add_synthesize(task).await {
+            match graph.add_synthesize(task, None).await {
                 Ok(node_id) => yield OrchaAddNodeResult::Ok { node_id },
                 Err(e) => yield OrchaAddNodeResult::Err { message: e },
             }
@@ -1493,7 +1747,7 @@ impl<P: HubContext> Orcha<P> {
     ) -> impl Stream<Item = OrchaAddNodeResult> + Send + 'static {
         let graph = self.graph_runtime.open_graph(graph_id);
         stream! {
-            match graph.add_validate(command, cwd).await {
+            match graph.add_validate(command, cwd, None).await {
                 Ok(node_id) => yield OrchaAddNodeResult::Ok { node_id },
                 Err(e) => yield OrchaAddNodeResult::Err { message: e },
             }
@@ -2147,9 +2401,9 @@ async fn build_graph_from_definition(
     let mut id_map: HashMap<String, String> = HashMap::new();
     for OrchaNodeDef { id, spec } in nodes {
         let result = match spec {
-            OrchaNodeSpec::Task { task } => graph.add_task(task).await,
-            OrchaNodeSpec::Synthesize { task } => graph.add_synthesize(task).await,
-            OrchaNodeSpec::Validate { command, cwd } => graph.add_validate(command, cwd).await,
+            OrchaNodeSpec::Task { task, max_retries } => graph.add_task(task, max_retries).await,
+            OrchaNodeSpec::Synthesize { task, max_retries } => graph.add_synthesize(task, max_retries).await,
+            OrchaNodeSpec::Validate { command, cwd, max_retries } => graph.add_validate(command, cwd, max_retries).await,
             OrchaNodeSpec::Gather { strategy } => graph.add_gather(strategy).await,
             OrchaNodeSpec::Review { prompt } => graph.add_review(prompt).await,
             OrchaNodeSpec::Plan { task } => graph.add_plan(task).await,
@@ -2486,7 +2740,7 @@ async fn generate_agent_summary<P: HubContext>(
     let summary_session = format!("orcha-agent-summary-{}", Uuid::new_v4());
     let summary_session_id = format!("{}-agent-summary-{}", agent.session_id, Uuid::new_v4());
 
-    let mut create_stream = claudecode.create(
+    let create_stream = claudecode.create(
         summary_session.clone(),
         "/workspace".to_string(),
         crate::activations::claudecode::Model::Haiku,
@@ -2521,7 +2775,7 @@ async fn generate_agent_summary<P: HubContext>(
         conversation
     );
 
-    let chat_stream = claudecode.chat(summary_session, prompt, Some(true)).await;
+    let chat_stream = claudecode.chat(summary_session, prompt, Some(true), None).await;
     tokio::pin!(chat_stream);
 
     let mut summary = String::new();
@@ -2551,7 +2805,7 @@ async fn generate_overall_summary<P: HubContext>(
     let meta_summary_session_id = format!("{}-meta-summary-{}", session_id, Uuid::new_v4());
 
     // Create session
-    let mut create_stream = claudecode.create(
+    let create_stream = claudecode.create(
         summary_session.clone(),
         "/workspace".to_string(),
         crate::activations::claudecode::Model::Haiku,
@@ -2594,7 +2848,7 @@ async fn generate_overall_summary<P: HubContext>(
         agent_list
     );
 
-    let chat_stream = claudecode.chat(summary_session, prompt, Some(true)).await;
+    let chat_stream = claudecode.chat(summary_session, prompt, Some(true), None).await;
     tokio::pin!(chat_stream);
 
     let mut summary = String::new();

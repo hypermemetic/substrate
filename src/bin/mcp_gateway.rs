@@ -39,7 +39,6 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
 use form_urlencoded;
-use http::request::Parts;
 
 /// CLI arguments for MCP gateway
 #[derive(Parser, Debug)]

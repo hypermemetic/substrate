@@ -15,17 +15,6 @@ use tokio::sync::Mutex;
 /// Errors from the Claude Code executor
 #[derive(Debug, Error)]
 pub enum ExecutorError {
-    #[error("claude binary not found at '{path}' (searched: {searched})")]
-    BinaryNotFound {
-        path: String,
-        searched: String,
-    },
-
-    #[error("working directory does not exist: '{path}'")]
-    WorkingDirNotFound {
-        path: String,
-    },
-
     #[error("failed to spawn claude process (binary='{binary}', cwd='{cwd}'): {source}")]
     SpawnFailed {
         binary: String,
@@ -37,21 +26,6 @@ pub enum ExecutorError {
     McpConfigWrite {
         path: String,
         reason: String,
-    },
-
-    #[error("claude process exited with code {code} (binary='{binary}', cwd='{cwd}'):\n{stderr}")]
-    ProcessFailed {
-        code: String,
-        binary: String,
-        cwd: String,
-        stderr: String,
-    },
-
-    #[error("claude process produced no output (binary='{binary}', cwd='{cwd}', exit_code={code})")]
-    NoOutput {
-        binary: String,
-        cwd: String,
-        code: String,
     },
 }
 
@@ -351,6 +325,23 @@ impl ClaudeCodeExecutor {
         };
 
         Box::pin(stream! {
+            macro_rules! yield_error {
+                ($err:expr) => {{
+                    let err: ExecutorError = $err;
+                    tracing::error!(error = %err, "Claude executor error");
+                    yield RawClaudeEvent::Result {
+                        subtype: Some("error".to_string()),
+                        session_id: None,
+                        cost_usd: None,
+                        is_error: Some(true),
+                        duration_ms: None,
+                        num_turns: None,
+                        result: None,
+                        error: Some(err.to_string()),
+                    };
+                }};
+            }
+
             // Fail fast if loopback is enabled but the MCP server is not reachable.
             // Without a live MCP server Claude cannot call the permission-prompt tool
             // and will return empty output (silent failure).
@@ -459,8 +450,6 @@ impl ClaudeCodeExecutor {
                 }
             });
 
-            let mut got_result = false;
-
             // Stream events from stdout
             while let Ok(Some(line)) = reader.next_line().await {
                 if line.trim().is_empty() {
@@ -470,9 +459,6 @@ impl ClaudeCodeExecutor {
                 match serde_json::from_str::<RawClaudeEvent>(&line) {
                     Ok(event) => {
                         let is_result = matches!(event, RawClaudeEvent::Result { .. });
-                        if is_result {
-                            got_result = true;
-                        }
                         yield event;
                         if is_result {
                             break;
