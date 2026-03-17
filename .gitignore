@@ -39,3 +39,4 @@ agents.db
 # Substrate data directory
 .substrate/
 .cargo/
+output.log
