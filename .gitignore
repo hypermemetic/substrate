@@ -40,3 +40,11 @@ agents.db
 .substrate/
 .cargo/
 output.log
+
+# TLA+ model checker artifacts
+plans/tla2tools.jar
+plans/states/
+plans/*.bin
+
+# Generated code
+generated/
