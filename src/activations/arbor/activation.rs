@@ -492,67 +492,131 @@ impl<P: HubContext> Arbor<P> {
         }
     }
 
-}
+    /// Create a new view tree
+    async fn view_create(
+        &self,
+        source_tree_id: TreeId,
+        owner_id: String,
+    ) -> impl Stream<Item = ArborEvent> + Send + 'static {
+        let storage = self.storage.clone();
 
-/// Resolve a handle through HubContext and extract a display string
-async fn resolve_handle_to_string<P: HubContext>(parent: &P, handle: &Handle) -> String {
-    match parent.resolve_handle(handle).await {
-        Ok(mut stream) => {
-            // Collect the first data item from the stream
-            while let Some(item) = stream.next().await {
-                match item {
-                    PlexusStreamItem::Data { content, .. } => {
-                        // Try to extract a meaningful display string from the resolved content
-                        return extract_display_content(&content);
-                    }
-                    PlexusStreamItem::Error { message, .. } => {
-                        return format!("[error: {}]", message);
-                    }
-                    PlexusStreamItem::Done { .. } => break,
-                    _ => continue,
+        stream! {
+            match storage.view_create(&source_tree_id, &owner_id).await {
+                Ok(view_tree_id) => {
+                    yield ArborEvent::ViewCreated {
+                        view_tree_id,
+                        source_tree_id,
+                    };
+                }
+                Err(e) => {
+                    eprintln!("Error creating view: {}", e.to_string());
+                    yield ArborEvent::Err { message: e.to_string() };
                 }
             }
-            format!("[empty: {}]", handle)
-        }
-        Err(e) => {
-            format!("[unresolved: {} - {}]", handle.method, e)
         }
     }
-}
 
-/// Extract display content from resolved handle data
-fn extract_display_content(content: &Value) -> String {
-    // Try common patterns for resolved content
+    /// Add a range reference to a view tree
+    async fn view_add_range(
+        &self,
+        view_tree_id: TreeId,
+        parent_node: NodeId,
+        range_spec: crate::activations::arbor::RangeSpec,
+    ) -> impl Stream<Item = ArborEvent> + Send + 'static {
+        let storage = self.storage.clone();
 
-    // Pattern 1: { "type": "message", "role": "...", "content": "..." }
-    if let Some(msg_content) = content.get("content").and_then(|v| v.as_str()) {
-        let role = content.get("role").and_then(|v| v.as_str()).unwrap_or("unknown");
-        let name = content.get("name").and_then(|v| v.as_str());
-
-        let truncated = if msg_content.len() > 60 {
-            format!("{}...", &msg_content[..57])
-        } else {
-            msg_content.to_string()
-        };
-
-        return if let Some(n) = name {
-            format!("[{}:{}] {}", role, n, truncated.replace('\n', "↵"))
-        } else {
-            format!("[{}] {}", role, truncated.replace('\n', "↵"))
-        };
+        stream! {
+            match storage.view_add_range(&view_tree_id, &parent_node, range_spec).await {
+                Ok(range_node_id) => {
+                    yield ArborEvent::RangeAdded {
+                        view_tree_id,
+                        range_node_id,
+                    };
+                }
+                Err(e) => {
+                    eprintln!("Error adding range: {}", e.to_string());
+                    yield ArborEvent::Err { message: e.to_string() };
+                }
+            }
+        }
     }
 
-    // Pattern 2: { "type": "...", ... } - use type as label
-    if let Some(type_str) = content.get("type").and_then(|v| v.as_str()) {
-        return format!("[{}]", type_str);
+    /// Detect consecutive text runs in a tree
+    async fn view_detect_text_runs(
+        &self,
+        tree_id: TreeId,
+        min_length: u32,
+    ) -> impl Stream<Item = ArborEvent> + Send + 'static {
+        let storage = self.storage.clone();
+
+        stream! {
+            match storage.view_detect_text_runs(&tree_id, min_length as usize).await {
+                Ok(runs) => {
+                    yield ArborEvent::TextRunsDetected {
+                        tree_id,
+                        runs,
+                    };
+                }
+                Err(e) => {
+                    eprintln!("Error detecting text runs: {}", e.to_string());
+                    yield ArborEvent::Err { message: e.to_string() };
+                }
+            }
+        }
     }
 
-    // Fallback: show truncated JSON
-    let json_str = content.to_string();
-    if json_str.len() > 50 {
-        format!("{}...", &json_str[..47])
-    } else {
-        json_str
+    /// Create a view that collapses consecutive text runs
+    async fn view_collapse_text_runs(
+        &self,
+        source_tree_id: TreeId,
+        min_run_length: u32,
+        owner_id: String,
+    ) -> impl Stream<Item = ArborEvent> + Send + 'static {
+        let storage = self.storage.clone();
+
+        stream! {
+            match storage.view_collapse_text_runs(&source_tree_id, min_run_length as usize, &owner_id).await {
+                Ok((view_tree_id, runs)) => {
+                    yield ArborEvent::ViewCollapsed {
+                        view_tree_id,
+                        source_tree_id,
+                        collapsed_runs: runs,
+                    };
+                }
+                Err(e) => {
+                    eprintln!("Error collapsing text runs: {}", e.to_string());
+                    yield ArborEvent::Err { message: e.to_string() };
+                }
+            }
+        }
+    }
+
+    /// Get merged content from a range of nodes
+    async fn range_get(
+        &self,
+        tree_id: TreeId,
+        start_node: NodeId,
+        end_node: NodeId,
+        collapse_type: crate::activations::arbor::CollapseType,
+    ) -> impl Stream<Item = ArborEvent> + Send + 'static {
+        let storage = self.storage.clone();
+
+        stream! {
+            match storage.range_get(&tree_id, &start_node, &end_node, &collapse_type).await {
+                Ok(content) => {
+                    yield ArborEvent::RangeContent {
+                        tree_id,
+                        start_node,
+                        end_node,
+                        content,
+                    };
+                }
+                Err(e) => {
+                    eprintln!("Error getting range: {}", e.to_string());
+                    yield ArborEvent::Err { message: e.to_string() };
+                }
+            }
+        }
     }
 }
 

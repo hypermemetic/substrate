@@ -421,13 +421,6 @@ impl ClaudeCodeExecutor {
                 }
             }
 
-            // Set loopback session ID env var if loopback is enabled
-            if loopback_enabled {
-                if let Some(ref session_id) = loopback_session_id {
-                    cmd.env("LOOPBACK_SESSION_ID", session_id);
-                }
-            }
-
             let mut child = match cmd.spawn() {
                 Ok(c) => c,
                 Err(e) => {
@@ -466,9 +459,6 @@ impl ClaudeCodeExecutor {
                 match serde_json::from_str::<RawClaudeEvent>(&line) {
                     Ok(event) => {
                         let is_result = matches!(event, RawClaudeEvent::Result { .. });
-                        if is_result {
-                            got_result = true;
-                        }
                         yield event;
                         if is_result {
                             break;

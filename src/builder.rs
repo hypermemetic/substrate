@@ -14,7 +14,6 @@ use crate::activations::echo::Echo;
 use crate::activations::health::Health;
 use crate::activations::interactive::Interactive;
 use crate::activations::lattice::{Lattice, LatticeStorageConfig};
-use crate::activations::changelog::{Changelog, ChangelogStorageConfig};
 use crate::activations::mustache::{Mustache, MustacheStorageConfig};
 use crate::activations::orcha::pm::{Pm, PmStorage, PmStorageConfig};
 use crate::activations::orcha::{GraphRuntime, Orcha, OrchaStorage, OrchaStorageConfig};
@@ -33,10 +32,6 @@ use registry::Registry;
 ///
 /// Hub activations (with nested children) are registered with `register_hub`
 /// to enable direct nested routing like `substrate.solar.mercury.info`.
-///
-/// This function uses `Arc::new_cyclic` to inject a weak reference to the hub
-/// into Cone and ClaudeCode, enabling them to resolve foreign handles through
-/// the hub without creating reference cycles.
 ///
 /// This function uses `Arc::new_cyclic` to inject a weak reference to the hub
 /// into Cone and ClaudeCode, enabling them to resolve foreign handles through
@@ -94,11 +89,6 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
             .expect("Failed to initialize PM storage")
     );
 
-    // Initialize Changelog for tracking plexus hash transitions
-    let changelog = Changelog::new(ChangelogStorageConfig::default())
-        .await
-        .expect("Failed to initialize Changelog");
-
     // Clone arbor_storage for Orcha (needs separate reference)
     let arbor_storage_for_orcha = arbor.storage();
 
@@ -153,7 +143,6 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
             .register(cone)
             .register(claudecode)
             .register(mustache)
-            .register(changelog.clone())
             .register((*loopback).clone())
             .register_hub(orcha)
             // .register(jsexec)  // temporarily disabled
@@ -162,23 +151,6 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
             .register(Interactive::new())  // Bidirectional demo activation
             .register_hub(Solar::new())
     });
-
-    // Run changelog startup check
-    let plexus_hash = hub.compute_hash();
-    match changelog.startup_check(&plexus_hash).await {
-        Ok((hash_changed, is_documented, message)) => {
-            if hash_changed && !is_documented {
-                tracing::error!("{}", message);
-            } else if hash_changed {
-                tracing::info!("{}", message);
-            } else {
-                tracing::debug!("{}", message);
-            }
-        }
-        Err(e) => {
-            tracing::error!("Changelog startup check failed: {}", e);
-        }
-    }
 
     // Run startup recovery for any Orcha graphs that were mid-execution when the
     // substrate last shut down.  This is best-effort: failures are logged, never fatal.

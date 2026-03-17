@@ -40,11 +40,11 @@ impl Default for ClaudeCodeStorageConfig {
     }
 }
 
-/// In-memory buffer for an active chat
+/// In-memory buffer for an active stream
 #[derive(Debug)]
-struct ActiveChatBuffer {
-    /// Buffer metadata
-    info: ChatBufferInfo,
+struct ActiveStreamBuffer {
+    /// Stream metadata
+    info: StreamInfo,
     /// Buffered events (in-order by seq)
     events: Vec<BufferedEvent>,
 }
@@ -53,8 +53,8 @@ struct ActiveChatBuffer {
 pub struct ClaudeCodeStorage {
     pool: SqlitePool,
     arbor: Arc<ArborStorage>,
-    /// In-memory buffers for active chats (keyed by session_id)
-    chat_buffers: RwLock<HashMap<ClaudeCodeId, ActiveChatBuffer>>,
+    /// In-memory buffers for active streams
+    streams: RwLock<HashMap<StreamId, ActiveStreamBuffer>>,
 }
 
 impl ClaudeCodeStorage {
@@ -69,7 +69,7 @@ impl ClaudeCodeStorage {
         let storage = Self {
             pool,
             arbor,
-            chat_buffers: RwLock::new(HashMap::new()),
+            streams: RwLock::new(HashMap::new()),
         };
         storage.run_migrations().await?;
 
@@ -695,18 +695,19 @@ impl ClaudeCodeStorage {
     }
 
     // ========================================================================
-    // Chat Buffer Management (in-memory buffer for async chat, keyed by session_id)
+    // Stream Management (in-memory buffer for async chat)
     // ========================================================================
 
-    /// Create or reset the chat buffer for a session
-    /// Called when starting a new chat_async on a session
-    pub async fn buffer_create(
+    /// Create a new stream buffer for async chat
+    pub async fn stream_create(
         &self,
         session_id: ClaudeCodeId,
-    ) -> Result<(), ClaudeCodeError> {
+    ) -> Result<StreamId, ClaudeCodeError> {
+        let stream_id = StreamId::new_v4();
         let now = current_timestamp();
 
-        let info = ChatBufferInfo {
+        let info = StreamInfo {
+            stream_id,
             session_id,
             status: StreamStatus::Running,
             user_position: None,
@@ -717,21 +718,21 @@ impl ClaudeCodeStorage {
             error: None,
         };
 
-        let buffer = ActiveChatBuffer {
+        let buffer = ActiveStreamBuffer {
             info,
             events: Vec::new(),
         };
 
-        let mut buffers = self.chat_buffers.write().await;
-        buffers.insert(session_id, buffer);
+        let mut streams = self.streams.write().await;
+        streams.insert(stream_id, buffer);
 
-        Ok(())
+        Ok(stream_id)
     }
 
-    /// Set the user position for a session's buffer (called after user message is created)
-    pub async fn buffer_set_user_position(
+    /// Set the user position for a stream (called after user message is created)
+    pub async fn stream_set_user_position(
         &self,
-        session_id: &ClaudeCodeId,
+        stream_id: &StreamId,
         position: Position,
     ) -> Result<(), ClaudeCodeError> {
         let mut streams = self.streams.write().await;
@@ -741,10 +742,10 @@ impl ClaudeCodeStorage {
         Ok(())
     }
 
-    /// Push an event to a session's chat buffer
-    pub async fn buffer_push_event(
+    /// Push an event to a stream buffer
+    pub async fn stream_push_event(
         &self,
-        session_id: &ClaudeCodeId,
+        stream_id: &StreamId,
         event: ChatEvent,
     ) -> Result<u64, ClaudeCodeError> {
         let now = current_timestamp();
@@ -763,10 +764,10 @@ impl ClaudeCodeStorage {
         Ok(seq)
     }
 
-    /// Update session's chat buffer status
-    pub async fn buffer_set_status(
+    /// Update stream status
+    pub async fn stream_set_status(
         &self,
-        session_id: &ClaudeCodeId,
+        stream_id: &StreamId,
         status: StreamStatus,
         error: Option<String>,
     ) -> Result<(), ClaudeCodeError> {
@@ -794,11 +795,11 @@ impl ClaudeCodeStorage {
         Ok(buffer.info.clone())
     }
 
-    /// Poll events from a session's chat buffer
+    /// Poll events from a stream
     /// Returns events starting from `from_seq` up to `limit` events
-    pub async fn buffer_poll(
+    pub async fn stream_poll(
         &self,
-        session_id: &ClaudeCodeId,
+        stream_id: &StreamId,
         from_seq: Option<u64>,
         limit: Option<usize>,
     ) -> Result<(StreamInfo, Vec<BufferedEvent>), ClaudeCodeError> {
@@ -825,22 +826,209 @@ impl ClaudeCodeStorage {
         Ok((buffer.info.clone(), events))
     }
 
-    /// Check if a session has an active chat buffer
-    pub async fn buffer_exists(&self, session_id: &ClaudeCodeId) -> bool {
-        let buffers = self.chat_buffers.read().await;
-        buffers.contains_key(session_id)
+    /// List all active streams
+    pub async fn stream_list(&self) -> Vec<StreamInfo> {
+        let streams = self.streams.read().await;
+        streams.values().map(|b| b.info.clone()).collect()
     }
 
-    /// Remove a session's chat buffer from memory
-    /// Returns the final buffer info if found
-    pub async fn buffer_cleanup(&self, session_id: &ClaudeCodeId) -> Option<ChatBufferInfo> {
-        let mut buffers = self.chat_buffers.write().await;
-        buffers.remove(session_id).map(|b| b.info)
+    /// List active streams for a session
+    pub async fn stream_list_for_session(&self, session_id: &ClaudeCodeId) -> Vec<StreamInfo> {
+        let streams = self.streams.read().await;
+        streams
+            .values()
+            .filter(|b| &b.info.session_id == session_id)
+            .map(|b| b.info.clone())
+            .collect()
+    }
+
+    /// Remove a completed/failed stream from memory
+    /// Returns the final stream info if found
+    pub async fn stream_cleanup(&self, stream_id: &StreamId) -> Option<StreamInfo> {
+        let mut streams = self.streams.write().await;
+        streams.remove(stream_id).map(|b| b.info)
+    }
+
+    /// Check if a stream exists
+    pub async fn stream_exists(&self, stream_id: &StreamId) -> bool {
+        let streams = self.streams.read().await;
+        streams.contains_key(stream_id)
     }
 
     // ========================================================================
     // Arbor Rendering (Milestone 3)
-    // =================================================================    // Helper methods
+    // ========================================================================
+
+    /// Render arbor tree path into Claude API messages format
+    ///
+    /// Walks from start to end node, parsing NodeEvent JSON from each node,
+    /// and groups into Claude messages array.
+    ///
+    /// # Algorithm
+    /// 1. Get path from start to end via arbor
+    /// 2. Parse each node's content as NodeEvent
+    /// 3. Group into messages based on event type
+    /// 4. Return messages array
+    pub async fn render_messages(
+        &self,
+        tree_id: &TreeId,
+        start: &NodeId,
+        end: &NodeId,
+    ) -> Result<Vec<ClaudeMessage>, ClaudeCodeError> {
+        // 1. Get path from root to end (returns Vec<NodeId>)
+        let node_ids = self
+            .arbor
+            .node_get_path(tree_id, end)
+            .await
+            .map_err(|e| ClaudeCodeError::Arbor(e.to_string()))?;
+
+        // Find the starting node in the path
+        let start_idx = node_ids
+            .iter()
+            .position(|id| id == start)
+            .ok_or_else(|| ClaudeCodeError::Arbor("start node not found in path from root to end".to_string()))?;
+
+        let node_ids = &node_ids[start_idx..];
+
+        // 2. Get full node data for each node ID and group into messages
+        let mut messages: Vec<ClaudeMessage> = Vec::new();
+        let mut current_role: Option<String> = None;
+        let mut current_content: Vec<ContentBlock> = Vec::new();
+
+        for node_id in node_ids {
+            // Get the full node data
+            let node = self
+                .arbor
+                .node_get(tree_id, node_id)
+                .await
+                .map_err(|e| ClaudeCodeError::Arbor(e.to_string()))?;
+
+            // Extract content from node data
+            let content = match &node.data {
+                NodeType::Text { content } => content,
+                NodeType::External { .. } => {
+                    // Skip external nodes for now
+                    continue;
+                }
+            };
+
+            // Skip empty nodes (like root)
+            if content.trim().is_empty() {
+                continue;
+            }
+
+            // Parse node content as NodeEvent
+            let event: NodeEvent = serde_json::from_str(content)?;
+
+            match event {
+                NodeEvent::UserMessage { content } => {
+                    // Flush previous message if any
+                    if let Some(role) = current_role.take() {
+                        if !current_content.is_empty() {
+                            messages.push(ClaudeMessage {
+                                role,
+                                content: current_content.clone(),
+                            });
+                            current_content.clear();
+                        }
+                    }
+
+                    // Start new user message
+                    current_role = Some("user".to_string());
+                    current_content.push(ContentBlock::Text { text: content });
+                }
+
+                NodeEvent::AssistantStart => {
+                    // Flush previous message if any
+                    if let Some(role) = current_role.take() {
+                        if !current_content.is_empty() {
+                            messages.push(ClaudeMessage {
+                                role,
+                                content: current_content.clone(),
+                            });
+                            current_content.clear();
+                        }
+                    }
+
+                    // Start new assistant message
+                    current_role = Some("assistant".to_string());
+                }
+
+                NodeEvent::ContentText { text } => {
+                    // Add text content to current message
+                    current_content.push(ContentBlock::Text { text });
+                }
+
+                NodeEvent::ContentToolUse { id, name, input } => {
+                    // Add tool use to current message
+                    current_content.push(ContentBlock::ToolUse { id, name, input });
+                }
+
+                NodeEvent::ContentThinking { thinking } => {
+                    // Add thinking block to current message
+                    current_content.push(ContentBlock::Thinking { thinking });
+                }
+
+                NodeEvent::UserToolResult {
+                    tool_use_id,
+                    content,
+                    is_error,
+                } => {
+                    // Flush current assistant message if any
+                    if let Some(role) = current_role.take() {
+                        if !current_content.is_empty() {
+                            messages.push(ClaudeMessage {
+                                role,
+                                content: current_content.clone(),
+                            });
+                            current_content.clear();
+                        }
+                    }
+
+                    // Tool results become separate user messages
+                    messages.push(ClaudeMessage {
+                        role: "user".to_string(),
+                        content: vec![ContentBlock::ToolResult {
+                            tool_use_id,
+                            content,
+                            is_error,
+                        }],
+                    });
+                }
+
+                NodeEvent::AssistantComplete { usage: _ } => {
+                    // Flush current message if any
+                    if let Some(role) = current_role.take() {
+                        if !current_content.is_empty() {
+                            messages.push(ClaudeMessage {
+                                role,
+                                content: current_content.clone(),
+                            });
+                            current_content.clear();
+                        }
+                    }
+                }
+
+                // Debug/observability nodes — not part of conversation history
+                NodeEvent::LaunchCommand { .. } | NodeEvent::ClaudeStderr { .. } => {}
+            }
+        }
+
+        // Flush any remaining message
+        if let Some(role) = current_role {
+            if !current_content.is_empty() {
+                messages.push(ClaudeMessage {
+                    role,
+                    content: current_content,
+                });
+            }
+        }
+
+        Ok(messages)
+    }
+
+    // ========================================================================
+    // Helper methods
     // ========================================================================
 
     fn row_to_message(&self, row: sqlx::sqlite::SqliteRow) -> Result<Message, ClaudeCodeError> {
@@ -909,17 +1097,19 @@ fn current_timestamp() -> i64 {
 mod tests {
     use super::*;
 
-    /// Test chat buffer in-memory operations (no database needed)
+    /// Test stream buffer in-memory operations (no database needed)
     #[tokio::test]
-    async fn test_chat_buffer_operations() {
-        // Create a minimal buffer map keyed by session_id
-        let buffers: RwLock<HashMap<ClaudeCodeId, ActiveChatBuffer>> = RwLock::new(HashMap::new());
+    async fn test_stream_buffer_operations() {
+        // Create a minimal storage with just the streams buffer
+        let streams: RwLock<HashMap<StreamId, ActiveStreamBuffer>> = RwLock::new(HashMap::new());
 
-        // Create a buffer for a session
+        // Create a stream
+        let stream_id = StreamId::new_v4();
         let session_id = ClaudeCodeId::new_v4();
         let now = current_timestamp();
 
-        let info = ChatBufferInfo {
+        let info = StreamInfo {
+            stream_id,
             session_id,
             status: StreamStatus::Running,
             user_position: None,
@@ -930,17 +1120,17 @@ mod tests {
             error: None,
         };
 
-        let buffer = ActiveChatBuffer {
+        let buffer = ActiveStreamBuffer {
             info,
             events: Vec::new(),
         };
 
-        buffers.write().await.insert(session_id, buffer);
+        streams.write().await.insert(stream_id, buffer);
 
         // Push some events
         {
-            let mut buffers = buffers.write().await;
-            let buffer = buffers.get_mut(&session_id).unwrap();
+            let mut streams = streams.write().await;
+            let buffer = streams.get_mut(&stream_id).unwrap();
 
             buffer.events.push(BufferedEvent {
                 seq: 0,
@@ -962,8 +1152,8 @@ mod tests {
 
         // Poll events
         {
-            let mut buffers = buffers.write().await;
-            let buffer = buffers.get_mut(&session_id).unwrap();
+            let mut streams = streams.write().await;
+            let buffer = streams.get_mut(&stream_id).unwrap();
 
             let events: Vec<_> = buffer.events.iter().skip(0).take(10).cloned().collect();
             assert_eq!(events.len(), 2);
@@ -976,8 +1166,8 @@ mod tests {
 
         // Poll again - should get nothing new
         {
-            let buffers = buffers.read().await;
-            let buffer = buffers.get(&session_id).unwrap();
+            let streams = streams.read().await;
+            let buffer = streams.get(&stream_id).unwrap();
 
             let events: Vec<_> = buffer.events.iter()
                 .skip(buffer.info.read_position as usize)
@@ -988,8 +1178,8 @@ mod tests {
 
         // Add more events
         {
-            let mut buffers = buffers.write().await;
-            let buffer = buffers.get_mut(&session_id).unwrap();
+            let mut streams = streams.write().await;
+            let buffer = streams.get_mut(&stream_id).unwrap();
 
             buffer.events.push(BufferedEvent {
                 seq: 2,
@@ -1001,8 +1191,8 @@ mod tests {
 
         // Poll again - should get the new event
         {
-            let mut buffers = buffers.write().await;
-            let buffer = buffers.get_mut(&session_id).unwrap();
+            let mut streams = streams.write().await;
+            let buffer = streams.get_mut(&stream_id).unwrap();
 
             let events: Vec<_> = buffer.events.iter()
                 .skip(buffer.info.read_position as usize)
@@ -1018,8 +1208,8 @@ mod tests {
 
         // Test status transitions
         {
-            let mut buffers = buffers.write().await;
-            let buffer = buffers.get_mut(&session_id).unwrap();
+            let mut streams = streams.write().await;
+            let buffer = streams.get_mut(&stream_id).unwrap();
 
             assert_eq!(buffer.info.status, StreamStatus::Running);
 
@@ -1046,4 +1236,252 @@ mod tests {
     }
 }
 
-// ==============================================================
+// ============================================================================
+// Milestone 3 Tests: render_messages()
+// ============================================================================
+
+#[cfg(test)]
+mod render_tests {
+    use super::*;
+    use crate::activations::arbor::{ArborConfig, ArborError};
+
+    /// Helper to create test storage with arbor
+    async fn create_test_storage() -> (ClaudeCodeStorage, PathBuf) {
+        let temp_dir = std::env::temp_dir();
+        let test_id = Uuid::new_v4();
+        let arbor_path = temp_dir.join(format!("test_arbor_{}.db", test_id));
+        let claudecode_path = temp_dir.join(format!("test_claudecode_{}.db", test_id));
+
+        let arbor_config = ArborConfig {
+            db_path: arbor_path.clone(),
+            scheduled_deletion_window: 604800,
+            archive_window: 2592000,
+            auto_cleanup: false, // Disable for tests
+            cleanup_interval: 3600,
+        };
+        let arbor = Arc::new(ArborStorage::new(arbor_config).await.unwrap());
+
+        let claudecode_config = ClaudeCodeStorageConfig {
+            db_path: claudecode_path.clone(),
+        };
+        let storage = ClaudeCodeStorage::new(claudecode_config, arbor)
+            .await
+            .unwrap();
+
+        (storage, arbor_path)
+    }
+
+    /// Helper to create a node with NodeEvent content
+    async fn create_event_node(
+        arbor: &ArborStorage,
+        tree_id: &TreeId,
+        parent_id: &NodeId,
+        event: &NodeEvent,
+    ) -> Result<NodeId, ArborError> {
+        let content = serde_json::to_string(event).map_err(|e| e.to_string())?;
+        arbor.node_create_text(tree_id, Some(*parent_id), content, None).await
+    }
+
+    #[tokio::test]
+    async fn test_render_simple_exchange() {
+        let (storage, _temp_path) = create_test_storage().await;
+        let arbor = storage.arbor();
+
+        // Create test arbor tree
+        let tree_id = arbor.tree_create(None, "test-session").await.unwrap();
+        let tree = arbor.tree_get(&tree_id).await.unwrap();
+        let root = tree.root;
+
+        // Build tree: root -> user -> assistant_start -> content -> assistant_complete
+        let user_node = create_event_node(
+            arbor,
+            &tree_id,
+            &root,
+            &NodeEvent::UserMessage {
+                content: "Hello".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let assistant_start = create_event_node(
+            arbor,
+            &tree_id,
+            &user_node,
+            &NodeEvent::AssistantStart,
+        )
+        .await
+        .unwrap();
+
+        let content_node = create_event_node(
+            arbor,
+            &tree_id,
+            &assistant_start,
+            &NodeEvent::ContentText {
+                text: "Hi there!".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let complete_node = create_event_node(
+            arbor,
+            &tree_id,
+            &content_node,
+            &NodeEvent::AssistantComplete { usage: None },
+        )
+        .await
+        .unwrap();
+
+        // Render from root to end
+        let messages = storage
+            .render_messages(&tree_id, &root, &complete_node)
+            .await
+            .unwrap();
+
+        // Verify: 2 messages (user + assistant)
+        assert_eq!(messages.len(), 2);
+
+        // Verify user message
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[0].content.len(), 1);
+        if let ContentBlock::Text { text } = &messages[0].content[0] {
+            assert_eq!(text, "Hello");
+        } else {
+            panic!("Expected text content block");
+        }
+
+        // Verify assistant message
+        assert_eq!(messages[1].role, "assistant");
+        assert_eq!(messages[1].content.len(), 1);
+        if let ContentBlock::Text { text } = &messages[1].content[0] {
+            assert_eq!(text, "Hi there!");
+        } else {
+            panic!("Expected text content block");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_render_with_tool_use() {
+        let (storage, _temp_path) = create_test_storage().await;
+        let arbor = storage.arbor();
+
+        // Create test arbor tree
+        let tree_id = arbor.tree_create(None, "test-tool-session").await.unwrap();
+        let tree = arbor.tree_get(&tree_id).await.unwrap();
+        let root = tree.root;
+
+        // Build tree with tool use:
+        // root -> user -> assistant_start -> content -> tool_use -> assistant_complete
+        //              -> user_tool_result -> assistant_start -> content -> assistant_complete
+        let user_node = create_event_node(
+            arbor,
+            &tree_id,
+            &root,
+            &NodeEvent::UserMessage {
+                content: "Write a file".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let assistant_start = create_event_node(
+            arbor,
+            &tree_id,
+            &user_node,
+            &NodeEvent::AssistantStart,
+        )
+        .await
+        .unwrap();
+
+        let text_node = create_event_node(
+            arbor,
+            &tree_id,
+            &assistant_start,
+            &NodeEvent::ContentText {
+                text: "I'll write that file.".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let tool_use_node = create_event_node(
+            arbor,
+            &tree_id,
+            &text_node,
+            &NodeEvent::ContentToolUse {
+                id: "tool_123".to_string(),
+                name: "write_file".to_string(),
+                input: serde_json::json!({"path": "test.txt", "content": "hello"}),
+            },
+        )
+        .await
+        .unwrap();
+
+        let assistant_complete = create_event_node(
+            arbor,
+            &tree_id,
+            &tool_use_node,
+            &NodeEvent::AssistantComplete { usage: None },
+        )
+        .await
+        .unwrap();
+
+        let tool_result = create_event_node(
+            arbor,
+            &tree_id,
+            &assistant_complete,
+            &NodeEvent::UserToolResult {
+                tool_use_id: "tool_123".to_string(),
+                content: "File written successfully".to_string(),
+                is_error: false,
+            },
+        )
+        .await
+        .unwrap();
+
+        let assistant_start2 = create_event_node(
+            arbor,
+            &tree_id,
+            &tool_result,
+            &NodeEvent::AssistantStart,
+        )
+        .await
+        .unwrap();
+
+        let content_node2 = create_event_node(
+            arbor,
+            &tree_id,
+            &assistant_start2,
+            &NodeEvent::ContentText {
+                text: "Done!".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let complete_node2 = create_event_node(
+            arbor,
+            &tree_id,
+            &content_node2,
+            &NodeEvent::AssistantComplete { usage: None },
+        )
+        .await
+        .unwrap();
+
+        // Render full conversation
+        let messages = storage
+            .render_messages(&tree_id, &root, &complete_node2)
+            .await
+            .unwrap();
+
+        // Expected: user, assistant (text + tool_use), user (tool_result), assistant (text)
+        assert_eq!(messages.len(), 4, "Expected 4 messages, got {}", messages.len());
+
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[1].role, "assistant");
+        assert_eq!(messages[1].content.len(), 2); // text + tool_use
+        assert_eq!(messages[2].role, "user"); // tool result
+        assert_eq!(messages[3].role, "assistant");
+    }
+}
