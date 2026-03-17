@@ -94,6 +94,8 @@ pub struct PmGraphSummary {
     pub metadata: Value,
     pub ticket_count: usize,
     pub created_at: i64,
+    /// Original task description passed to run_plan / run_tickets (first 200 chars).
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -594,13 +596,15 @@ impl Pm {
     #[plexus_macros::hub_method(params(
         project   = "Optional: filter by metadata.project string",
         limit     = "Optional: max results (default 20)",
-        root_only = "Optional: when true (default), only return root graphs (no parent); set false to include subgraphs"
+        root_only = "Optional: when true (default), only return root graphs (no parent); set false to include subgraphs",
+        status    = "Optional: filter by graph status (running, complete, failed)"
     ))]
     async fn list_graphs(
         &self,
         project: Option<String>,
         limit: Option<usize>,
         root_only: Option<bool>,
+        status: Option<String>,
     ) -> impl Stream<Item = PmListGraphsResult> + Send + 'static {
         let pm_storage = self.pm_storage.clone();
         let lattice_storage = self.lattice_storage.clone();
@@ -629,6 +633,13 @@ impl Pm {
                     continue;
                 }
 
+                // Apply optional status filter.
+                if let Some(ref status_filter) = status {
+                    if lattice_graph.status.to_string() != *status_filter {
+                        continue;
+                    }
+                }
+
                 // Apply optional project filter.
                 if let Some(ref project_filter) = project {
                     let graph_project = lattice_graph.metadata.get("project")
@@ -646,12 +657,26 @@ impl Pm {
 
                 let status = lattice_graph.status.to_string();
 
+                let source = pm_storage.get_ticket_source(&graph_id).await
+                    .ok()
+                    .flatten()
+                    .map(|s: String| {
+                        // Truncate to 200 chars for summary display
+                        let trimmed = s.trim().to_string();
+                        if trimmed.len() > 200 {
+                            format!("{}…", &trimmed[..197])
+                        } else {
+                            trimmed
+                        }
+                    });
+
                 graphs.push(PmGraphSummary {
                     graph_id,
                     status,
                     metadata: lattice_graph.metadata,
                     ticket_count: ticket_map.len(),
                     created_at,
+                    source,
                 });
             }
 

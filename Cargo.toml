@@ -71,6 +71,9 @@ registry = { package = "plexus-registry", version = "0.1.0" }
 # Mustache templating
 mustache = "0.9"
 
+# POSIX signal primitives (used by chaos activation)
+libc = "0.2"
+
 [features]
 default = ["mcp-gateway"]
 mcp-gateway = ["plexus-transport/mcp-gateway"]

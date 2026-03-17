@@ -1,6 +1,9 @@
 // Common storage utilities for activations
 pub mod storage;
 
+// Chaos provides fault injection and observability for anti-fragility testing
+pub mod chaos;
+
 // Health is the reference implementation for the new architecture (manual impl)
 pub mod health;
 

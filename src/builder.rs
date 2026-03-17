@@ -6,6 +6,7 @@ use std::sync::{Arc, Weak};
 
 use crate::activations::arbor::{Arbor, ArborConfig};
 use crate::activations::bash::Bash;
+use crate::activations::chaos::Chaos;
 use crate::activations::claudecode::{ClaudeCode, ClaudeCodeStorage, ClaudeCodeStorageConfig};
 use crate::activations::claudecode_loopback::{ClaudeCodeLoopback, LoopbackStorageConfig};
 use crate::activations::cone::{Cone, ConeStorageConfig};
@@ -143,6 +144,7 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
             .register(Health::new())
             .register(Echo::new())
             .register(Bash::new())
+            .register(Chaos::new(lattice.storage()))
             .register(arbor)
             .register(cone)
             .register(claudecode)
