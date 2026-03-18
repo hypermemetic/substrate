@@ -461,6 +461,6 @@ src/activations/
 
 plans/
 ├── DispatchTdd.tla       Formal TLA+ spec of the TDD node control flow
-├── tdd-node-v2.tickets.md  Implementation plan (7 tickets, TDD-1 through TDD-7)
-└── tdd-node.tickets.md   v1 plan (superseded by v2)
+└── TDD/
+    └── TDD-1.md          Implementation plan (7 tickets, TDD-1 through TDD-7)
 ```

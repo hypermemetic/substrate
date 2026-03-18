@@ -250,7 +250,7 @@ invariant in the lattice.
 
 ### Contract-verified code (`[agent/tdd]` node)
 
-**Status:** `tdd-node-v2.tickets.md` — TDD-1 through TDD-7, designed, not yet implemented.
+**Status:** `plans/TDD/TDD-1.md` — TDD-1 through TDD-7, designed, not yet implemented.
 
 The problem with "write this code and test it": if the same agent writes both,
 the tests pass because they were written to match the implementation. That's
@@ -396,7 +396,8 @@ plans/               Implementation plans (epics + tickets)
 ├── DISCORD/
 ├── ORCHA/
 ├── BIDIR/
-├── tdd-node-v2.tickets.md
+├── TDD/
+│   └── TDD-1.md
 └── DispatchTdd.tla  Formal TLA+ spec of the TDD node
 
 docs/architecture/   Design documents (newest-first filename ordering)
@@ -412,7 +413,7 @@ substrate-start
 
 # Run a ticket plan
 synapse substrate orcha run_tickets_files \
-  --ticket_files '["plans/tdd-node-v2.tickets.md"]' \
+  --ticket_files '["plans/TDD/TDD-1.md"]' \
   --model sonnet \
   --working_directory /workspace/hypermemetic/plexus-substrate
 
@@ -435,7 +436,7 @@ Substrate port: `4444` — WebSocket and MCP on the same port.
 - `docs/architecture/intro-lattice-orcha-tdd.md` — full architectural introduction
 - `docs/architecture/16678373036159325695_plugin-development-guide.md` — how to write a new activation
 - `plans/DispatchTdd.tla` — formal spec of the TDD node control flow
-- `plans/tdd-node-v2.tickets.md` — implementation plan for TDD-1 through TDD-7
+- `plans/TDD/TDD-1.md` — implementation plan for TDD-1 through TDD-7
 
 ## License
 

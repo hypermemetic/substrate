@@ -1,5 +1,9 @@
 # Architecture Documents
 
+## Start Here
+
+- **[intro-lattice-orcha-tdd.md](intro-lattice-orcha-tdd.md)** — Full stack introduction: Plexus RPC → Lattice → Orcha → TDD node. Start here.
+
 ## Development Process
 
 - [Worktree Stack Development](./16677958939404136703_worktree-stack-development.md) - **NEW**: How to work on multiple interdependent crates in isolation using git worktrees
@@ -18,6 +22,11 @@
 ## Orcha
 
 - [Orcha Approval Workflow](./16772656563233000000_orcha-approval-workflow.md) - Manual and auto-approval flows, session ID topology, notification propagation, Arbor integration
+
+## TDD Node
+
+- **[plans/TDD/TDD-1.md](../../plans/TDD/TDD-1.md)** — Implementation plan for the TDD (Test-Driven Dispatch) node activation
+- **[plans/DispatchTdd.tla](../../plans/DispatchTdd.tla)** — TLA+ formal specification for TDD dispatch correctness
 
 ## JsExec
 
