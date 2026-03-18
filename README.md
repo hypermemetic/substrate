@@ -1,405 +1,441 @@
 # Substrate
 
-A Plexus RPC server providing conversation trees and LLM orchestration.
+An AI orchestration server. You describe work as a graph of agents, validators,
+and human gates — Substrate runs it, streams events, and handles failures.
 
-## What is Plexus RPC?
+The core primitive is **Orcha**: a multi-agent execution engine where each
+node in a DAG is a typed agent action. Nodes can run Claude, execute shell
+commands, wait for human approval, spawn child graphs, or run a full
+contract-first TDD loop. The graph runs until it completes, fails, or reaches
+a human gate.
 
-Plexus RPC is a protocol for building services where code IS schema. Services expose JSON schemas at runtime for all methods, enabling zero-drift type-safe client generation and instant streaming. The protocol supports tree-structured namespacing, where plugins organize hierarchically via dot-separated paths (`arbor.tree_create`, `cone.chat`).
+---
 
-Key features:
-- **Self-describing**: Query any method's schema at runtime
-- **Streaming-first**: All methods return streams by default
-- **Tree-structured**: Organize methods in hierarchical namespaces
-- **Language-agnostic**: Generate type-safe clients for any language
+## What you can do with it
 
-## Abstract
+**Run a ticket plan from markdown:**
 
-Substrate is a reference Plexus RPC server implementing conversation tree storage (Arbor), LLM orchestration (Cone), and development tools (ClaudeCode, Bash). It demonstrates the full Plexus RPC architecture: hierarchical plugin structure, runtime schema introspection, streaming by default, and cross-language client generation.
+```markdown
+# TASK-1: Analyze the codebase [agent/task]
+Summarize the architecture of /workspace/myproject
 
-This document describes the Plexus RPC architecture as implemented in Substrate. Server-specific activations (Arbor, Cone, ClaudeCode) are documented separately.
+# TASK-2: Write the implementation [agent/task]
+blocked_by: [TASK-1]
+Implement the feature described in the analysis above
+
+# TASK-3: Validate [agent/validate]
+blocked_by: [TASK-2]
+validate: cargo test --package myproject 2>&1
+```
+
+```bash
+synapse substrate orcha run_tickets --tickets_content "$(cat plan.md)"
+```
+
+**Run a TDD node — spec-driven contract-first development:**
+
+```markdown
+# TDD-1: Implement run_plan [agent/tdd]
+Parse a ticket markdown file and return an OrchaGraph with nodes and edges
+matching the ticket dependency structure.
+```
+
+The TDD node writes a behavioral spec, validates it for consistency, spins up
+parallel impl and test agents from the spec, runs the tests, and repairs failures
+— all inside one graph node. The parent graph sees a token when it's done.
+
+**Build a graph programmatically:**
+
+```bash
+synapse substrate orcha create_graph --metadata '{"name":"deploy"}'
+# → graph_id: abc123
+
+synapse substrate orcha add_task_node --graph_id abc123 --task "build the binary"
+# → node_id: node_1
+
+synapse substrate orcha add_validate_node --graph_id abc123 --command "cargo build --release"
+# → node_id: node_2
+
+synapse substrate orcha add_dependency --graph_id abc123 --from_node node_1 --to_node node_2
+synapse substrate orcha run_graph --graph_id abc123 --model sonnet
+```
+
+**Wait for human approval mid-graph:**
+
+When a `Review` node fires, the graph pauses. Other independent nodes still run.
+You get an `ApprovalPending` event, review the context, and approve or deny via
+the API. The graph resumes.
+
+```bash
+synapse substrate orcha list_pending_approvals --graph_id abc123
+synapse substrate orcha approve_request --approval_id xyz --message "looks good"
+```
+
+---
 
 ## Architecture
 
-### Layer Structure
+Three layers. Each knows only about the layer below it.
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                     Plexus RPC Backends                        │
-│  (DynamicHub instance, future: remote hubs via URL)           │
-├────────────────────────────────────────────────────────────────┤
-│                         hub-macro                              │
-│  #[hub_methods] #[hub_method(streaming)]                      │
-│  → generates method enums, schemas, streaming annotations     │
-├────────────────────────────────────────────────────────────────┤
-│                         hub-core                               │
-│  Activation trait, DynamicHub routing, PluginSchema types     │
-│  ChildRouter trait, streaming infrastructure                  │
-├────────────────────────────────────────────────────────────────┤
-│                         substrate                              │
-│  Foundation types (Handle, Value), serialization              │
-└────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│  Orcha                                                 │
+│  Multi-agent orchestration. Typed node dispatch,       │
+│  ticket compiler, repair loops, human gates.           │
+├────────────────────────────────────────────────────────┤
+│  Lattice                                               │
+│  DAG execution engine. Nodes, edges, tokens.           │
+│  Knows nothing about AI — just routing and sequencing. │
+├────────────────────────────────────────────────────────┤
+│  Plexus RPC                                            │
+│  Self-describing, streaming-first RPC protocol.        │
+│  Code is schema. No drift. Language-agnostic clients.  │
+└────────────────────────────────────────────────────────┘
 ```
 
-### Activation Trait
+See `docs/architecture/intro-lattice-orcha-tdd.md` for the full walkthrough.
 
-The unified interface for all Plexus RPC plugins:
+### Orcha node types
 
 ```rust
-#[async_trait]
-pub trait Activation: Send + Sync + 'static {
-    type Methods: MethodEnumSchema;
-
-    fn namespace(&self) -> &str;
-    fn version(&self) -> &str;
-    fn description(&self) -> &str;
-    fn methods(&self) -> Vec<&str>;
-
-    async fn call(&self, method: &str, params: Value)
-        -> Result<PlexusStream, PlexusError>;
-
-    fn plugin_schema(&self) -> PluginSchema;
+enum OrchaNodeKind {
+    Task      { task: String }          // run Claude on this prompt
+    Synthesize { task: String }         // Task + upstream outputs stitched in as context
+    Validate  { command: String }       // run a shell command; exit 0 → ok token, else error
+    Review    { prompt: String }        // pause and wait for human approval via API
+    Plan      { task: String }          // Claude produces a ticket plan, spawns as child graph
+    Tdd       { task: String, .. }      // contract-first dev loop (see below)
 }
 ```
 
-All plugins implement `Activation`. The `plugin_schema()` method returns a JSON Schema describing available methods, parameters, and return types.
+### Lattice token model
 
-### Tree-Structured Namespace
+Nodes produce typed tokens that flow along edges:
 
-Plexus RPC organizes methods hierarchically via dot-separated paths:
+- **Color**: `Ok` | `Error` | `Named("x")` — controls routing; edges can be conditional
+- **Payload**: `Data { value }` | `Handle { method }` — the result or a lazy stream reference
+- **JoinType**: `All` (wait for every upstream) | `Any` (fire on first)
 
-```
-plexus
-├── arbor.tree_create
-├── arbor.node_create_text
-├── cone.create
-├── cone.chat
-├── echo.echo
-└── health.check
-```
+Fan-out via `Scatter`. Fan-in via `Gather`. Nested work via `SubGraph`. The
+same graph engine that drives simple sequential plans also drives recursive
+agent trees.
 
-Nested plugins implement `ChildRouter` to delegate calls to children. Plexus RPC supports arbitrary nesting depth.
+### Plexus RPC
 
-### Schema System
+Substrate exposes everything through Plexus RPC — a protocol where every method
+has a runtime JSON Schema, every call returns a stream, and namespaces organize
+as a tree. Clients can discover the full API by querying it.
 
-Every Plexus RPC activation exposes a `schema` method:
+Access via:
+- **WebSocket** — `ws://localhost:4444`
+- **MCP** — `http://localhost:4444/mcp` (Orcha methods appear as MCP tools)
+- **Synapse CLI** — `synapse substrate <namespace> <method> [--param value]`
+- **In-process Rust** — `DynamicHub::call(method, params)`
 
-```rust
-// Query any plugin's schema
-substrate.call("echo.schema", {})
-substrate.call("arbor.schema", {})
-```
+---
 
-Schemas include:
-- Method names and descriptions
-- Parameter types (JSON Schema)
-- Return types (JSON Schema)
-- Streaming annotation
-- Child plugin summaries (namespace, description, hash)
+## What works today
 
-Child schemas are **not included recursively**. Clients fetch child schemas individually via `{namespace}.schema`, enabling lazy traversal of large plugin trees.
+**Ticket plans execute as parallel agent DAGs.**
+Write a markdown file. Agents with no `blocked_by` run simultaneously. Results
+flow forward as tokens. A `[agent/validate]` node runs `cargo test` and routes
+the exit code — ok token on pass, error token on failure — to whatever you wired
+downstream. You watch it all in real time via `subscribe_graph`.
 
-### Hash-Based Versioning
+```markdown
+# ANALYZE-1: Read the module [agent/task]
+Summarize the architecture of src/activations/orcha/
 
-Each method schema has a content hash. Parent hashes incorporate child hashes. The root hash changes when any descendant changes. This enables:
+# ANALYZE-2: Read the tests [agent/task]
+List what is and isn't tested in src/activations/orcha/
 
-- Cache invalidation
-- Client version detection
-- Schema drift warnings
+# SYNTHESIZE: Identify gaps [agent/synthesize]
+blocked_by: [ANALYZE-1, ANALYZE-2]
+Given the analysis and test coverage above, list the top 5 untested behaviors.
 
-### Streaming by Default
-
-All Plexus RPC methods return `PlexusStream`, a stream of `PlexusStreamItem`:
-
-```rust
-pub enum PlexusStreamItem {
-    Content { metadata, content_type, data },
-    Progress { metadata, message, percentage },
-    Error { metadata, message, code, recoverable },
-    Done { metadata },
-}
+# VALIDATE: Check it compiles [agent/validate]
+blocked_by: [SYNTHESIZE]
+validate: cargo check --package plexus-substrate 2>&1
 ```
 
-Non-streaming methods emit a single `Content` item followed by `Done`. Streaming methods emit multiple items.
+ANALYZE-1 and ANALYZE-2 run in parallel. SYNTHESIZE receives both outputs as
+`<prior_work>` context. VALIDATE runs the command; if it fails, the node gets
+an error token and the graph fails with the output.
 
-## Implementation Patterns
+---
 
-### Leaf Activation (Macro-Generated)
+**Human approval gates that don't block the graph.**
+A `Review` node pauses at a checkpoint. Any independent branches in the same
+graph keep running. You get an `ApprovalPending` event, read the context
+(whatever Claude produced), and approve or deny via the API. The graph resumes
+from exactly that node. Deny it and the node gets an error token — wired
+however you want.
 
-Simple plugins with methods, no children. Use `#[hub_methods]`:
+This is how you build workflows where a human reviews a spec before code is
+written, or reviews a PR before it's merged, without freezing everything else.
 
-```rust
-#[derive(Clone)]
-pub struct Echo;
+---
 
-#[hub_macro::hub_methods(
-    namespace = "echo",
-    version = "1.0.0",
-    description = "Echo messages back"
-)]
-impl Echo {
-    #[hub_macro::hub_method(
-        streaming,
-        params(
-            message = "The message to echo",
-            count = "Number of times to repeat"
-        )
-    )]
-    async fn echo(
-        &self,
-        message: String,
-        count: u32
-    ) -> impl Stream<Item = EchoEvent> {
-        stream! {
-            for _ in 0..count {
-                yield EchoEvent::Echo { message: message.clone() };
-            }
-        }
-    }
-}
-```
+**A graph can spawn child graphs.**
+The `Plan` node type runs Claude, which generates a ticket file, compiles it
+into a new graph, and executes it as a child. The child's events stream through
+the parent channel. Cancel the parent and the child cancels. `pm graph_status`
+with `recursive=true` shows the full tree.
 
-The macro generates:
-- `EchoMethod` enum with JSON Schema
-- `Activation` trait implementation
-- Automatic `schema` method dispatch
-
-### Hub Activation (Macro-Generated with Children)
-
-Activations containing other activations (hubs). Add `hub` flag and implement `plugin_children()`:
-
-```rust
-#[hub_macro::hub_methods(
-    namespace = "solar",
-    version = "1.0.0",
-    description = "Solar system model",
-    hub
-)]
-impl Solar {
-    async fn observe(&self) -> impl Stream<Item = SolarEvent> { /* ... */ }
-
-    pub fn plugin_children(&self) -> Vec<PluginSchema> {
-        self.planets.iter()
-            .map(|p| p.to_plugin_schema())
-            .collect()
-    }
-}
-
-#[async_trait]
-impl ChildRouter for Solar {
-    fn router_namespace(&self) -> &str { "solar" }
-
-    async fn router_call(&self, method: &str, params: Value)
-        -> Result<PlexusStream, PlexusError>
-    {
-        Activation::call(self, method, params).await
-    }
-
-    async fn get_child(&self, name: &str) -> Option<Box<dyn ChildRouter>> {
-        self.planets.iter()
-            .find(|p| p.name == name)
-            .map(|p| Box::new(p.clone()) as Box<dyn ChildRouter>)
-    }
-}
-```
-
-Register hubs with `register_hub()`:
-
-```rust
-let plexus = DynamicHub::new()
-    .register(Echo)
-    .register_hub(Solar::new());
-```
-
-### Dynamic Activation (Hand-Implemented)
-
-When activations are created from runtime data, manually implement `Activation`:
-
-```rust
-#[async_trait]
-impl Activation for Planet {
-    type Methods = PlanetMethod;
-
-    fn namespace(&self) -> &str { &self.name }
-    fn version(&self) -> &str { "1.0.0" }
-    fn description(&self) -> &str { &self.description }
-    fn methods(&self) -> Vec<&str> { vec!["info", "schema"] }
-
-    async fn call(&self, method: &str, params: Value)
-        -> Result<PlexusStream, PlexusError>
-    {
-        match method {
-            "info" => Ok(self.info_stream()),
-            "schema" => {
-                let schema = self.plugin_schema();
-                Ok(wrap_stream(futures::stream::once(async { schema })))
-            }
-            _ => route_to_child(self, method, params).await
-        }
-    }
-
-    fn plugin_schema(&self) -> PluginSchema {
-        PluginSchema {
-            plugin_id: self.id,
-            namespace: self.name.clone(),
-            version: "1.0.0".into(),
-            description: self.description.clone(),
-            methods: vec![/* method schemas */],
-            children: vec![],
-            hash: compute_hash(/* ... */),
-        }
-    }
-}
-```
-
-Dynamic activations must manually:
-- Include `"schema"` in `methods()`
-- Handle `"schema"` in `call()`
-- Implement `ChildRouter` if they have children
-
-## Code Generation Pipeline
+Concrete example from `LIVE-GRAPH-1.md`:
 
 ```
-   Rust Activation            hub-macro              Runtime Schema
-  ┌──────────┐              ┌──────────┐             ┌──────────┐
-  │ impl Foo │──────────────│ proc-    │─────────────│ Plugin   │
-  │ {        │  #[hub_      │ macro    │  generates  │ Schema   │
-  │   fn x() │  methods]    │ expand   │  schema()   │ JSON     │
-  │ }        │              │          │  method     │          │
-  └──────────┘              └──────────┘             └──────────┘
-                                                          │
-                                                          ▼
-                            ┌──────────────────────────────────────┐
-                            │           Synapse (Haskell)          │
-                            │  Parses schema, emits IR             │
-                            │  synapse --emit-ir                   │
-                            └──────────────────────────────────────┘
-                                                          │
-                                                          ▼
-                            ┌──────────────────────────────────────┐
-                            │  plexus-codegen-typescript (Rust)    │
-                            │  Consumes IR, generates TypeScript   │
-                            └──────────────────────────────────────┘
-                                                          │
-                                                          ▼
-                            ┌──────────────────────────────────────┐
-                            │       TypeScript Client              │
-                            │  Type-safe Plexus RPC calls          │
-                            └──────────────────────────────────────┘
+META GRAPH
+├─ T1–T7: analyze 7 modules simultaneously      [agent]
+├─ PLAN: generate fix tickets                   [planner]  ← blocked by T1–T7
+│    receives all 7 analyses as prior_work
+│    runs Claude → emits a ticket file
+│    compiles it → spawns CHILD GRAPH
+│
+└─ CHILD GRAPH
+     ├─ FIX-1 through FIX-4: fixes              [agent]  (parallel)
+     └─ VALIDATE: pytest                        [validate]  ← blocked by fixes
 ```
 
-The pipeline is language-agnostic at the IR level. Adding Python support requires implementing a Python backend in `plexus-codegen-python`.
+The meta graph never knew upfront how many fixes there would be. Claude decided.
 
-## Accessing Plexus RPC
+---
 
-### WebSocket Transport
+**The whole API is MCP tools.**
+Every Orcha method — `run_graph`, `list_pending_approvals`, `approve_request`,
+`subscribe_graph` — is an MCP tool. Claude Desktop, Claude Code, or any agent
+with MCP access can orchestrate other agents. An agent running inside a graph
+can call `orcha.add_task_node` to inject new work into its own graph. This is
+how you get graphs that rewrite themselves at runtime.
+
+---
+
+**What else ships today:**
+
+| | |
+|---|---|
+| Lattice DAG engine | Scatter/Gather, colored token routing, edge conditions, JoinType All/Any |
+| Child graphs | Nested graphs with parent-linked cancel propagation and PM tree introspection |
+| Graph recovery | Reconnect to a running graph without double-dispatching any node |
+| Model selection | Opus/Sonnet/Haiku per graph — heavy reasoning vs. fast validation loops |
+| Loopback tool approval | Claude sessions request tool use; routed through the approval API |
+| Arbor | Conversation tree storage backing agent session history |
+| Synapse CLI | `synapse substrate orcha run_tickets_files --ticket_files '[...]'` |
+| hub-codegen | TypeScript clients generated from runtime schema; no drift possible |
+
+---
+
+## Roadmap
+
+### Self-writing plans (`[planner]` node + live graph)
+
+**Status:** `LIVE-GRAPH-1.md` — designed, not yet implemented.
+
+Today the `Plan` node exists but the graph topology is fixed at submission time.
+Live graph makes the topology dynamic: after a running node calls `lattice.add_node`
+or `lattice.add_edge`, the engine immediately re-evaluates readiness. New
+`NodeReady` events fire into the existing stream. The graph grows while it runs.
+
+What this enables: a `[planner]` node that reads a codebase, decides the work
+is best split into 9 parallelizable tasks (not 3, not 12 — 9, because that's
+what the analysis says), and injects all 9 into the running graph. The topology
+was not defined upfront. The agent wrote it.
+
+The critical correctness constraint: when you add an edge to a node that's
+already `Complete`, the storage layer retroactively deposits the source token on
+the new edge. Otherwise the downstream node never fires. This is the one new
+invariant in the lattice.
+
+---
+
+### Contract-verified code (`[agent/tdd]` node)
+
+**Status:** `tdd-node-v2.tickets.md` — TDD-1 through TDD-7, designed, not yet implemented.
+
+The problem with "write this code and test it": if the same agent writes both,
+the tests pass because they were written to match the implementation. That's
+circular verification, not a test suite.
+
+The TDD node breaks this by introducing a spec as the shared source of truth:
+
+1. **Spec agent** writes a `BehavioralSpec` — preconditions, postconditions,
+   invariants, examples, edge cases. No file paths. No commands. Just behavior.
+
+2. **In parallel:** a spec review agent checks it for internal contradictions;
+   a project analysis agent reads the codebase and figures out where the files go
+   and what test command to run.
+
+3. **Impl agent and test agent work simultaneously from the same spec, never
+   communicating.** If they both honor it, the tests pass.
+
+4. If the tests fail, a repair agent reads the contract, the impl output, the
+   test code, and the failure log, and classifies: impl wrong? tests wrong?
+   spec ambiguous? impossible? Environmental problem? Each routes differently.
+
+What you write:
+
+```markdown
+# TDD-1: Implement advance_graph [agent/tdd]
+The `advance_graph` function in lattice/storage.rs should accept a completed
+node ID and route its output token to all qualifying downstream nodes, updating
+their readiness state and emitting NodeReady events where appropriate.
+```
+
+What you get back: a token containing the contract, the implementation, the test
+file, and how many repair cycles it took.
+
+---
+
+### Autonomous approval with human override (`ORCHA-1`)
+
+**Status:** `ORCHA-1.md` — designed, not yet implemented.
+
+Currently all tool-use in Claude sessions is auto-approved by a Haiku instance.
+There's no way to turn this off without modifying code.
+
+The plan adds an `approval_mode` to each session:
+- `autonomous` — Haiku auto-approves everything (current default)
+- `gated` — every tool use creates an `ApprovalPending` event; a human approves
+- `interactive` — human watches the stream and approves in real time
+
+A production deploy graph runs `autonomous`. A staged rollout to prod runs
+`gated` — the graph pauses before every file write for a human sign-off.
+You switch modes without changing the graph definition.
+
+---
+
+### Discord as a development surface (`DISCORD/`)
+
+**Status:** `DISCORD-1.md` through `DISCORD-11.md` — designed, partially implemented.
+
+Discord activation exposes the full Discord API as Plexus RPC methods:
+`discord.guilds.{id}.channels.list`, `discord.guilds.{id}.channels.{id}.messages.create`,
+etc. Hierarchical namespaces matching Discord's own API structure.
+
+What this enables concretely: a graph triggered by a Discord message in `#work`.
+The message is the task. The graph runs. When it completes, the result is posted
+back to the channel. Your whole team shares one Discord channel as a shared
+interface to Orcha. No dashboard, no webapp — just messages.
+
+Or: a Review node that posts "ready to deploy to prod — approve?" in `#deploys`
+and waits for a thumbs-up reaction before continuing.
+
+---
+
+### Interactive mid-stream redirection (`BIDIR/`)
+
+**Status:** `BIDIR/` — designed, not yet implemented.
+
+Right now you call a method and get a stream back. That's one direction.
+Bidirectional streaming adds the reverse: the server pushes events, the client
+pushes commands back on the same connection.
+
+What this changes for agent workflows: you're watching an agent work via
+`subscribe_graph`. You see it heading in the wrong direction halfway through.
+Today your options are: let it finish and repair, or cancel and restart.
+
+With bidirectional streaming: you push a message into the running session stream
+— "actually, focus on the public API surface only, ignore internals" — and the
+agent incorporates it. The session is interactive without polling. Human feedback
+goes in; agent output comes back. Same connection.
+
+---
+
+### Bigger bets
+
+**TLA+-verified behavioral specs.** The spec review agent in the TDD node is
+semantic — Claude checking Claude's spec for contradictions. `DispatchTdd.tla`
+already exists and TLC already checks its invariants. The interface is designed
+for drop-in replacement: `SpecReview.method` is `"semantic_review" | "tlc"`.
+When a spec fails TLC, the counterexample is a concrete execution trace — a
+specific input that violates a specific postcondition — fed directly back to
+the spec agent as refinement guidance. This is the difference between "your
+spec seems contradictory" and "here is the input that proves it."
+
+**Persistent agent memory.** Agents currently start fresh on every graph run.
+Add an Arbor-backed memory layer keyed by project + task type. After a TDD
+graph succeeds, the `TddContractArtifact` and repair history are written to
+memory. A repair agent working on a similar task next week reads that history
+first. Recurring `ImplBug` patterns in a codebase get recognized. Orcha stops
+being stateless.
+
+**Multi-hub graph federation.** Run a graph where the impl node runs on a
+powerful cloud Substrate instance and the validate node runs locally against
+your dev database. The graph is the unit of composition; which machine runs
+which node is a routing decision. Same ticket format, same event stream,
+distributed execution.
+
+**Issue-to-PR pipeline.** A GitHub webhook triggers a Plan node that reads the
+issue, generates a TDD ticket for the bug, runs it, and opens a PR with the
+implementation and test output as the PR description. The human files the issue
+and reviews the PR. Everything between is Orcha.
+
+---
+
+## Project structure
+
+```
+src/activations/
+├── lattice/         DAG engine — types, storage, activation
+├── orcha/           Multi-agent orchestration
+│   ├── types.rs     OrchaNodeKind, BehavioralSpec, TddContractArtifact, ...
+│   ├── graph_runner.rs  run_graph_execution, all dispatch_* functions
+│   ├── graph_runtime.rs OrchaGraph builder
+│   ├── ticket_compiler.rs  markdown → graph
+│   ├── activation.rs    Plexus RPC methods
+│   └── pm/          Project manager — TDD contract storage
+├── claudecode/      Claude Code session wrapper
+├── claudecode_loopback/  Tool-use approval routing
+├── arbor/           Conversation tree storage
+├── bash/            Shell command execution
+├── changelog/       API hash tracking
+└── mustache/        Template rendering
+
+plans/               Implementation plans (epics + tickets)
+├── LIVE-GRAPH/
+├── DISCORD/
+├── ORCHA/
+├── BIDIR/
+├── tdd-node-v2.tickets.md
+└── DispatchTdd.tla  Formal TLA+ spec of the TDD node
+
+docs/architecture/   Design documents (newest-first filename ordering)
+```
+
+---
+
+## Quickstart
 
 ```bash
-# Start Substrate server
-cargo run
+# Start substrate
+substrate-start
 
-# Connect via WebSocket
-wscat -c ws://localhost:4444
+# Run a ticket plan
+synapse substrate orcha run_tickets_files \
+  --ticket_files '["plans/tdd-node-v2.tickets.md"]' \
+  --model sonnet \
+  --working_directory /workspace/hypermemetic/plexus-substrate
 
-# Call Plexus RPC methods
-{"jsonrpc":"2.0","id":1,"method":"substrate.call","params":{"method":"echo.echo","params":{"message":"hello","count":3}}}
+# Watch a running graph
+synapse substrate orcha subscribe_graph --graph_id <id>
 
-# Get Plexus RPC schemas
-{"jsonrpc":"2.0","id":1,"method":"substrate.schema"}
-{"jsonrpc":"2.0","id":1,"method":"substrate.call","params":{"method":"arbor.schema"}}
+# Check pending approvals
+synapse substrate orcha list_pending_approvals --graph_id <id>
+
+# Approve
+synapse substrate orcha approve_request --approval_id <id>
 ```
 
-### MCP Bridge
+Substrate port: `4444` — WebSocket and MCP on the same port.
 
-Substrate exposes an MCP server that presents Plexus RPC methods as MCP tools using dot notation:
+---
 
-```
-echo.echo(message, count)
-arbor.tree_create(metadata)
-cone.chat(name, prompt)
-```
+## See also
 
-The MCP bridge automatically converts all registered Plexus RPC activation methods into callable MCP tools. Tool names mirror the Plexus RPC namespace structure directly.
-
-### In-Process (Rust)
-
-```rust
-use substrate::{DynamicHub, activations::Echo};
-
-let plexus = DynamicHub::new().register(Echo);
-
-let mut stream = substrate.call(
-    "echo.echo",
-    json!({"message": "test", "count": 1})
-).await?;
-
-while let Some(item) = stream.next().await {
-    println!("{:?}", item);
-}
-```
-
-## Current State
-
-| Component                     | Status  | Notes                                       |
-|-------------------------------|---------|---------------------------------------------|
-| hub-core                      | Stable  | Activation, DynamicHub, ChildRouter, schemas|
-| hub-macro                     | Stable  | Streaming attribute works                   |
-| synapse                       | Stable  | IR emission complete                        |
-| plexus-codegen-typescript     | Partial | Types done, namespace generator pending     |
-| Multi-hub (remote references) | Planned | Remote hub references not implemented       |
-
-## Multi-Hub Vision
-
-Current: All activations in-process, single DynamicHub instance.
-
-Future: Plexus RPC hubs reference other hubs as activations via URL.
-
-```
-┌─────────────────┐          ┌─────────────────┐
-│   Local Hub     │          │   Remote Hub    │
-│  ┌───────────┐  │  HTTP/   │  ┌───────────┐  │
-│  │ local.*   │  │  SSE     │  │ remote.*  │  │
-│  └───────────┘  │◄────────►│  └───────────┘  │
-│  ┌───────────┐  │          └─────────────────┘
-│  │ remote@url│──┼──────────────────┘
-│  │ (proxy)   │  │
-│  └───────────┘  │
-└─────────────────┘
-```
-
-Requirements for multi-hub Plexus RPC:
-- Transport envelope for cross-hub calls
-- Schema federation (remote schemas appear local)
-- Streaming across network boundary
-- Authentication/authorization
-
-See `docs/architecture/16679517135570018559_multi-hub-transport-envelope.md`.
-
-## Project Structure
-
-```
-src/
-├── plexus/              # Re-exports from hub-core
-├── activations/         # Substrate-specific Plexus RPC activations
-│   ├── arbor/          # Conversation tree storage
-│   ├── cone/           # Generic LLM orchestration
-│   ├── claudecode/     # Claude Code CLI wrapper
-│   ├── bash/           # Shell command execution
-│   ├── changelog/      # Change tracking
-│   ├── mustache/       # Template rendering
-│   ├── echo/           # Example leaf activation
-│   ├── health/         # Example minimal activation
-│   └── solar/          # Example hub activation
-├── mcp_bridge.rs       # MCP protocol adapter for Plexus RPC
-└── main.rs             # Plexus RPC server entry point
-```
-
-## See Also
-
-- `docs/architecture/16676565123400000000_plexus-rpc-ecosystem-naming.md` - Plexus RPC naming strategy
-- `docs/architecture/16679477965835151615_hub-architecture-layering.md` - Detailed Plexus RPC architecture
-- `docs/architecture/16679613932789736703_compiler-architecture.md` - Code generation pipeline
-- `docs/architecture/16680807091363337727_introspective-rpc-protocol.md` - Plexus RPC protocol design
-- `docs/architecture/16680343462706939647_schema-as-membrane.md` - Schema philosophy
+- `docs/architecture/intro-lattice-orcha-tdd.md` — full architectural introduction
+- `docs/architecture/16678373036159325695_plugin-development-guide.md` — how to write a new activation
+- `plans/DispatchTdd.tla` — formal spec of the TDD node control flow
+- `plans/tdd-node-v2.tickets.md` — implementation plan for TDD-1 through TDD-7
 
 ## License
 
