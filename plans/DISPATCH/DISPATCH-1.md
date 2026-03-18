@@ -1,4 +1,4 @@
-# L5-WIRE: Thread GraphRuntime and CancelRegistry into dispatch_node [agent]
+# DISPATCH-1: Thread GraphRuntime and CancelRegistry into dispatch_node [agent]
 
 Add `graph_runtime: Arc<GraphRuntime>` and `cancel_registry: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>>` as parameters to `run_graph_execution` and `dispatch_node` in `src/activations/orcha/graph_runner.rs`.
 
