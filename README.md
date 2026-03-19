@@ -16,33 +16,29 @@ a human gate.
 **Run a ticket plan from markdown:**
 
 ```markdown
-# TASK-1: Analyze the codebase [agent/task]
+# TASK-1: Analyze the codebase [agent]
 Summarize the architecture of /workspace/myproject
 
-# TASK-2: Write the implementation [agent/task]
+# TASK-2: Write the implementation [agent]
 blocked_by: [TASK-1]
 Implement the feature described in the analysis above
 
-# TASK-3: Validate [agent/validate]
+# TASK-3: Validate [prog]
 blocked_by: [TASK-2]
 validate: cargo test --package myproject 2>&1
 ```
 
 ```bash
-synapse substrate orcha run_tickets --tickets_content "$(cat plan.md)"
+synapse substrate orcha run_tickets_files \
+  --ticket_files '["plan.md"]' \
+  --model sonnet \
+  --working_directory /workspace/myproject
 ```
 
-**Run a TDD node — spec-driven contract-first development:**
-
-```markdown
-# TDD-1: Implement run_plan [agent/tdd]
-Parse a ticket markdown file and return an OrchaGraph with nodes and edges
-matching the ticket dependency structure.
-```
-
-The TDD node writes a behavioral spec, validates it for consistency, spins up
-parallel impl and test agents from the spec, runs the tests, and repairs failures
-— all inside one graph node. The parent graph sees a token when it's done.
+Node types: `[agent]` runs Claude, `[agent/synthesize]` runs Claude with upstream
+outputs stitched in as context, `[prog]` runs a shell command, `[review]` pauses
+for human approval, `[planner]` asks Claude to generate a new ticket plan which
+runs as a child graph.
 
 **Build a graph programmatically:**
 
@@ -104,7 +100,7 @@ enum OrchaNodeKind {
     Validate  { command: String }       // run a shell command; exit 0 → ok token, else error
     Review    { prompt: String }        // pause and wait for human approval via API
     Plan      { task: String }          // Claude produces a ticket plan, spawns as child graph
-    Tdd       { task: String, .. }      // contract-first dev loop (see below)
+    // Tdd — planned, not yet implemented
 }
 ```
 
@@ -143,17 +139,17 @@ the exit code — ok token on pass, error token on failure — to whatever you w
 downstream. You watch it all in real time via `subscribe_graph`.
 
 ```markdown
-# ANALYZE-1: Read the module [agent/task]
+# ANALYZE-1: Read the module [agent]
 Summarize the architecture of src/activations/orcha/
 
-# ANALYZE-2: Read the tests [agent/task]
+# ANALYZE-2: Read the tests [agent]
 List what is and isn't tested in src/activations/orcha/
 
 # SYNTHESIZE: Identify gaps [agent/synthesize]
 blocked_by: [ANALYZE-1, ANALYZE-2]
 Given the analysis and test coverage above, list the top 5 untested behaviors.
 
-# VALIDATE: Check it compiles [agent/validate]
+# VALIDATE: Check it compiles [prog]
 blocked_by: [SYNTHESIZE]
 validate: cargo check --package plexus-substrate 2>&1
 ```
@@ -161,6 +157,11 @@ validate: cargo check --package plexus-substrate 2>&1
 ANALYZE-1 and ANALYZE-2 run in parallel. SYNTHESIZE receives both outputs as
 `<prior_work>` context. VALIDATE runs the command; if it fails, the node gets
 an error token and the graph fails with the output.
+
+The ticket format works but has rough edges: `blocked_by` is the only dependency
+syntax, there's no way to express conditional branching in the ticket file itself
+(that requires building the graph programmatically), and error handling between
+nodes is all-or-nothing unless you wire it manually.
 
 ---
 
@@ -227,24 +228,26 @@ how you get graphs that rewrite themselves at runtime.
 
 ## Roadmap
 
-### Self-writing plans (`[planner]` node + live graph)
+### Runtime graph mutation (live graph)
 
 **Status:** `LIVE-GRAPH-1.md` — designed, not yet implemented.
 
-Today the `Plan` node exists but the graph topology is fixed at submission time.
-Live graph makes the topology dynamic: after a running node calls `lattice.add_node`
-or `lattice.add_edge`, the engine immediately re-evaluates readiness. New
-`NodeReady` events fire into the existing stream. The graph grows while it runs.
+The `[planner]` node exists and works: Claude generates a ticket file, it
+compiles into a child graph, the child graph runs. The parent graph never
+knew upfront how many nodes there would be — the planner decided.
 
-What this enables: a `[planner]` node that reads a codebase, decides the work
-is best split into 9 parallelizable tasks (not 3, not 12 — 9, because that's
-what the analysis says), and injects all 9 into the running graph. The topology
-was not defined upfront. The agent wrote it.
+What's not implemented: mutating a graph *while it's running*. Today the
+child graph is fully compiled before any node executes. A running `[planner]`
+node cannot call `lattice.add_node` mid-flight to inject work after seeing
+partial results.
 
-The critical correctness constraint: when you add an edge to a node that's
-already `Complete`, the storage layer retroactively deposits the source token on
-the new edge. Otherwise the downstream node never fires. This is the one new
-invariant in the lattice.
+What live graph enables: a planner that reads partial analysis output from
+sibling nodes as they complete, decides the fix is actually 9 tasks not 3,
+and injects them into the same running graph — without a child graph boundary.
+
+The critical correctness constraint for this: when you add an edge to a node
+that's already `Complete`, the storage layer must retroactively deposit the
+source token on the new edge. Otherwise the downstream node never fires.
 
 ---
 
