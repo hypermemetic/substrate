@@ -33,14 +33,21 @@ Three layers. Each knows only about the layer below it.
 
 | Activation | Purpose |
 |---|---|
-| **orcha** | Multi-agent orchestration — run ticket plans as parallel agent DAGs, human approval gates, child graphs. See [`docs/activations/orcha/README.md`](docs/activations/orcha/README.md). |
-| **lattice** | DAG execution engine underlying Orcha. Nodes, edges, typed tokens, scatter/gather, join types. |
-| **arbor** | Conversation tree storage. Backs agent session history. |
-| **claudecode** | Claude Code CLI session wrapper. Spawns and manages Claude sessions. |
-| **claudecode_loopback** | Tool-use approval routing. Claude sessions request permission; routed through the approval API. |
-| **bash** | Shell command execution. |
-| **changelog** | API hash tracking — logs when the method schema changes between restarts. |
-| **mustache** | Template rendering. |
+| **[orcha](docs/activations/orcha/README.md)** | Multi-agent orchestration — ticket plans as parallel agent DAGs, human approval gates, child graphs. |
+| **[lattice](docs/activations/lattice/README.md)** | Colored Petri net DAG execution engine. Nodes, edges, typed tokens, scatter/gather, join types, crash recovery. |
+| **[arbor](docs/activations/arbor/README.md)** | Conversation tree storage with reference counting and lifecycle management. Backs session history. |
+| **[claudecode](docs/activations/claudecode/README.md)** | Claude Code CLI session wrapper with Arbor-backed history, forking, async polling, and JSONL import/export. |
+| **[claudecode_loopback](docs/activations/claudecode_loopback/README.md)** | Tool-use approval gating. Claude sessions block on permission requests until a parent approves or denies. |
+| **[cone](docs/activations/cone/README.md)** | Multi-model LLM agent (Claude, OpenAI, others) with Arbor-backed conversation history and branching. |
+| **[bash](docs/activations/bash/README.md)** | Shell command execution with real-time stdout/stderr streaming. |
+| **[changelog](docs/activations/changelog/README.md)** | API hash tracking — detects undocumented schema changes between restarts. |
+| **[mustache](docs/activations/mustache/README.md)** | Template rendering. Other activations register and call named Mustache templates. |
+| **[chaos](docs/activations/chaos/README.md)** | Fault injection — force-fail/complete running nodes, kill processes, crash substrate. For testing. |
+| **[registry](docs/activations/registry/README.md)** | Backend discovery and health checking. Maintains a registry of Plexus RPC backends. |
+| **[interactive](docs/activations/interactive/README.md)** | Bidirectional communication demo (prompts, selections, confirmations). Protocol not yet fully shipped. |
+| **[echo](docs/activations/echo/README.md)** | Echo service. Reference implementation of the `#[hub_methods]` macro pattern. |
+| **[health](docs/activations/health/README.md)** | Reports server uptime. |
+| **[solar](docs/activations/solar/README.md)** | Nested plugin hierarchy demo modelling the solar system. Shows `ChildRouter` pattern. |
 
 ---
 
