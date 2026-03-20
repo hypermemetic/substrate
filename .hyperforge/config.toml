@@ -5,6 +5,7 @@ forges = [
 ]
 visibility = "public"
 description = "Dynamic hub backend for multi-activation systems"
+large_file_threshold_kb = 150
 
 [ci]
 skip_validate = false
