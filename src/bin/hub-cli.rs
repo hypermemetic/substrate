@@ -6,6 +6,7 @@
 use plexus_substrate::{
     plexus::DynamicHub,
     activations::health::Health,
+    activations::echo::Echo,
 };
 use futures::StreamExt;
 use serde_json::json;
@@ -13,9 +14,10 @@ use std::env;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Build the hub with Health activation only
+    // Build the hub with Health and Echo activations
     let plexus = DynamicHub::new("plexus")
-        .register(Health::new());
+        .register(Health::new())
+        .register(Echo::new());
 
     // Get args
     let args: Vec<String> = env::args().collect();

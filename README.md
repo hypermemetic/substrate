@@ -58,8 +58,15 @@ Everything is exposed on port `4444`:
 ## Quickstart
 
 ```bash
-# Start
-substrate-start
+# Start in background (default - daemonizes after startup)
+cargo run
+
+# Start in foreground (for debugging)
+cargo run -- --fg
+
+# Development mode (auto-restart on file changes)
+# First install cargo-watch: cargo install cargo-watch
+cargo dev
 
 # Explore available methods
 LANG=C.UTF-8 synapse substrate
@@ -70,6 +77,13 @@ LANG=C.UTF-8 synapse substrate orcha run_tickets_files \
   --model sonnet \
   --working_directory /workspace/hypermemetic/plexus-substrate
 ```
+
+### Running Modes
+
+- **Background (default)**: `cargo run` — Shows startup logs, then daemonizes
+- **Foreground**: `cargo run -- --fg` — Stays attached to terminal
+- **Development**: `cargo dev` — Auto-restarts on code changes (requires `cargo-watch`)
+- **Stdio/MCP**: `cargo run -- --stdio` — Line-delimited JSON-RPC for MCP integration
 
 ---
 

@@ -46,7 +46,8 @@ which = "6.0"
 jsonrpsee = { version = "0.26", features = ["server", "client", "ws-client", "macros"] }
 clap = { version = "4.0", features = ["derive"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "tracing-log"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "tracing-log", "ansi"] }
+tracing-appender = "0.2"
 dotenvy = "0.15"
 tower-http = { version = "0.5", features = ["trace", "util", "cors"] }
 http = "1.0"
@@ -74,9 +75,17 @@ mustache = "0.9"
 # POSIX signal primitives (used by chaos activation)
 libc = "0.2"
 
+# Daemonization support
+daemonize = "0.5"
+
 [features]
-default = ["mcp-gateway"]
+default = ["mcp-gateway", "transport-plexus"]
 mcp-gateway = ["plexus-transport/mcp-gateway"]
+
+# Transport feature flags (match plexus-derive features)
+transport-plexus = ["plexus-derive/transport-plexus"]
+transport-http = ["plexus-derive/transport-http"]
+transport-mcp = ["plexus-derive/transport-mcp"]
 
 [dev-dependencies]
 hyper = "1"
@@ -96,3 +105,9 @@ plexus-core = { path = "../plexus-core" }
 plexus-macros = { path = "../plexus-macros" }
 plexus-transport = { path = "../plexus-transport" }
 plexus-registry = { path = "../plexus-registry" }
+
+[dependencies.plexus-derive]
+path = "../plexus-derive"
+
+[dependencies.plexus-ir]
+path = "../plexus-ir"

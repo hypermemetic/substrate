@@ -1,11 +1,11 @@
-//! Echo activation - demonstrates hub-macro usage with caller-wraps streaming
+//! Echo activation - demonstrates new activation macro usage
 //!
 //! This is a minimal example showing how to create an activation using the
-//! `#[hub_methods]` macro. The macro generates:
+//! new `#[activation]` macro. The macro generates:
 //!
-//! - RPC trait and server implementation
 //! - Activation trait implementation
 //! - Method enum with JSON schemas
+//! - Automatic dispatch routing
 //!
 //! Event types are plain domain types (no special traits needed).
 //! The macro handles wrapping with `wrap_stream()` at the call site.
@@ -14,6 +14,13 @@ use super::types::EchoEvent;
 use async_stream::stream;
 use futures::Stream;
 use std::time::Duration;
+
+// Import the activation macro - use crate::activation since we're inside plexus-substrate
+use crate::activation;
+
+// Imports needed for generated RPC code
+use jsonrpsee::core::SubscriptionResult;
+use jsonrpsee::{proc_macros::rpc, PendingSubscriptionSink};
 
 /// Echo activation - echoes messages back
 #[derive(Clone)]
@@ -31,25 +38,16 @@ impl Default for Echo {
     }
 }
 
-/// Hub-macro generates all the boilerplate for this impl block:
-/// - EchoRpc trait with JSON-RPC subscription methods
-/// - EchoRpcServer implementation
-/// - Activation trait implementation
-/// - EchoMethod enum with JSON schemas
-#[plexus_macros::hub_methods(
+/// New activation macro - much cleaner! No need for #[hub_method] on each method.
+/// All public async functions are automatically included as methods.
+#[activation(
     namespace = "echo",
     version = "1.0.0",
-    description = "Echo messages back - demonstrates plexus-macros usage"
+    description = "Echo messages back - demonstrates plexus-derive usage",
+    plexus  // Enable Plexus JSON-RPC transport
 )]
 impl Echo {
-    /// Echo a message back
-    #[plexus_macros::hub_method(
-        description = "Echo a message back the specified number of times",
-        params(
-            message = "The message to echo",
-            count = "Number of times to repeat (default: 1)"
-        )
-    )]
+    /// Echo a message back the specified number of times
     async fn echo(
         &self,
         message: String,
@@ -69,11 +67,7 @@ impl Echo {
         }
     }
 
-    /// Echo a simple message once
-    #[plexus_macros::hub_method(
-        description = "Echo a message once",
-        params(message = "The message to echo")
-    )]
+    /// Echo a message once
     async fn once(&self, message: String) -> impl Stream<Item = EchoEvent> + Send + 'static {
         stream! {
             yield EchoEvent::Echo {
@@ -84,7 +78,6 @@ impl Echo {
     }
 
     /// Ping — returns a Pong response
-    #[plexus_macros::hub_method(description = "Ping — returns a Pong response")]
     async fn ping(&self) -> impl Stream<Item = EchoEvent> + Send + 'static {
         stream! {
             yield EchoEvent::Pong;

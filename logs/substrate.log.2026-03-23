@@ -1,0 +1,8 @@
+2026-03-23T00:32:53.893669Z ERROR plexus_substrate: ▓▓▓ SUBSTRATE BOOT SEQUENCE ▓▓▓
+2026-03-23T00:32:53.893700Z  WARN plexus_substrate:   ├─ warn  :: caution signals armed
+2026-03-23T00:32:53.893711Z  WARN plexus_substrate: Authentication: DISABLED — set --api-key or PLEXUS_API_KEY to require bearer tokens
+2026-03-23T00:32:54.077655Z ERROR plexus_substrate::builder: UNDOCUMENTED PLEXUS CHANGE: d045aaef005d1309 -> 0f529b9e850fe4ac. Add changelog entry for hash '0f529b9e850fe4ac'
+2026-03-23T01:13:08.993024Z ERROR plexus_substrate: ▓▓▓ SUBSTRATE BOOT SEQUENCE ▓▓▓
+2026-03-23T01:13:08.993231Z  WARN plexus_substrate:   ├─ warn  :: caution signals armed
+2026-03-23T01:13:08.993243Z  WARN plexus_substrate: Authentication: DISABLED — set --api-key or PLEXUS_API_KEY to require bearer tokens
+2026-03-23T01:13:09.201360Z ERROR plexus_substrate::builder: UNDOCUMENTED PLEXUS CHANGE: 0f529b9e850fe4ac -> 1109b7a625dd3c23. Add changelog entry for hash '1109b7a625dd3c23'

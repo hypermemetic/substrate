@@ -10,6 +10,9 @@ pub mod health;
 // Echo demonstrates plexus-macros usage with the new architecture
 pub mod echo;
 
+// Ping demonstrates plexus-derive usage with the new #[activation] macro
+pub mod ping;
+
 // Solar demonstrates nested plugin hierarchy (plugins with children)
 pub mod solar;
 

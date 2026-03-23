@@ -10,7 +10,6 @@ use crate::activations::chaos::Chaos;
 use crate::activations::claudecode::{ClaudeCode, ClaudeCodeStorage, ClaudeCodeStorageConfig};
 use crate::activations::claudecode_loopback::{ClaudeCodeLoopback, LoopbackStorageConfig};
 use crate::activations::cone::{Cone, ConeStorageConfig};
-use crate::activations::echo::Echo;
 use crate::activations::health::Health;
 use crate::activations::interactive::Interactive;
 use crate::activations::lattice::{Lattice, LatticeStorageConfig};
@@ -18,6 +17,7 @@ use crate::activations::changelog::{Changelog, ChangelogStorageConfig};
 use crate::activations::mustache::{Mustache, MustacheStorageConfig};
 use crate::activations::orcha::pm::{Pm, PmStorage, PmStorageConfig};
 use crate::activations::orcha::{GraphRuntime, Orcha, OrchaStorage, OrchaStorageConfig};
+use crate::activations::ping::Ping;
 use crate::activations::solar::Solar;
 use crate::plexus::DynamicHub;
 // use plexus_jsexec::{JsExec, JsExecConfig};  // temporarily disabled - needs API updates
@@ -142,9 +142,9 @@ pub async fn build_plexus_rpc() -> Arc<DynamicHub> {
         // Build and return the DynamicHub with "substrate" namespace
         DynamicHub::new("substrate")
             .register(Health::new())
-            .register(Echo::new())
             .register(Bash::new())
             .register(Chaos::new(lattice.storage()))
+            .register(Ping::new())  // Test activation using plexus-derive
             .register(arbor)
             .register(cone)
             .register(claudecode)

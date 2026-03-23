@@ -10,6 +10,9 @@ pub mod types;
 // This allows the hub_methods macro to reference serde helpers via crate::serde_helpers
 pub use plexus_core::serde_helpers;
 
+// Re-export activation macro for convenient imports
+pub use plexus_derive::activation;
+
 // Re-export commonly used items
 pub use builder::build_plexus_rpc;
 pub use mcp_bridge::PlexusMcpBridge;
