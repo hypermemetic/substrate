@@ -31,16 +31,24 @@ Three layers. Each knows only about the layer below it.
 
 ## Activations
 
-| Activation | Purpose |
-|---|---|
-| **orcha** | Multi-agent orchestration — run ticket plans as parallel agent DAGs, human approval gates, child graphs. See [`docs/activations/orcha/README.md`](docs/activations/orcha/README.md). |
-| **lattice** | DAG execution engine underlying Orcha. Nodes, edges, typed tokens, scatter/gather, join types. |
-| **arbor** | Conversation tree storage. Backs agent session history. |
-| **claudecode** | Claude Code CLI session wrapper. Spawns and manages Claude sessions. |
-| **claudecode_loopback** | Tool-use approval routing. Claude sessions request permission; routed through the approval API. |
-| **bash** | Shell command execution. |
-| **changelog** | API hash tracking — logs when the method schema changes between restarts. |
-| **mustache** | Template rendering. |
+| Activation | Namespace | What it does |
+|---|---|---|
+| **Arbor** | `arbor` | Persistent conversation trees with context tracking, handles, scheduling, archival |
+| **Cone** | `cone` | LLM conversation orchestration — model registry, streaming chat, Arbor-integrated context |
+| **ClaudeCode** | `claudecode` | Claude Code session management — create/execute/interrupt sessions with Arbor-backed history |
+| **Loopback** | `loopback` | Bidirectional permission routing — parent approves/denies tool calls from child sessions |
+| **Orcha** | `orcha` | Multi-agent orchestration with approval loops, crash recovery, Lattice DAG execution. See [`docs/activations/orcha/README.md`](docs/activations/orcha/README.md). |
+| **Lattice** | `lattice` | DAG execution engine — topological ordering, dependency resolution, node state machines |
+| **Chaos** | `chaos` | Fault injection & observability — force-fail nodes, kill processes, crash substrate for testing |
+| **Bash** | `bash` | Execute shell commands with streaming stdout/stderr |
+| **Registry** | `registry` | Backend discovery — register/list/ping other Plexus RPC servers |
+| **Mustache** | `mustache` | Template rendering for handle values |
+| **Changelog** | `changelog` | Track plexus schema hash changes with documentation enforcement |
+| **Interactive** | `interactive` | Bidirectional UI prompts — wizards, confirmations, selections |
+| **Health** | `health` | Health checks and uptime |
+| **Echo** | `echo` | Echo/ping test activation |
+| **Ping** | `ping` | Ping/pong test activation |
+| **Solar** | `solar` | Demo of nested hub activation hierarchy (solar system model) |
 
 ---
 
