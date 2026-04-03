@@ -77,13 +77,13 @@ cargo run -- --fg
 cargo dev
 
 # Explore available methods
-LANG=C.UTF-8 synapse substrate
+synapse substrate
 
 # Run an agent graph from a ticket plan
-LANG=C.UTF-8 synapse substrate orcha run_tickets_files \
+synapse substrate orcha run_tickets_files \
   --ticket_files '["plans/TDD/TDD-1.md"]' \
   --model sonnet \
-  --working_directory /workspace/hypermemetic/plexus-substrate
+  --working_directory .
 ```
 
 ### Running Modes
@@ -97,10 +97,13 @@ LANG=C.UTF-8 synapse substrate orcha run_tickets_files \
 
 ## See also
 
-- [`docs/activations/orcha/README.md`](docs/activations/orcha/README.md) — Orcha: multi-agent orchestration
-- [`docs/architecture/intro-lattice-orcha-tdd.md`](docs/architecture/intro-lattice-orcha-tdd.md) — full stack walkthrough
-- [`docs/architecture/__index.md`](docs/architecture/__index.md) — architecture doc index
 - [`docs/QUICKSTART.md`](docs/QUICKSTART.md) — getting started guide
+- [`docs/architecture/__index.md`](docs/architecture/__index.md) — architecture doc index (start here)
+- [`docs/architecture/16671569470654229503_system-overview.md`](docs/architecture/16671569470654229503_system-overview.md) — system overview
+- [`docs/architecture/16671569470654229502_activation-integration.md`](docs/architecture/16671569470654229502_activation-integration.md) — how activations connect
+- [`docs/architecture/16671569470654229501_activation-reference.md`](docs/architecture/16671569470654229501_activation-reference.md) — per-activation API reference
+- [`docs/architecture/16671569470654229500_transport-mcp-gateway.md`](docs/architecture/16671569470654229500_transport-mcp-gateway.md) — transport & MCP gateway
+- [`docs/activations/orcha/README.md`](docs/activations/orcha/README.md) — Orcha: multi-agent orchestration
 - [`docs/architecture/16678373036159325695_plugin-development-guide.md`](docs/architecture/16678373036159325695_plugin-development-guide.md) — how to write a new activation
 
 ## License

@@ -1,5 +1,7 @@
 # Agent Plugin Architecture
 
+> **SUPERSEDED**: This design doc predates the current implementation. The "Agent plugin" was implemented as **Cone** (`src/activations/cone/`), and "Loom" was implemented as **Arbor** (`src/activations/arbor/`). See `16671569470654229502_activation-integration.md` for the current architecture.
+
 ## Overview
 
 The Agent plugin provides stateful LLM conversations with persistent context. It combines:
