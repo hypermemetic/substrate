@@ -43,6 +43,8 @@ agents.db
 .substrate/
 .cargo/
 output.log
+substrate.log*
+logs/
 
 # TLA+ model checker artifacts
 plans/tla2tools.jar
