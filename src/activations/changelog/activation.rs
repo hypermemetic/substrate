@@ -2,7 +2,7 @@ use super::storage::{ChangelogStorage, ChangelogStorageConfig};
 use super::types::{ChangelogEntry, ChangelogEvent, QueueEntry};
 use async_stream::stream;
 use futures::Stream;
-use plexus_macros::hub_methods;
+use plexus_macros::activation;
 use std::sync::Arc;
 
 /// Changelog activation - tracks Plexus RPC server hash changes and enforces documentation
@@ -69,7 +69,7 @@ impl Changelog {
 )]
 impl Changelog {
     /// Add a changelog entry for a plexus hash transition
-    #[plexus_macros::hub_method(description = "Add a changelog entry documenting a plexus hash change")]
+    #[plexus_macros::method(description = "Add a changelog entry documenting a plexus hash change")]
     async fn add(
         &self,
         hash: String,
@@ -111,7 +111,7 @@ impl Changelog {
     }
 
     /// List all changelog entries
-    #[plexus_macros::hub_method(description = "List all changelog entries (newest first)")]
+    #[plexus_macros::method(description = "List all changelog entries (newest first)")]
     async fn list(&self) -> impl Stream<Item = ChangelogEvent> + Send + 'static {
         let storage = self.storage.clone();
 
@@ -128,7 +128,7 @@ impl Changelog {
     }
 
     /// Get a specific changelog entry by hash
-    #[plexus_macros::hub_method(description = "Get a changelog entry for a specific plexus hash")]
+    #[plexus_macros::method(description = "Get a changelog entry for a specific plexus hash")]
     async fn get(
         &self,
         hash: String,
@@ -155,7 +155,7 @@ impl Changelog {
     }
 
     /// Check current status - is the current plexus hash documented?
-    #[plexus_macros::hub_method(description = "Check if the current plexus configuration is documented")]
+    #[plexus_macros::method(description = "Check if the current plexus configuration is documented")]
     async fn check(
         &self,
         current_hash: String,
@@ -188,7 +188,7 @@ impl Changelog {
     // ========== Queue Methods ==========
 
     /// Add a planned change to the queue
-    #[plexus_macros::hub_method(description = "Queue a planned change that systems should implement. Tags identify which systems are affected (e.g., 'frontend', 'api', 'breaking')")]
+    #[plexus_macros::method(description = "Queue a planned change that systems should implement. Tags identify which systems are affected (e.g., 'frontend', 'api', 'breaking')")]
     async fn queue_add(
         &self,
         description: String,
@@ -212,7 +212,7 @@ impl Changelog {
     }
 
     /// List all queue entries, optionally filtered by tag
-    #[plexus_macros::hub_method(description = "List all queued changes, optionally filtered by tag")]
+    #[plexus_macros::method(description = "List all queued changes, optionally filtered by tag")]
     async fn queue_list(
         &self,
         tag: Option<String>,
@@ -232,7 +232,7 @@ impl Changelog {
     }
 
     /// List pending queue entries, optionally filtered by tag
-    #[plexus_macros::hub_method(description = "List pending queued changes that haven't been completed yet")]
+    #[plexus_macros::method(description = "List pending queued changes that haven't been completed yet")]
     async fn queue_pending(
         &self,
         tag: Option<String>,
@@ -252,7 +252,7 @@ impl Changelog {
     }
 
     /// Get a specific queue entry by ID
-    #[plexus_macros::hub_method(description = "Get a specific queued change by its ID")]
+    #[plexus_macros::method(description = "Get a specific queued change by its ID")]
     async fn queue_get(
         &self,
         id: String,
@@ -272,7 +272,7 @@ impl Changelog {
     }
 
     /// Mark a queue entry as complete
-    #[plexus_macros::hub_method(description = "Mark a queued change as complete, linking it to the hash where it was implemented")]
+    #[plexus_macros::method(description = "Mark a queued change as complete, linking it to the hash where it was implemented")]
     async fn queue_complete(
         &self,
         id: String,

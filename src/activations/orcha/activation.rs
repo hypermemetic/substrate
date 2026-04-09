@@ -12,7 +12,7 @@ use async_stream::stream;
 use async_trait::async_trait;
 use futures::Stream;
 use futures::StreamExt;
-use plexus_macros::hub_methods;
+use plexus_macros::activation;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -381,7 +381,7 @@ impl<P: HubContext> Orcha<P> {
     /// - Runs task with approval handling
     /// - Extracts and executes validation
     /// - Auto-retries on failure
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn run_task(
         &self,
         request: RunTaskRequest,
@@ -399,7 +399,7 @@ impl<P: HubContext> Orcha<P> {
     ///
     /// Creates a session record to track orchestration state. The client should
     /// then create a corresponding claudecode session with loopback enabled.
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn create_session(
         &self,
         request: CreateSessionRequest,
@@ -447,7 +447,7 @@ impl<P: HubContext> Orcha<P> {
     /// Update session state
     ///
     /// Called by the client to update the current state of the session
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn update_session_state(
         &self,
         session_id: SessionId,
@@ -470,7 +470,7 @@ impl<P: HubContext> Orcha<P> {
     }
 
     /// Get session information
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn get_session(
         &self,
         request: GetSessionRequest,
@@ -494,7 +494,7 @@ impl<P: HubContext> Orcha<P> {
     /// Extract validation artifact from text
     ///
     /// Scans text for {"orcha_validate": {...}} pattern and extracts test command
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn extract_validation(
         &self,
         text: String,
@@ -514,7 +514,7 @@ impl<P: HubContext> Orcha<P> {
     /// Run a validation test
     ///
     /// Executes a test command and returns the result
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn run_validation(
         &self,
         artifact: ValidationArtifact,
@@ -529,7 +529,7 @@ impl<P: HubContext> Orcha<P> {
     /// Increment retry counter for a session
     ///
     /// Called when validation fails and the client wants to retry
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn increment_retry(
         &self,
         session_id: SessionId,
@@ -563,7 +563,7 @@ impl<P: HubContext> Orcha<P> {
     }
 
     /// List all sessions
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn list_sessions(&self) -> impl Stream<Item = ListSessionsResult> + Send + 'static {
         let storage = self.storage.clone();
 
@@ -574,7 +574,7 @@ impl<P: HubContext> Orcha<P> {
     }
 
     /// Delete a session
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn delete_session(
         &self,
         session_id: SessionId,
@@ -600,7 +600,7 @@ impl<P: HubContext> Orcha<P> {
     /// Like run_task but non-blocking. Returns the session_id immediately
     /// and the task runs in the background. Use check_status or get_session
     /// to check on progress.
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn run_task_async(
         &self,
         request: RunTaskRequest,
@@ -643,7 +643,7 @@ impl<P: HubContext> Orcha<P> {
     /// List all orcha monitor trees
     ///
     /// Returns all arbor trees created by orcha for monitoring sessions
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn list_monitor_trees(
         &self,
     ) -> impl Stream<Item = ListMonitorTreesResult> + Send + 'static {
@@ -692,7 +692,7 @@ impl<P: HubContext> Orcha<P> {
     ///
     /// Creates an ephemeral forked session to generate a summary of what's happening,
     /// and saves the summary to an arbor monitoring tree for historical tracking.
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn check_status(
         &self,
         request: CheckStatusRequest,
@@ -950,7 +950,7 @@ impl<P: HubContext> Orcha<P> {
     ///
     /// Creates a new ClaudeCode session and tracks it as an agent within the orcha session.
     /// Can be called explicitly via API or by agents themselves requesting helpers.
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn spawn_agent(
         &self,
         request: SpawnAgentRequest,
@@ -1057,7 +1057,7 @@ impl<P: HubContext> Orcha<P> {
     }
 
     /// List all agents in a session
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn list_agents(
         &self,
         request: ListAgentsRequest,
@@ -1079,7 +1079,7 @@ impl<P: HubContext> Orcha<P> {
     }
 
     /// Get specific agent info
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn get_agent(
         &self,
         request: GetAgentRequest,
@@ -1104,7 +1104,7 @@ impl<P: HubContext> Orcha<P> {
     ///
     /// Returns all approval requests awaiting manual approval.
     /// Only relevant when auto_approve is disabled.
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn list_pending_approvals(
         &self,
         request: ListApprovalsRequest,
@@ -1146,7 +1146,7 @@ impl<P: HubContext> Orcha<P> {
     ///
     /// Approves a tool use request and unblocks the waiting agent.
     /// The approval_id comes from list_pending_approvals.
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn approve_request(
         &self,
         request: ApproveRequest,
@@ -1188,7 +1188,7 @@ impl<P: HubContext> Orcha<P> {
     ///
     /// Denies a tool use request. The agent will receive an error
     /// and may adapt or fail depending on its error handling.
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn deny_request(
         &self,
         request: DenyRequest,
@@ -1235,7 +1235,7 @@ impl<P: HubContext> Orcha<P> {
     /// The stream yields all currently-pending approvals immediately, then waits
     /// for new ones via a `Notify`-based wake-up. Closes after `timeout_secs`
     /// of silence (default: 300 seconds).
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "Graph ID to watch for approval requests",
         timeout_secs = "How long to wait before closing (default: 300)"
     ))]
@@ -1307,7 +1307,7 @@ impl<P: HubContext> Orcha<P> {
     /// - `"validate"`: run a shell command from `spec.data.command`
     ///
     /// Streams OrchaEvent progress events until the graph completes or fails.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "ID of the lattice graph to execute",
         model = "Model for task nodes: opus, sonnet, haiku (default: sonnet)",
         working_directory = "Working directory for task nodes (default: /workspace)"
@@ -1363,7 +1363,7 @@ impl<P: HubContext> Orcha<P> {
     /// A Plan node is created that asks Claude to generate and execute a child
     /// graph from the supplied `task` description. Streams `OrchaEvent` progress
     /// events until the graph completes or fails.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         task = "Natural-language task — passed directly to Claude as the planning prompt",
         model = "Model for all nodes: opus, sonnet, haiku (default: sonnet)",
         working_directory = "Working directory for task nodes (default: /workspace)"
@@ -1443,7 +1443,7 @@ impl<P: HubContext> Orcha<P> {
     ///
     /// If the graph is not currently running (no cancel token registered), yields
     /// `OrchaEvent::Failed` with a "not found" error.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "Lattice graph ID to cancel"
     ))]
     async fn cancel_graph(
@@ -1504,7 +1504,7 @@ impl<P: HubContext> Orcha<P> {
     /// # on disconnect:
     /// events   = subscribe_graph(graph_id, after_seq=last_seen_seq)
     /// ```
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "Lattice graph ID from run_tickets_async or build_tickets",
         after_seq = "Sequence number to resume from (0 or omit to start from beginning)"
     ))]
@@ -1596,7 +1596,7 @@ impl<P: HubContext> Orcha<P> {
     /// NodeStarted/NodeComplete/NodeFailed events are invisible to the caller.
     /// `watch_graph_tree` fixes this by polling for newly created child graphs every 500 ms
     /// and subscribing to each one as it appears.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "Root graph ID to watch (recursively includes all child graphs)",
         after_seq = "Sequence number for the root graph to resume from (0 or omit)"
     ))]
@@ -1679,7 +1679,7 @@ impl<P: HubContext> Orcha<P> {
     // ─── Graph Builder API ───────────────────────────────────────────────────────
 
     /// Create an empty Orcha execution graph.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         metadata = "Arbitrary JSON metadata attached to the graph"
     ))]
     async fn create_graph(
@@ -1696,7 +1696,7 @@ impl<P: HubContext> Orcha<P> {
     }
 
     /// Add a task node — Claude runs `task` as a prompt.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "Graph to add the node to",
         task = "Prompt for Claude to execute"
     ))]
@@ -1715,7 +1715,7 @@ impl<P: HubContext> Orcha<P> {
     }
 
     /// Add a synthesize node — like task, with prior_work context prepended from input tokens.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "Graph to add the node to",
         task = "Synthesis prompt for Claude"
     ))]
@@ -1734,7 +1734,7 @@ impl<P: HubContext> Orcha<P> {
     }
 
     /// Add a validate node — runs `command` in a shell.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "Graph to add the node to",
         command = "Shell command to validate (exit 0 = pass)",
         cwd = "Working directory (default: /workspace)"
@@ -1755,7 +1755,7 @@ impl<P: HubContext> Orcha<P> {
     }
 
     /// Add a gather node — engine-internal, auto-executes when all inbound tokens arrive.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "Graph to add the node to",
         strategy = "Gather strategy: {\"type\":\"all\"} or {\"type\":\"first\",\"n\":N}"
     ))]
@@ -1777,7 +1777,7 @@ impl<P: HubContext> Orcha<P> {
     ///
     /// On child success, the parent node receives `{"child_graph_id": "..."}` as output.
     /// On child failure, the parent node is failed (error edge fires if present).
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "Graph to add the node to",
         child_graph_id = "ID of the graph to run as a sub-graph"
     ))]
@@ -1796,7 +1796,7 @@ impl<P: HubContext> Orcha<P> {
     }
 
     /// Declare that `dependent_node_id` waits for `dependency_node_id` to complete.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "Graph containing both nodes",
         dependent_node_id = "Node that must wait",
         dependency_node_id = "Node that must complete first"
@@ -1820,7 +1820,7 @@ impl<P: HubContext> Orcha<P> {
     ///
     /// Returns the graph_id.  Use `orcha.run_graph(graph_id)` to execute it
     /// separately, or `orcha.run_tickets` to build and run in one call.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         tickets = "Raw ticket file content",
         metadata = "Arbitrary JSON metadata attached to the graph"
     ))]
@@ -1866,7 +1866,7 @@ impl<P: HubContext> Orcha<P> {
     /// ```
     ///
     /// Types: `agent`, `agent/synthesize`, `prog`
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         tickets = "Raw ticket file content",
         metadata = "Arbitrary JSON metadata attached to the graph",
         model = "Model for task nodes: opus, sonnet, haiku (default: sonnet)",
@@ -1999,7 +1999,7 @@ impl<P: HubContext> Orcha<P> {
     /// This is the fire-and-forget counterpart to `run_tickets`, which blocks until the
     /// graph completes.  Use `run_tickets_async` when the caller cannot hold the connection
     /// open for the full duration of a long-running graph.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         tickets = "Raw ticket file content",
         metadata = "Arbitrary JSON metadata",
         model = "Model: opus, sonnet, haiku (default: sonnet)",
@@ -2134,7 +2134,7 @@ impl<P: HubContext> Orcha<P> {
     /// section boundaries so cross-file `blocked_by` references work correctly.
     ///
     /// Streams OrchaEvents until the graph completes or fails.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         paths = "Absolute paths to ticket markdown files, e.g. [\"/workspace/plans/batch.tickets.md\"]",
         metadata = "Arbitrary JSON metadata attached to the graph",
         model = "Model for task nodes: opus, sonnet, haiku (default: sonnet)",
@@ -2234,7 +2234,7 @@ impl<P: HubContext> Orcha<P> {
     /// Like `run_tickets_files` but fire-and-forget — returns `GraphStarted` immediately.
     ///
     /// Use `subscribe_graph(graph_id)` to observe progress after this call returns.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         paths = "Absolute paths to ticket markdown files",
         metadata = "Arbitrary JSON metadata attached to the graph",
         model = "Model for task nodes: opus, sonnet, haiku (default: sonnet)",
@@ -2344,7 +2344,7 @@ impl<P: HubContext> Orcha<P> {
     ///
     /// Nodes use caller-supplied string ids; edges reference those ids.
     /// Streams OrchaEvents. The graph_id appears in progress and complete/failed events.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         metadata = "Arbitrary JSON metadata attached to the graph",
         model = "Model for task nodes: opus, sonnet, haiku (default: sonnet)",
         working_directory = "Working directory for task nodes (default: /workspace)",

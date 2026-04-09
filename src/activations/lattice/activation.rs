@@ -2,7 +2,7 @@ use super::storage::{LatticeStorage, LatticeStorageConfig};
 use super::types::*;
 use async_stream::stream;
 use futures::Stream;
-use plexus_macros::hub_methods;
+use plexus_macros::activation;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -37,7 +37,7 @@ impl Lattice {
 )]
 impl Lattice {
     /// Create an empty graph
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         metadata = "Arbitrary metadata to attach to this graph"
     ))]
     async fn create(
@@ -57,7 +57,7 @@ impl Lattice {
     ///
     /// spec carries the typed node execution semantics (Task, Scatter, Gather, SubGraph).
     /// node_id is optional — a UUID is generated if not provided.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "ID of the graph to add the node to",
         spec = "Node specification: typed enum (task/scatter/gather/subgraph)",
         node_id = "Optional node ID hint; a UUID is generated if not provided"
@@ -81,7 +81,7 @@ impl Lattice {
     ///
     /// condition optionally filters which token colors are routed on this edge.
     /// None (default) passes any token; Some(color) routes only matching-color tokens.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "ID of the graph",
         from_node_id = "Predecessor node — must complete before to_node becomes ready",
         to_node_id = "Dependent node — becomes ready when all predecessors are complete",
@@ -116,7 +116,7 @@ impl Lattice {
     /// Replays the complete event history then streams live.
     ///
     /// The stream closes when `GraphDone` or `GraphFailed` is emitted.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "ID of the graph to execute",
         after_seq = "Cursor for reconnect replay — omit for fresh start, or pass last received seq"
     ))]
@@ -132,7 +132,7 @@ impl Lattice {
     ///
     /// output carries typed token(s) to route to successor nodes.
     /// Triggers NodeReady for any newly unblocked successors.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "ID of the graph",
         node_id = "ID of the completed node",
         output = "Optional output: Single(token) or Many(tokens) for fan-out"
@@ -153,7 +153,7 @@ impl Lattice {
     }
 
     /// Signal that a node failed — triggers GraphFailed
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "ID of the graph",
         node_id = "ID of the failed node",
         error = "Error message describing the failure"
@@ -177,7 +177,7 @@ impl Lattice {
     ///
     /// Returns Token { color, payload: Data { value } | Handle | None }.
     /// Callers that need handle resolution should use Orcha's resolve_node_inputs instead.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "ID of the graph",
         node_id = "ID of the node to inspect inputs for"
     ))]
@@ -207,7 +207,7 @@ impl Lattice {
     }
 
     /// Get graph state and all its nodes
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "ID of the graph to inspect"
     ))]
     async fn get(
@@ -229,7 +229,7 @@ impl Lattice {
     }
 
     /// List all graphs
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn list(&self) -> impl Stream<Item = ListGraphsResult> + Send + 'static {
         let storage = self.storage.clone();
         stream! {
@@ -241,7 +241,7 @@ impl Lattice {
     }
 
     /// Cancel a running graph
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "ID of the graph to cancel"
     ))]
     async fn cancel(
@@ -261,7 +261,7 @@ impl Lattice {
     ///
     /// On child success, the parent node receives `{"child_graph_id": "..."}` as output.
     /// On child failure, the parent node is failed (error edge fires if present).
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         parent_id = "ID of the parent graph",
         metadata = "Arbitrary JSON metadata attached to the graph"
     ))]
@@ -280,7 +280,7 @@ impl Lattice {
     }
 
     /// List all child graphs of a parent graph
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         parent_id = "ID of the parent graph"
     ))]
     async fn get_child_graphs(

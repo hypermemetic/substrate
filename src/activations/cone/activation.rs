@@ -10,7 +10,7 @@ use crate::plexus::{HubContext, NoParent};
 use async_stream::stream;
 use cllient::{Message, ModelRegistry};
 use futures::Stream;
-use plexus_macros::hub_methods;
+use plexus_macros::activation;
 use std::marker::PhantomData;
 use std::sync::{Arc, OnceLock};
 
@@ -171,7 +171,7 @@ impl<P: HubContext> Cone<P> {
 )]
 impl<P: HubContext> Cone<P> {
     /// Create a new cone (LLM agent with persistent conversation context)
-    #[plexus_macros::hub_method(
+    #[plexus_macros::method(
         params(
             name = "Human-readable name for the cone",
             model_id = "LLM model ID (e.g., 'gpt-4o-mini', 'claude-3-haiku-20240307')",
@@ -213,7 +213,7 @@ impl<P: HubContext> Cone<P> {
     }
 
     /// Get cone configuration by name or ID
-    #[plexus_macros::hub_method(
+    #[plexus_macros::method(
         params(identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')")
     )]
     async fn get(
@@ -244,7 +244,7 @@ impl<P: HubContext> Cone<P> {
     }
 
     /// List all cones
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn list(&self) -> impl Stream<Item = ListResult> + Send + 'static {
         let storage = self.storage.clone();
 
@@ -261,7 +261,7 @@ impl<P: HubContext> Cone<P> {
     }
 
     /// Delete a cone (associated tree is preserved)
-    #[plexus_macros::hub_method(
+    #[plexus_macros::method(
         params(identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')")
     )]
     async fn delete(
@@ -292,7 +292,7 @@ impl<P: HubContext> Cone<P> {
     }
 
     /// Chat with a cone - appends prompt to context, calls LLM, advances head
-    #[plexus_macros::hub_method(
+    #[plexus_macros::method(
         streaming,
         params(
             identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')",
@@ -571,7 +571,7 @@ impl<P: HubContext> Cone<P> {
     }
 
     /// Move cone's canonical head to a different node in the tree
-    #[plexus_macros::hub_method(
+    #[plexus_macros::method(
         params(
             identifier = "Cone name or UUID (e.g., 'my-assistant' or '550e8400-e29b-...')",
             node_id = "UUID of the target node to set as the new head"
@@ -622,7 +622,7 @@ impl<P: HubContext> Cone<P> {
     }
 
     /// Get available LLM services and models
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn registry(&self) -> impl Stream<Item = RegistryResult> + Send + 'static {
         let llm_registry = self.llm_registry.clone();
 

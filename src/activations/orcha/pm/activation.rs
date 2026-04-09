@@ -4,7 +4,7 @@ use crate::plexus::{Activation, ChildRouter, PlexusError, PlexusStream};
 use async_stream::stream;
 use async_trait::async_trait;
 use futures::Stream;
-use plexus_macros::hub_methods;
+use plexus_macros::activation;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -249,7 +249,7 @@ fn extract_kind_and_label(spec: &NodeSpec) -> (String, Option<String>) {
 )]
 impl Pm {
     /// Get the status of all tickets in a graph.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id   = "The lattice graph ID returned by build_tickets or run_tickets",
         recursive  = "Optional: when true, include child_graph_id from completed node outputs (default false)"
     ))]
@@ -335,7 +335,7 @@ impl Pm {
     }
 
     /// Get tickets that are ready or running (next actionable items).
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "The lattice graph ID returned by build_tickets or run_tickets"
     ))]
     async fn what_next(
@@ -381,7 +381,7 @@ impl Pm {
     }
 
     /// Inspect a single ticket in detail.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "The lattice graph ID returned by build_tickets or run_tickets",
         ticket_id = "The ticket ID (as used in the ticket file)"
     ))]
@@ -500,7 +500,7 @@ impl Pm {
     }
 
     /// Explain why a ticket is blocked.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "The lattice graph ID returned by build_tickets or run_tickets",
         ticket_id = "The ticket ID to investigate"
     ))]
@@ -575,7 +575,7 @@ impl Pm {
     }
 
     /// Get the raw ticket source for a graph.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "The lattice graph ID"
     ))]
     async fn get_ticket_source(
@@ -593,7 +593,7 @@ impl Pm {
     }
 
     /// List graphs tracked by the pm layer, optionally filtered by project metadata.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         project   = "Optional: filter by metadata.project string",
         limit     = "Optional: max results (default 20)",
         root_only = "Optional: when true (default), only return root graphs (no parent); set false to include subgraphs",
@@ -691,7 +691,7 @@ impl Pm {
     /// "tool_result", "complete", "error", "passthrough", "outcome" (final result).
     ///
     /// Use this to diagnose why a node failed or produced unexpected output.
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         graph_id = "Graph ID (from GraphStarted event or pm.list_graphs)",
         node_id  = "Lattice node ID (from NodeStarted event or pm.graph_status)"
     ))]

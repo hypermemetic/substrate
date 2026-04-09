@@ -3,7 +3,7 @@ use super::types::{ArborEvent, Handle, NodeId, TreeId, TreeSkeleton};
 use crate::plexus::{HubContext, NoParent, PlexusStreamItem};
 use async_stream::stream;
 use futures::{Stream, StreamExt};
-use plexus_macros::hub_methods;
+use plexus_macros::activation;
 use serde_json::Value;
 use std::marker::PhantomData;
 use std::sync::{Arc, OnceLock};
@@ -82,7 +82,7 @@ impl Arbor<NoParent> {
 )]
 impl<P: HubContext> Arbor<P> {
     /// Create a new conversation tree
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         metadata = "Optional tree-level metadata (name, description, etc.)",
         owner_id = "Owner identifier (default: 'system')"
     ))]
@@ -104,7 +104,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// Retrieve a complete tree with all nodes
-    #[plexus_macros::hub_method(params(tree_id = "UUID of the tree to retrieve"))]
+    #[plexus_macros::method(params(tree_id = "UUID of the tree to retrieve"))]
     async fn tree_get(&self, tree_id: TreeId) -> impl Stream<Item = ArborEvent> + Send + 'static {
         let storage = self.storage.clone();
         stream! {
@@ -119,7 +119,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// Get lightweight tree structure without node data
-    #[plexus_macros::hub_method(params(tree_id = "UUID of the tree to retrieve"))]
+    #[plexus_macros::method(params(tree_id = "UUID of the tree to retrieve"))]
     async fn tree_get_skeleton(
         &self,
         tree_id: TreeId,
@@ -137,7 +137,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// List all active trees
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn tree_list(&self) -> impl Stream<Item = ArborEvent> + Send + 'static {
         let storage = self.storage.clone();
         stream! {
@@ -152,7 +152,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// Update tree metadata
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         tree_id = "UUID of the tree to update",
         metadata = "New metadata to set"
     ))]
@@ -174,7 +174,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// Claim ownership of a tree (increment reference count)
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         tree_id = "UUID of the tree to claim",
         owner_id = "Owner identifier",
         count = "Number of references to add (default: 1)"
@@ -198,7 +198,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// Release ownership of a tree (decrement reference count)
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         tree_id = "UUID of the tree to release",
         owner_id = "Owner identifier",
         count = "Number of references to remove (default: 1)"
@@ -222,7 +222,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// List trees scheduled for deletion
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn tree_list_scheduled(&self) -> impl Stream<Item = ArborEvent> + Send + 'static {
         let storage = self.storage.clone();
         stream! {
@@ -237,7 +237,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// List archived trees
-    #[plexus_macros::hub_method]
+    #[plexus_macros::method]
     async fn tree_list_archived(&self) -> impl Stream<Item = ArborEvent> + Send + 'static {
         let storage = self.storage.clone();
         stream! {
@@ -252,7 +252,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// Create a text node in a tree
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         tree_id = "UUID of the tree",
         parent = "Parent node ID (None for root-level)",
         content = "Text content for the node",
@@ -278,7 +278,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// Create an external node in a tree
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         tree_id = "UUID of the tree",
         parent = "Parent node ID (None for root-level)",
         handle = "Handle to external data",
@@ -304,7 +304,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// Get a node by ID
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         tree_id = "UUID of the tree",
         node_id = "UUID of the node"
     ))]
@@ -326,7 +326,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// Get the children of a node
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         tree_id = "UUID of the tree",
         node_id = "UUID of the node"
     ))]
@@ -348,7 +348,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// Get the parent of a node
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         tree_id = "UUID of the tree",
         node_id = "UUID of the node"
     ))]
@@ -370,7 +370,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// Get the path from root to a node
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         tree_id = "UUID of the tree",
         node_id = "UUID of the node"
     ))]
@@ -392,7 +392,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// List all leaf nodes in a tree
-    #[plexus_macros::hub_method(params(tree_id = "UUID of the tree"))]
+    #[plexus_macros::method(params(tree_id = "UUID of the tree"))]
     async fn context_list_leaves(
         &self,
         tree_id: TreeId,
@@ -410,7 +410,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// Get the full path data from root to a node
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         tree_id = "UUID of the tree",
         node_id = "UUID of the target node"
     ))]
@@ -432,7 +432,7 @@ impl<P: HubContext> Arbor<P> {
     }
 
     /// Get all external handles in the path to a node
-    #[plexus_macros::hub_method(params(
+    #[plexus_macros::method(params(
         tree_id = "UUID of the tree",
         node_id = "UUID of the target node"
     ))]
@@ -457,7 +457,7 @@ impl<P: HubContext> Arbor<P> {
     ///
     /// If parent context is available, automatically resolves handles to show
     /// actual content. Otherwise, shows handle references.
-    #[plexus_macros::hub_method(params(tree_id = "UUID of the tree to render"))]
+    #[plexus_macros::method(params(tree_id = "UUID of the tree to render"))]
     async fn tree_render(
         &self,
         tree_id: TreeId,

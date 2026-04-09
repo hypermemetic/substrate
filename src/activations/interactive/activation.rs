@@ -35,7 +35,7 @@ impl Default for Interactive {
 
 /// Hub-macro generates the Activation trait and RPC implementations.
 /// The `bidirectional` attribute on methods enables server→client requests.
-#[plexus_macros::hub_methods(
+#[plexus_macros::activation(
     namespace = "interactive",
     version = "1.0.0",
     description = "Interactive methods demonstrating bidirectional communication"
@@ -48,7 +48,7 @@ impl Interactive {
     /// - Selection menus (ctx.select)
     /// - Confirmations (ctx.confirm)
     /// - Graceful error handling
-    #[plexus_macros::hub_method(bidirectional, streaming)]
+    #[plexus_macros::method(bidirectional, streaming)]
     async fn wizard(
         &self,
         ctx: &Arc<StandardBidirChannel>,
@@ -134,7 +134,7 @@ impl Interactive {
     /// Delete files with confirmation
     ///
     /// Demonstrates confirmation before destructive operations.
-    #[plexus_macros::hub_method(bidirectional, streaming)]
+    #[plexus_macros::method(bidirectional, streaming)]
     async fn delete(
         &self,
         ctx: &Arc<StandardBidirChannel>,
@@ -180,7 +180,7 @@ impl Interactive {
     /// Simple confirmation method for testing
     ///
     /// Just asks a yes/no question and returns the result.
-    #[plexus_macros::hub_method(bidirectional)]
+    #[plexus_macros::method(bidirectional)]
     async fn confirm(
         &self,
         ctx: &Arc<StandardBidirChannel>,
