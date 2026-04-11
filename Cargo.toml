@@ -64,7 +64,7 @@ rmcp = { version = "0.12", features = ["server", "transport-io", "transport-stre
 cllient = "0.2.1"
 plexus-macros = "0.4.0"
 plexus-core = "0.4.0"
-plexus-transport = { version = "0.1.0", features = ["mcp-gateway"] }
+plexus-transport = { version = "0.2.0", features = ["mcp-gateway"] }
 hyperforge = "4.0.0"
 # plexus-jsexec = "0.1.0"  # temporarily disabled - needs API updates
 registry = { package = "plexus-registry", version = "0.1.0" }
@@ -99,12 +99,6 @@ tempfile = "3"
 name = "rmcp_mcp_server"
 path = "examples/rmcp_mcp_server.rs"
 
-# Use local versions during development:
-[patch.crates-io]
-plexus-core = { path = "../plexus-core" }
-plexus-macros = { path = "../plexus-macros" }
-plexus-transport = { path = "../plexus-transport" }
-plexus-registry = { path = "../plexus-registry" }
 
 [dependencies.plexus-derive]
 path = "../plexus-derive"
