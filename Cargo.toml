@@ -62,7 +62,7 @@ dialectic = { version = "0.4.1", features = ["tokio"] }
 rmcp = { version = "0.12", features = ["server", "transport-io", "transport-streamable-http-server"] }
 cllient = "0.2.1"
 plexus-macros = "0.5"
-plexus-core = { path = "../plexus-core", version = "0.5" }
+plexus-core = "0.5"
 plexus-transport = { version = "0.2", features = ["mcp-gateway"] }
 # plexus-jsexec = "0.1.0"  # temporarily disabled - needs API updates
 registry = { package = "plexus-registry", version = "0.1.0" }
